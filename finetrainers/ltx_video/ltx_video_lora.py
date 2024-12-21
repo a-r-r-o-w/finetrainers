@@ -12,32 +12,45 @@ from PIL import Image
 logger = get_logger("finetrainers")  # pylint: disable=invalid-name
 
 
-def load_components(
+def load_condition_models(
     model_id: str = "Lightricks/LTX-Video",
     text_encoder_dtype: torch.dtype = torch.bfloat16,
-    transformer_dtype: torch.dtype = torch.bfloat16,
-    vae_dtype: torch.dtype = torch.bfloat16,
     revision: Optional[str] = None,
     cache_dir: Optional[str] = None,
+    **kwargs,
 ) -> Dict[str, nn.Module]:
     tokenizer = T5Tokenizer.from_pretrained(model_id, subfolder="tokenizer", revision=revision, cache_dir=cache_dir)
     text_encoder = T5EncoderModel.from_pretrained(
         model_id, subfolder="text_encoder", torch_dtype=text_encoder_dtype, revision=revision, cache_dir=cache_dir
     )
-    transformer = LTXVideoTransformer3DModel.from_pretrained(
-        model_id, subfolder="transformer", torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
-    )
+    return {"tokenizer": tokenizer, "text_encoder": text_encoder}
+
+
+def load_latent_models(
+    model_id: str = "Lightricks/LTX-Video",
+    vae_dtype: torch.dtype = torch.bfloat16,
+    revision: Optional[str] = None,
+    cache_dir: Optional[str] = None,
+    **kwargs,
+) -> Dict[str, nn.Module]:
     vae = AutoencoderKLLTXVideo.from_pretrained(
         model_id, subfolder="vae", torch_dtype=vae_dtype, revision=revision, cache_dir=cache_dir
     )
+    return {"vae": vae}
+
+
+def load_diffusion_models(
+    model_id: str = "Lightricks/LTX-Video",
+    transformer_dtype: torch.dtype = torch.bfloat16,
+    revision: Optional[str] = None,
+    cache_dir: Optional[str] = None,
+    **kwargs,
+) -> Dict[str, nn.Module]:
+    transformer = LTXVideoTransformer3DModel.from_pretrained(
+        model_id, subfolder="transformer", torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
+    )
     scheduler = FlowMatchEulerDiscreteScheduler()
-    return {
-        "tokenizer": tokenizer,
-        "text_encoder": text_encoder,
-        "transformer": transformer,
-        "vae": vae,
-        "scheduler": scheduler,
-    }
+    return {"transformer": transformer, "scheduler": scheduler}
 
 
 def initialize_pipeline(
@@ -114,19 +127,52 @@ def prepare_latents(
     device: Optional[torch.device] = None,
     dtype: Optional[torch.dtype] = None,
     generator: Optional[torch.Generator] = None,
+    precompute: bool = False,
 ) -> torch.Tensor:
     device = device or vae.device
-    dtype = dtype or vae.dtype
 
     if image_or_video.ndim == 4:
         image_or_video = image_or_video.unsqueeze(2)
     assert image_or_video.ndim == 5, f"Expected 5D tensor, got {image_or_video.ndim}D tensor"
 
-    image_or_video = image_or_video.to(device=device, dtype=dtype)
+    image_or_video = image_or_video.to(device=device, dtype=vae.dtype)
     image_or_video = image_or_video.permute(0, 2, 1, 3, 4).contiguous()  # [B, C, F, H, W] -> [B, F, C, H, W]
-    latents = vae.encode(image_or_video).latent_dist.sample(generator=generator)
-    _, _, num_frames, height, width = latents.shape
-    latents = _normalize_latents(latents, vae.latents_mean, vae.latents_std)
+    if not precompute:
+        latents = vae.encode(image_or_video).latent_dist.sample(generator=generator)
+        latents = latents.to(dtype=dtype)
+        _, _, num_frames, height, width = latents.shape
+        latents = _normalize_latents(latents, vae.latents_mean, vae.latents_std)
+        latents = _pack_latents(latents, patch_size, patch_size_t)
+        return {"latents": latents, "num_frames": num_frames, "height": height, "width": width}
+    else:
+        if vae.use_slicing and image_or_video.shape[0] > 1:
+            encoded_slices = [vae._encode(x_slice) for x_slice in image_or_video.split(1)]
+            h = torch.cat(encoded_slices)
+        else:
+            h = vae._encode(image_or_video)
+        _, _, num_frames, height, width = h.shape
+        # TODO(aryan): this is very very very stupid, but anything to make it work for now. refactor and design better later
+        return {
+            "latents": h,
+            "num_frames": num_frames,
+            "height": height,
+            "width": width,
+            "latents_mean": vae.latents_mean,
+            "latents_std": vae.latents_std,
+        }
+
+
+def post_latent_preparation(
+    latents: torch.Tensor,
+    latents_mean: torch.Tensor,
+    latents_std: torch.Tensor,
+    num_frames: int,
+    height: int,
+    width: int,
+    patch_size: int = 1,
+    patch_size_t: int = 1,
+) -> torch.Tensor:
+    latents = _normalize_latents(latents, latents_mean, latents_std)
     latents = _pack_latents(latents, patch_size, patch_size_t)
     return {"latents": latents, "num_frames": num_frames, "height": height, "width": width}
 
@@ -260,10 +306,13 @@ def _pack_latents(latents: torch.Tensor, patch_size: int = 1, patch_size_t: int 
 
 LTX_VIDEO_T2V_LORA_CONFIG = {
     "pipeline_cls": LTXPipeline,
-    "load_components": load_components,
+    "load_condition_models": load_condition_models,
+    "load_latent_models": load_latent_models,
+    "load_diffusion_models": load_diffusion_models,
     "initialize_pipeline": initialize_pipeline,
     "prepare_conditions": prepare_conditions,
     "prepare_latents": prepare_latents,
+    "post_latent_preparation": post_latent_preparation,
     "collate_fn": collate_fn_t2v,
     "forward_pass": forward_pass,
     "validation": validation,

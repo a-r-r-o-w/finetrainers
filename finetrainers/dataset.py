@@ -1,3 +1,4 @@
+import os
 import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -18,6 +19,9 @@ from torchvision.transforms.functional import resize
 import decord  # isort:skip
 
 decord.bridge.set_bridge("torch")
+
+from .constants import PRECOMPUTED_DIR_NAME, PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME
+
 
 logger = get_logger(__name__)
 
@@ -255,6 +259,32 @@ class VideoDatasetWithResizeAndRectangleCrop(VideoDataset):
     def _find_nearest_resolution(self, height, width):
         nearest_res = min(self.resolutions, key=lambda x: abs(x[1] - height) + abs(x[2] - width))
         return nearest_res[1], nearest_res[2]
+
+
+class PrecomputedDataset(Dataset):
+    def __init__(self, data_root: str) -> None:
+        super().__init__()
+
+        self.data_root = Path(data_root)
+
+        self.latents_path = self.data_root / PRECOMPUTED_DIR_NAME / PRECOMPUTED_LATENTS_DIR_NAME
+        self.conditions_path = self.data_root / PRECOMPUTED_DIR_NAME / PRECOMPUTED_CONDITIONS_DIR_NAME
+
+        self.latent_conditions = sorted(os.listdir(self.latents_path))
+        self.other_conditions = sorted(os.listdir(self.conditions_path))
+
+        assert len(self.latent_conditions) == len(self.other_conditions), "Number of captions and videos do not match"
+
+    def __len__(self) -> int:
+        return len(self.latent_conditions)
+
+    def __getitem__(self, index: int) -> Dict[str, Any]:
+        conditions = {}
+        latent_path = self.latents_path / self.latent_conditions[index]
+        condition_path = self.conditions_path / self.other_conditions[index]
+        conditions["latent_conditions"] = torch.load(latent_path, map_location="cpu", weights_only=True)
+        conditions["other_conditions"] = torch.load(condition_path, map_location="cpu", weights_only=True)
+        return conditions
 
 
 class BucketSampler(Sampler):

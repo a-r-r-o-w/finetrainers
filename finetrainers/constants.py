@@ -19,6 +19,10 @@ for frames in DEFAULT_FRAME_BUCKETS:
 
 FINETRAINERS_LOG_LEVEL = os.environ.get("FINETRAINERS_LOG_LEVEL", "INFO")
 
+PRECOMPUTED_DIR_NAME = "precomputed"
+PRECOMPUTED_CONDITIONS_DIR_NAME = "conditions"
+PRECOMPUTED_LATENTS_DIR_NAME = "latents"
+
 MODEL_DESCRIPTION = r"""
 \# {model_id} {training_type} finetune
 

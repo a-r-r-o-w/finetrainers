@@ -29,20 +29,27 @@ from diffusers.training_utils import (
     compute_density_for_timestep_sampling,
     compute_loss_weighting_for_sd3,
 )
+from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
 
 from .args import Args, validate_args
-from .constants import FINETRAINERS_LOG_LEVEL
-from .dataset import BucketSampler, VideoDatasetWithResizing
+from .constants import (
+    FINETRAINERS_LOG_LEVEL,
+    PRECOMPUTED_DIR_NAME,
+    PRECOMPUTED_CONDITIONS_DIR_NAME,
+    PRECOMPUTED_LATENTS_DIR_NAME,
+)
+from .dataset import BucketSampler, PrecomputedDataset, VideoDatasetWithResizing
 from .models import get_config_from_model_name
 from .state import State
+from .utils.data_utils import should_perform_precomputation
 from .utils.file_utils import find_files, delete_files, string_to_filename
 from .utils.optimizer_utils import get_optimizer, gradient_norm
 from .utils.memory_utils import get_memory_statistics, free_memory, make_contiguous
-from .utils.torch_utils import unwrap_model
+from .utils.torch_utils import unwrap_model, align_device_and_dtype
 
 
 logger = get_logger("finetrainers")
@@ -73,6 +80,9 @@ class Trainer:
         # Autoencoders
         self.vae = None
 
+        # Scheduler
+        self.scheduler = None
+
         self._init_distributed()
         self._init_logging()
         self._init_directories_and_repositories()
@@ -80,38 +90,8 @@ class Trainer:
         self.state.model_name = self.args.model_name
         self.model_config = get_config_from_model_name(self.args.model_name, self.args.training_type)
 
-    def prepare_models(self) -> None:
-        logger.info("Initializing models")
-
-        # TODO(aryan): refactor in future
-        load_components_kwargs = {
-            "text_encoder_dtype": torch.bfloat16,
-            "transformer_dtype": torch.bfloat16,
-            "vae_dtype": torch.bfloat16,
-            "revision": self.args.revision,
-            "cache_dir": self.args.cache_dir,
-        }
-        if self.args.pretrained_model_name_or_path is not None:
-            load_components_kwargs["model_id"] = self.args.pretrained_model_name_or_path
-        components = self._model_config_call(self.model_config["load_components"], load_components_kwargs)
-
-        self.tokenizer = components.get("tokenizer", None)
-        self.text_encoder = components.get("text_encoder", None)
-        self.tokenizer_2 = components.get("tokenizer_2", None)
-        self.text_encoder_2 = components.get("text_encoder_2", None)
-        self.transformer = components.get("transformer", None)
-        self.vae = components.get("vae", None)
-        self.scheduler = components.get("scheduler", None)
-
-        if self.vae is not None:
-            if self.args.enable_slicing:
-                self.vae.enable_slicing()
-            if self.args.enable_tiling:
-                self.vae.enable_tiling()
-
-        self.transformer_config = self.transformer.config if self.transformer is not None else None
-
     def prepare_dataset(self) -> None:
+        # TODO(aryan): Make a background process for fetching
         logger.info("Initializing dataset and dataloader")
 
         self.dataset = VideoDatasetWithResizing(
@@ -131,16 +111,254 @@ class Trainer:
             pin_memory=self.args.pin_memory,
         )
 
+    def _get_load_components_kwargs(self) -> Dict[str, Any]:
+        load_component_kwargs = {
+            "text_encoder_dtype": self.args.text_encoder_dtype,
+            "text_encoder_2_dtype": self.args.text_encoder_2_dtype,
+            "text_encoder_3_dtype": self.args.text_encoder_3_dtype,
+            "transformer_dtype": self.args.transformer_dtype,
+            "unet_dtype": self.args.unet_dtype,
+            "vae_dtype": self.args.vae_dtype,
+            "revision": self.args.revision,
+            "cache_dir": self.args.cache_dir,
+        }
+        if self.args.pretrained_model_name_or_path is not None:
+            load_component_kwargs["model_id"] = self.args.pretrained_model_name_or_path
+        return load_component_kwargs
+
+    def _set_components(self, components: Dict[str, Any]) -> None:
+        self.tokenizer = components.get("tokenizer", self.tokenizer)
+        self.tokenizer_2 = components.get("tokenizer_2", self.tokenizer_2)
+        self.tokenizer_3 = components.get("tokenizer_3", self.tokenizer_3)
+        self.text_encoder = components.get("text_encoder", self.text_encoder)
+        self.text_encoder_2 = components.get("text_encoder_2", self.text_encoder_2)
+        self.text_encoder_3 = components.get("text_encoder_3", self.text_encoder_3)
+        self.transformer = components.get("transformer", self.transformer)
+        self.unet = components.get("unet", self.unet)
+        self.vae = components.get("vae", self.vae)
+        self.scheduler = components.get("scheduler", self.scheduler)
+
+    def _nuke_components(self) -> None:
+        self.tokenizer = None
+        self.tokenizer_2 = None
+        self.tokenizer_3 = None
+        self.text_encoder = None
+        self.text_encoder_2 = None
+        self.text_encoder_3 = None
+        self.transformer = None
+        self.unet = None
+        self.vae = None
+        self.scheduler = None
+        free_memory()
+        torch.cuda.synchronize(self.state.accelerator.device)
+
+    def prepare_models(self) -> None:
+        logger.info("Initializing models")
+
+        load_components_kwargs = self._get_load_components_kwargs()
+        condition_components, latent_components, diffusion_components = {}, {}, {}
+        if not self.args.precompute_conditions:
+            condition_components = self.model_config["load_condition_models"](**load_components_kwargs)
+            latent_components = self.model_config["load_latent_models"](**load_components_kwargs)
+            diffusion_components = self.model_config["load_diffusion_models"](**load_components_kwargs)
+
+        components = {}
+        components.update(condition_components)
+        components.update(latent_components)
+        components.update(diffusion_components)
+        self._set_components(components)
+
+        if self.vae is not None:
+            if self.args.enable_slicing:
+                self.vae.enable_slicing()
+            if self.args.enable_tiling:
+                self.vae.enable_tiling()
+
+        self.transformer_config = self.transformer.config if self.transformer is not None else None
+
+    def prepare_precomputations(self) -> None:
+        if not self.args.precompute_conditions:
+            return
+
+        logger.info("Initializing precomputations")
+
+        if self.args.batch_size != 1:
+            raise ValueError("Precomputation is only supported with batch size 1. This will be supported in future.")
+
+        def collate_fn(batch):
+            latent_conditions = [x["latent_conditions"] for x in batch]
+            other_conditions = [x["other_conditions"] for x in batch]
+            batched_latent_conditions = {}
+            batched_other_conditions = {}
+            for key in list(latent_conditions[0].keys()):
+                if torch.is_tensor(latent_conditions[0][key]):
+                    batched_latent_conditions[key] = torch.cat([x[key] for x in latent_conditions], dim=0)
+                else:
+                    # TODO(aryan): implement batch sampler for precomputed latents
+                    batched_latent_conditions[key] = [x[key] for x in latent_conditions][0]
+            for key in list(other_conditions[0].keys()):
+                if torch.is_tensor(other_conditions[0][key]):
+                    batched_other_conditions[key] = torch.cat([x[key] for x in other_conditions], dim=0)
+                else:
+                    # TODO(aryan): implement batch sampler for precomputed latents
+                    batched_other_conditions[key] = [x[key] for x in other_conditions][0]
+            return {"latent_conditions": batched_latent_conditions, "other_conditions": batched_other_conditions}
+
+        should_recompute = should_perform_precomputation(self.args.data_root)
+        if not should_recompute:
+            logger.info("Precomputed conditions and latents found. Loading precomputed data.")
+            self.dataloader = torch.utils.data.DataLoader(
+                PrecomputedDataset(self.args.data_root),
+                batch_size=self.args.batch_size,
+                shuffle=True,
+                collate_fn=collate_fn,
+                num_workers=self.args.dataloader_num_workers,
+                pin_memory=self.args.pin_memory,
+            )
+            return
+
+        logger.info("Precomputed conditions and latents not found. Running precomputation.")
+
+        # At this point, no models are loaded, so we need to load and precompute conditions and latents
+        condition_components = self.model_config["load_condition_models"](**self._get_load_components_kwargs())
+        self._set_components(condition_components)
+        self._move_components_to_device()
+
+        # TODO(aryan): refactor later. for now only lora is supported
+        components_to_disable_grads = [
+            self.text_encoder,
+            self.text_encoder_2,
+            self.text_encoder_3,
+        ]
+        for component in components_to_disable_grads:
+            if component is not None:
+                component.requires_grad_(False)
+
+        if self.args.caption_dropout_p > 0 and self.args.caption_dropout_technique == "empty":
+            logger.warning(
+                "Caption dropout is not supported with precomputation yet. This will be supported in the future."
+            )
+
+        conditions_dir = Path(self.args.data_root) / PRECOMPUTED_DIR_NAME / PRECOMPUTED_CONDITIONS_DIR_NAME
+        latents_dir = Path(self.args.data_root) / PRECOMPUTED_DIR_NAME / PRECOMPUTED_LATENTS_DIR_NAME
+        conditions_dir.mkdir(parents=True, exist_ok=True)
+        latents_dir.mkdir(parents=True, exist_ok=True)
+
+        # Precompute conditions
+        progress_bar = tqdm(
+            range(0, len(self.dataset)),
+            desc="Precomputing conditions",
+            disable=not self.state.accelerator.is_local_main_process,
+        )
+        index = 0
+        for i, data in enumerate(self.dataset):
+            if i % self.state.accelerator.num_processes != self.state.accelerator.process_index:
+                continue
+
+            logger.debug(
+                f"Precomputing conditions and latents for batch {i + 1}/{len(self.dataset)} on process {self.state.accelerator.process_index}"
+            )
+
+            other_conditions = self.model_config["prepare_conditions"](
+                tokenizer=self.tokenizer,
+                tokenizer_2=self.tokenizer_2,
+                tokenizer_3=self.tokenizer_3,
+                text_encoder=self.text_encoder,
+                text_encoder_2=self.text_encoder_2,
+                text_encoder_3=self.text_encoder_3,
+                prompt=data["prompt"],
+                device=self.state.accelerator.device,
+                dtype=self.state.weight_dtype,
+            )
+            filename = conditions_dir / f"conditions-{i}-{index}.pt"
+            torch.save(other_conditions, filename.as_posix())
+            index += 1
+            progress_bar.update(1)
+        self._nuke_components()
+
+        memory_statistics = get_memory_statistics()
+        logger.info(f"Memory after precomputing conditions: {json.dumps(memory_statistics, indent=4)}")
+        torch.cuda.reset_peak_memory_stats(self.state.accelerator.device)
+
+        # Precompute latents
+        latent_components = self.model_config["load_latent_models"](**self._get_load_components_kwargs())
+        self._set_components(latent_components)
+        self._move_components_to_device()
+
+        # TODO(aryan): refactor later
+        components_to_disable_grads = [self.vae]
+        for component in components_to_disable_grads:
+            if component is not None:
+                component.requires_grad_(False)
+
+        if self.vae is not None:
+            if self.args.enable_slicing:
+                self.vae.enable_slicing()
+            if self.args.enable_tiling:
+                self.vae.enable_tiling()
+
+        progress_bar = tqdm(
+            range(0, len(self.dataset)),
+            desc="Precomputing latents",
+            disable=not self.state.accelerator.is_local_main_process,
+        )
+        index = 0
+        for i, data in enumerate(self.dataset):
+            if i % self.state.accelerator.num_processes != self.state.accelerator.process_index:
+                continue
+
+            logger.debug(
+                f"Precomputing latents for batch {i + 1}/{len(self.dataset)} on process {self.state.accelerator.process_index}"
+            )
+
+            latent_conditions = self.model_config["prepare_latents"](
+                vae=self.vae,
+                image_or_video=data["video"].unsqueeze(0),
+                device=self.state.accelerator.device,
+                dtype=self.state.weight_dtype,
+                generator=self.state.generator,
+                precompute=True,
+            )
+            filename = latents_dir / f"latents-{self.state.accelerator.process_index}-{index}.pt"
+            torch.save(latent_conditions, filename.as_posix())
+            index += 1
+            progress_bar.update(1)
+        self._nuke_components()
+
+        self.state.accelerator.wait_for_everyone()
+        logger.info("Precomputation complete")
+
+        memory_statistics = get_memory_statistics()
+        logger.info(f"Memory after precomputing latents: {json.dumps(memory_statistics, indent=4)}")
+        torch.cuda.reset_peak_memory_stats(self.state.accelerator.device)
+
+        # Update dataloader to use precomputed conditions and latents
+        self.dataloader = torch.utils.data.DataLoader(
+            PrecomputedDataset(self.args.data_root),
+            batch_size=self.args.batch_size,
+            shuffle=True,
+            collate_fn=collate_fn,
+            num_workers=self.args.dataloader_num_workers,
+            pin_memory=self.args.pin_memory,
+        )
+
     def prepare_trainable_parameters(self) -> None:
         logger.info("Initializing trainable parameters")
 
-        # TODO(aryan): refactor later. for now only lora is supported
-        self.text_encoder.requires_grad_(False)
-        self.transformer.requires_grad_(False)
-        self.vae.requires_grad_(False)
+        diffusion_components = self.model_config["load_diffusion_models"](**self._get_load_components_kwargs())
+        self._set_components(diffusion_components)
 
-        if self.text_encoder_2 is not None:
-            self.text_encoder_2.requires_grad_(False)
+        # TODO(aryan): refactor later. for now only lora is supported
+        components_to_disable_grads = [
+            self.text_encoder,
+            self.text_encoder_2,
+            self.text_encoder_3,
+            self.transformer,
+            self.vae,
+        ]
+        for component in components_to_disable_grads:
+            if component is not None:
+                component.requires_grad_(False)
 
         # For mixed precision training we cast all non-trainable weights (vae, text_encoder and transformer) to half-precision
         # as these weights are only used for inference, keeping weights in full precision is not required.
@@ -158,12 +376,8 @@ class Trainer:
 
         # TODO(aryan): handle torch dtype from accelerator vs model dtype; refactor
         self.state.weight_dtype = weight_dtype
-        self.text_encoder.to(self.state.accelerator.device, dtype=weight_dtype)
-        self.transformer.to(self.state.accelerator.device, dtype=weight_dtype)
-        self.vae.to(self.state.accelerator.device, dtype=weight_dtype)
-
-        if self.text_encoder_2 is not None:
-            self.text_encoder_2.to(self.state.accelerator.device, dtype=weight_dtype)
+        self.transformer.to(dtype=weight_dtype)
+        self._move_components_to_device()
 
         if self.args.gradient_checkpointing:
             self.transformer.enable_gradient_checkpointing()
@@ -364,34 +578,46 @@ class Trainer:
                 logs = {}
 
                 with accelerator.accumulate(models_to_accumulate):
-                    videos = batch["videos"]
-                    prompts = batch["prompts"]
-                    batch_size = len(prompts)
+                    if not self.args.precompute_conditions:
+                        videos = batch["videos"]
+                        prompts = batch["prompts"]
+                        batch_size = len(prompts)
 
-                    if self.args.caption_dropout_technique == "empty":
-                        if random.random() < self.args.caption_dropout_p:
-                            prompts = [""] * batch_size
+                        if self.args.caption_dropout_technique == "empty":
+                            if random.random() < self.args.caption_dropout_p:
+                                prompts = [""] * batch_size
 
-                    latent_conditions = self.model_config["prepare_latents"](
-                        vae=self.vae,
-                        image_or_video=videos,
-                        patch_size=self.transformer_config.patch_size,
-                        patch_size_t=self.transformer_config.patch_size_t,
-                        device=accelerator.device,
-                        dtype=weight_dtype,
-                        generator=generator,
-                    )
+                        latent_conditions = self.model_config["prepare_latents"](
+                            vae=self.vae,
+                            image_or_video=videos,
+                            patch_size=self.transformer_config.patch_size,
+                            patch_size_t=self.transformer_config.patch_size_t,
+                            device=accelerator.device,
+                            dtype=weight_dtype,
+                            generator=generator,
+                        )
+                        other_conditions = self.model_config["prepare_conditions"](
+                            tokenizer=self.tokenizer,
+                            text_encoder=self.text_encoder,
+                            tokenizer_2=self.tokenizer_2,
+                            text_encoder_2=self.text_encoder_2,
+                            prompt=prompts,
+                            device=accelerator.device,
+                            dtype=weight_dtype,
+                        )
+                    else:
+                        latent_conditions = batch["latent_conditions"]
+                        other_conditions = batch["other_conditions"]
+                        latent_conditions["latents"] = DiagonalGaussianDistribution(
+                            latent_conditions["latents"]
+                        ).sample(generator)
+                        if "post_latent_preparation" in self.model_config.keys():
+                            latent_conditions = self.model_config["post_latent_preparation"](**latent_conditions)
+                        align_device_and_dtype(latent_conditions, accelerator.device, weight_dtype)
+                        align_device_and_dtype(other_conditions, accelerator.device, weight_dtype)
+                        batch_size = latent_conditions["latents"].shape[0]
+
                     latent_conditions = make_contiguous(latent_conditions)
-
-                    other_conditions = self.model_config["prepare_conditions"](
-                        tokenizer=self.tokenizer,
-                        text_encoder=self.text_encoder,
-                        tokenizer_2=self.tokenizer_2,
-                        text_encoder_2=self.text_encoder_2,
-                        prompt=prompts,
-                        device=accelerator.device,
-                        dtype=weight_dtype,
-                    )
                     other_conditions = make_contiguous(other_conditions)
 
                     if self.args.caption_dropout_technique == "zero":
@@ -629,9 +855,12 @@ class Trainer:
                     tracker.log({"validation": all_artifacts}, step=step)
 
         accelerator.wait_for_everyone()
+
         free_memory()
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
+        torch.cuda.reset_peak_memory_stats(accelerator.device)
+
         self.transformer.train()
 
     def evaluate(self) -> None:
@@ -692,7 +921,16 @@ class Trainer:
                 repo_id = self.args.hub_model_id or Path(self.args.output_dir).name
                 self.state.repo_id = create_repo(token=self.args.hub_token, name=repo_id).repo_id
 
-    def _model_config_call(self, fn, kwargs):
-        accepted_kwargs = inspect.signature(fn).parameters.keys()
-        kwargs = {k: v for k, v in kwargs.items() if k in accepted_kwargs}
-        return fn(**kwargs)
+    def _move_components_to_device(self):
+        if self.text_encoder is not None:
+            self.text_encoder = self.text_encoder.to(self.state.accelerator.device)
+        if self.text_encoder_2 is not None:
+            self.text_encoder_2 = self.text_encoder_2.to(self.state.accelerator.device)
+        if self.text_encoder_3 is not None:
+            self.text_encoder_3 = self.text_encoder_3.to(self.state.accelerator.device)
+        if self.transformer is not None:
+            self.transformer = self.transformer.to(self.state.accelerator.device)
+        if self.unet is not None:
+            self.unet = self.unet.to(self.state.accelerator.device)
+        if self.vae is not None:
+            self.vae = self.vae.to(self.state.accelerator.device)

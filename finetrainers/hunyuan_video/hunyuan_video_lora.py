@@ -16,14 +16,13 @@ from PIL import Image
 logger = get_logger("finetrainers")  # pylint: disable=invalid-name
 
 
-def load_components(
+def load_condition_models(
     model_id: str = "tencent/HunyuanVideo",
     text_encoder_dtype: torch.dtype = torch.float16,
     text_encoder_2_dtype: torch.dtype = torch.float16,
-    transformer_dtype: torch.dtype = torch.bfloat16,
-    vae_dtype: torch.dtype = torch.float16,
     revision: Optional[str] = None,
     cache_dir: Optional[str] = None,
+    **kwargs,
 ) -> Dict[str, nn.Module]:
     tokenizer = AutoTokenizer.from_pretrained(model_id, subfolder="tokenizer", revision=revision, cache_dir=cache_dir)
     text_encoder = LlamaModel.from_pretrained(
@@ -35,22 +34,39 @@ def load_components(
     text_encoder_2 = CLIPTextModel.from_pretrained(
         model_id, subfolder="text_encoder_2", torch_dtype=text_encoder_2_dtype, revision=revision, cache_dir=cache_dir
     )
-    transformer = HunyuanVideoTransformer3DModel.from_pretrained(
-        model_id, subfolder="transformer", torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
-    )
-    vae = AutoencoderKLHunyuanVideo.from_pretrained(
-        model_id, subfolder="vae", torch_dtype=vae_dtype, revision=revision, cache_dir=cache_dir
-    )
-    scheduler = FlowMatchEulerDiscreteScheduler()
     return {
         "tokenizer": tokenizer,
         "text_encoder": text_encoder,
         "tokenizer_2": tokenizer_2,
         "text_encoder_2": text_encoder_2,
-        "transformer": transformer,
-        "vae": vae,
-        "scheduler": scheduler,
     }
+
+
+def load_latent_models(
+    model_id: str = "tencent/HunyuanVideo",
+    vae_dtype: torch.dtype = torch.float16,
+    revision: Optional[str] = None,
+    cache_dir: Optional[str] = None,
+    **kwargs,
+) -> Dict[str, nn.Module]:
+    vae = AutoencoderKLHunyuanVideo.from_pretrained(
+        model_id, subfolder="vae", torch_dtype=vae_dtype, revision=revision, cache_dir=cache_dir
+    )
+    return {"vae": vae}
+
+
+def load_diffusion_models(
+    model_id: str = "tencent/HunyuanVideo",
+    transformer_dtype: torch.dtype = torch.bfloat16,
+    revision: Optional[str] = None,
+    cache_dir: Optional[str] = None,
+    **kwargs,
+) -> Dict[str, nn.Module]:
+    transformer = HunyuanVideoTransformer3DModel.from_pretrained(
+        model_id, subfolder="transformer", torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
+    )
+    scheduler = FlowMatchEulerDiscreteScheduler()
+    return {"transformer": transformer, "scheduler": scheduler}
 
 
 def initialize_pipeline(
@@ -72,6 +88,7 @@ def initialize_pipeline(
     enable_slicing: bool = False,
     enable_tiling: bool = False,
     enable_model_cpu_offload: bool = False,
+    **kwargs,
 ) -> HunyuanVideoPipeline:
     component_name_pairs = [
         ("tokenizer", tokenizer),
@@ -115,7 +132,7 @@ def prepare_conditions(
     guidance: float = 1.0,
     device: Optional[torch.device] = None,
     dtype: Optional[torch.dtype] = None,
-    max_sequence_length: int = 128,
+    max_sequence_length: int = 256,
     # TODO(aryan): make configurable
     prompt_template: Dict[str, Any] = {
         "template": (
@@ -129,6 +146,7 @@ def prepare_conditions(
         ),
         "crop_start": 95,
     },
+    **kwargs,
 ) -> torch.Tensor:
     device = device or text_encoder.device
     dtype = dtype or text_encoder.dtype
@@ -154,6 +172,7 @@ def prepare_latents(
     device: Optional[torch.device] = None,
     dtype: Optional[torch.dtype] = None,
     generator: Optional[torch.Generator] = None,
+    precompute: bool = False,
     **kwargs,
 ) -> torch.Tensor:
     device = device or vae.device
@@ -165,9 +184,24 @@ def prepare_latents(
 
     image_or_video = image_or_video.to(device=device, dtype=vae.dtype)
     image_or_video = image_or_video.permute(0, 2, 1, 3, 4).contiguous()  # [B, C, F, H, W] -> [B, F, C, H, W]
-    latents = vae.encode(image_or_video).latent_dist.sample(generator=generator)
-    latents = latents * vae.config.scaling_factor
-    latents = latents.to(dtype=dtype)
+    if not precompute:
+        latents = vae.encode(image_or_video).latent_dist.sample(generator=generator)
+        latents = latents * vae.config.scaling_factor
+        latents = latents.to(dtype=dtype)
+        return {"latents": latents}
+    else:
+        if vae.use_slicing and image_or_video.shape[0] > 1:
+            encoded_slices = [vae._encode(x_slice) for x_slice in image_or_video.split(1)]
+            h = torch.cat(encoded_slices)
+        else:
+            h = vae._encode(image_or_video)
+            return {"latents": h}
+
+
+def post_latent_preparation(
+    latents: torch.Tensor,
+    **kwargs,
+) -> torch.Tensor:
     return {"latents": latents}
 
 
@@ -309,10 +343,13 @@ def _get_clip_prompt_embeds(
 
 HUNYUAN_VIDEO_T2V_LORA_CONFIG = {
     "pipeline_cls": HunyuanVideoPipeline,
-    "load_components": load_components,
+    "load_condition_models": load_condition_models,
+    "load_latent_models": load_latent_models,
+    "load_diffusion_models": load_diffusion_models,
     "initialize_pipeline": initialize_pipeline,
     "prepare_conditions": prepare_conditions,
     "prepare_latents": prepare_latents,
+    "post_latent_preparation": post_latent_preparation,
     "collate_fn": collate_fn_t2v,
     "forward_pass": forward_pass,
     "validation": validation,

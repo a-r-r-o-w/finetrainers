@@ -1,6 +1,8 @@
 import argparse
 from typing import Any, Dict, List, Optional, Tuple
 
+import torch
+
 from .constants import DEFAULT_IMAGE_RESOLUTION_BUCKETS, DEFAULT_VIDEO_RESOLUTION_BUCKETS
 
 
@@ -20,6 +22,12 @@ class Args:
     revision: Optional[str] = None
     variant: Optional[str] = None
     cache_dir: Optional[str] = None
+    text_encoder_dtype: torch.dtype = torch.bfloat16
+    text_encoder_2_dtype: torch.dtype = torch.bfloat16
+    text_encoder_3_dtype: torch.dtype = torch.bfloat16
+    transformer_dtype: torch.dtype = torch.bfloat16
+    unet_dtype: torch.dtype = torch.bfloat16
+    vae_dtype: torch.dtype = torch.bfloat16
 
     # Dataset arguments
     data_root: str = None
@@ -32,6 +40,7 @@ class Args:
     video_reshape_mode: Optional[str] = None
     caption_dropout_p: float = 0.00
     caption_dropout_technique: str = "empty"
+    precompute_conditions: bool = False
 
     # Dataloader arguments
     dataloader_num_workers: int = 0
@@ -113,6 +122,12 @@ class Args:
                 "revision": self.revision,
                 "variant": self.variant,
                 "cache_dir": self.cache_dir,
+                "text_encoder_dtype": self.text_encoder_dtype,
+                "text_encoder_2_dtype": self.text_encoder_2_dtype,
+                "text_encoder_3_dtype": self.text_encoder_3_dtype,
+                "transformer_dtype": self.transformer_dtype,
+                "unet_dtype": self.unet_dtype,
+                "vae_dtype": self.vae_dtype,
             },
             "dataset_arguments": {
                 "data_root": self.data_root,
@@ -124,6 +139,8 @@ class Args:
                 "video_resolution_buckets": self.video_resolution_buckets,
                 "video_reshape_mode": self.video_reshape_mode,
                 "caption_dropout_p": self.caption_dropout_p,
+                "caption_dropout_technique": self.caption_dropout_technique,
+                "precompute_conditions": self.precompute_conditions,
             },
             "dataloader_arguments": {
                 "dataloader_num_workers": self.dataloader_num_workers,
@@ -234,6 +251,12 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="The directory where the downloaded models and datasets will be stored.",
     )
+    parser.add_argument("--text_encoder_dtype", type=str, default="bf16", help="Data type for the text encoder.")
+    parser.add_argument("--text_encoder_2_dtype", type=str, default="bf16", help="Data type for the text encoder 2.")
+    parser.add_argument("--text_encoder_3_dtype", type=str, default="bf16", help="Data type for the text encoder 3.")
+    parser.add_argument("--transformer_dtype", type=str, default="bf16", help="Data type for the transformer model.")
+    parser.add_argument("--unet_dtype", type=str, default="bf16", help="Data type for the U-Net model.")
+    parser.add_argument("--vae_dtype", type=str, default="bf16", help="Data type for the VAE model.")
 
 
 def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
@@ -316,6 +339,11 @@ def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
         default="empty",
         choices=["empty", "zero"],
         help="Technique to use for caption dropout.",
+    )
+    parser.add_argument(
+        "--precompute_conditions",
+        action="store_true",
+        help="Whether or not to precompute the conditionings for the model.",
     )
 
 
@@ -645,6 +673,13 @@ def _add_miscellaneous_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
+_DTYPE_MAP = {
+    "bf16": torch.bfloat16,
+    "fp16": torch.float16,
+    "fp32": torch.float32,
+}
+
+
 def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args = Args()
 
@@ -654,6 +689,12 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.revision = args.revision
     result_args.variant = args.variant
     result_args.cache_dir = args.cache_dir
+    result_args.text_encoder_dtype = _DTYPE_MAP[args.text_encoder_dtype]
+    result_args.text_encoder_2_dtype = _DTYPE_MAP[args.text_encoder_2_dtype]
+    result_args.text_encoder_3_dtype = _DTYPE_MAP[args.text_encoder_3_dtype]
+    result_args.transformer_dtype = _DTYPE_MAP[args.transformer_dtype]
+    result_args.unet_dtype = _DTYPE_MAP[args.unet_dtype]
+    result_args.vae_dtype = _DTYPE_MAP[args.vae_dtype]
 
     # Dataset arguments
     if args.data_root is None and args.dataset_file is None:
@@ -668,6 +709,8 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.video_resolution_buckets = args.video_resolution_buckets or DEFAULT_VIDEO_RESOLUTION_BUCKETS
     result_args.video_reshape_mode = args.video_reshape_mode
     result_args.caption_dropout_p = args.caption_dropout_p
+    result_args.caption_dropout_technique = args.caption_dropout_technique
+    result_args.precompute_conditions = args.precompute_conditions
 
     # Dataloader arguments
     result_args.dataloader_num_workers = args.dataloader_num_workers
