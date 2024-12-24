@@ -33,7 +33,7 @@ def main():
         trainer.prepare_for_training()
         trainer.prepare_trackers()
         trainer.train()
-        trainer.evaluate()
+        # trainer.evaluate()
 
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt. Exiting...")

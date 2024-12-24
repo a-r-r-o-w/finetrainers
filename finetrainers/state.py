@@ -15,6 +15,7 @@ class State:
     learning_rate: float = None
     train_batch_size: int = None
     generator: torch.Generator = None
+    num_update_steps_per_epoch: int = None
 
     # Hub state
     repo_id: str = None

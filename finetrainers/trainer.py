@@ -1,10 +1,8 @@
-import inspect
 import json
 import logging
 import math
 import os
 import random
-import shutil
 from datetime import timedelta
 from typing import Any, Dict
 from pathlib import Path
@@ -46,10 +44,11 @@ from .dataset import BucketSampler, PrecomputedDataset, VideoDatasetWithResizing
 from .models import get_config_from_model_name
 from .state import State
 from .utils.data_utils import should_perform_precomputation
-from .utils.file_utils import find_files, delete_files, string_to_filename
-from .utils.optimizer_utils import get_optimizer, gradient_norm
+from .utils.file_utils import string_to_filename
+from .utils.optimizer_utils import get_optimizer
 from .utils.memory_utils import get_memory_statistics, free_memory, make_contiguous
 from .utils.torch_utils import unwrap_model, align_device_and_dtype
+from .utils.checkpointing import get_latest_ckpt_path_to_resume_from, get_intermediate_ckpt_path
 
 
 logger = get_logger("finetrainers")
@@ -389,7 +388,13 @@ class Trainer:
         )
         self.transformer.add_adapter(transformer_lora_config)
 
-        # TODO: refactor
+        # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
+        if self.args.allow_tf32 and torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
+
+        self.register_saving_loading_hooks(transformer_lora_config)
+
+    def register_saving_loading_hooks(self, transformer_lora_config):
         # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
         def save_model_hook(models, weights, output_dir):
             if self.state.accelerator.is_main_process:
@@ -415,13 +420,20 @@ class Trainer:
                 )
 
         def load_model_hook(models, input_dir):
-            transformer_ = self.model_config["pipeline_cls"].from_pretrained(
-                self.args.pretrained_model_name_or_path, subfolder="transformer"
-            )
-            transformer_.add_adapter(transformer_lora_config)
-
+            if not self.state.accelerator.distributed_type == DistributedType.DEEPSPEED:
+                while len(models) > 0:
+                    model = models.pop()
+                    if isinstance(unwrap_model(self.state.accelerator, model), type(unwrap_model(self.state.accelerator, self.transformer))):
+                        transformer_ = unwrap_model(self.state.accelerator, model)
+                    else:
+                        raise ValueError(f"Unexpected save model: {unwrap_model(self.state.accelerator, model).__class__}")
+            else:
+                transformer_ = unwrap_model(self.state.accelerator, self.transformer).__class__.from_pretrained(
+                    self.args.pretrained_model_name_or_path, subfolder="transformer"
+                )
+                transformer_.add_adapter(transformer_lora_config)
+            
             lora_state_dict = self.model_config["pipeline_cls"].lora_state_dict(input_dir)
-
             transformer_state_dict = {
                 f'{k.replace("transformer.", "")}': v
                 for k, v in lora_state_dict.items()
@@ -446,10 +458,6 @@ class Trainer:
 
         self.state.accelerator.register_save_state_pre_hook(save_model_hook)
         self.state.accelerator.register_load_state_pre_hook(load_model_hook)
-
-        # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
-        if self.args.allow_tf32 and torch.cuda.is_available():
-            torch.backends.cuda.matmul.allow_tf32 = True
 
     def prepare_optimizer(self) -> None:
         logger.info("Initializing optimizer and lr scheduler")
@@ -519,6 +527,7 @@ class Trainer:
             self.state.train_steps = self.state.train_epochs * num_update_steps_per_epoch
         # Afterwards we recalculate our number of training epochs
         self.state.train_epochs = math.ceil(self.state.train_steps / num_update_steps_per_epoch)
+        self.state.num_update_steps_per_epoch = num_update_steps_per_epoch
 
     def prepare_trackers(self) -> None:
         logger.info("Initializing trackers")
@@ -547,10 +556,19 @@ class Trainer:
         }
         logger.info(f"Training configuration: {json.dumps(info, indent=4)}")
 
-        # TODO(aryan): handle resume from checkpoint
         global_step = 0
         first_epoch = 0
         initial_global_step = 0
+        
+        # Potentially load in the weights and states from a previous save
+        resume_from_checkpoint_path, initial_global_step, global_step, first_epoch = get_latest_ckpt_path_to_resume_from(
+            resume_from_checkpoint=self.args.resume_from_checkpoint, 
+            num_update_steps_per_epoch=self.state.num_update_steps_per_epoch, 
+            output_dir=self.args.output_dir
+        )
+        if resume_from_checkpoint_path:
+            self.state.accelerator.load_state(resume_from_checkpoint_path)
+
         progress_bar = tqdm(
             range(0, self.state.train_steps),
             initial=initial_global_step,
@@ -682,20 +700,10 @@ class Trainer:
                     # Checkpointing
                     if accelerator.distributed_type == DistributedType.DEEPSPEED or accelerator.is_main_process:
                         if global_step % self.args.checkpointing_steps == 0:
-                            # before saving state, check if this save would set us over the `checkpointing_limit`
-                            if self.args.checkpointing_limit is not None:
-                                checkpoints = find_files(self.args.output_dir, prefix="checkpoint")
-
-                                # before we save the new checkpoint, we need to have at_most `checkpoints_total_limit - 1` checkpoints
-                                if len(checkpoints) >= self.args.checkpointing_limit:
-                                    num_to_remove = len(checkpoints) - self.args.checkpointing_limit + 1
-                                    checkpoints_to_remove = checkpoints[0:num_to_remove]
-                                    delete_files(checkpoints_to_remove)
-
-                            logger.info(f"Checkpointing at step {global_step}")
-                            save_path = os.path.join(self.args.output_dir, f"checkpoint-{global_step}")
+                            save_path = get_intermediate_ckpt_path(
+                                checkpointing_limit=self.args.checkpointing_limit, step=global_step, output_dir=self.args.output_dir
+                            )
                             accelerator.save_state(save_path)
-                            logger.info(f"Saved state to {save_path}")
 
                 # Maybe run validation
                 should_run_validation = (
@@ -725,6 +733,7 @@ class Trainer:
 
         accelerator.wait_for_everyone()
         if accelerator.is_main_process:
+            # TODO: consider factoring this out when supporting other types of training algos.
             self.transformer = unwrap_model(accelerator, self.transformer)
             dtype = (
                 torch.float16
@@ -741,6 +750,12 @@ class Trainer:
                 transformer_lora_layers=transformer_lora_layers,
             )
 
+            self.validate(step=global_step, final_validation=True)
+            if self.args.push_to_hub:
+                upload_folder(
+                    repo_id=self.state.repo_id, folder_path=self.args.output_dir, ignore_patterns=["checkpoint-*"]
+                )
+
         del self.tokenizer, self.text_encoder, self.transformer, self.vae, self.scheduler
         free_memory()
         memory_statistics = get_memory_statistics()
@@ -748,7 +763,7 @@ class Trainer:
 
         accelerator.end_training()
 
-    def validate(self, step: int) -> None:
+    def validate(self, step: int, final_validation: bool = False) -> None:
         logger.info("Starting validation")
 
         accelerator = self.state.accelerator
@@ -763,21 +778,35 @@ class Trainer:
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory before validation start: {json.dumps(memory_statistics, indent=4)}")
 
-        pipeline = self.model_config["initialize_pipeline"](
-            model_id=self.args.pretrained_model_name_or_path,
-            tokenizer=self.tokenizer,
-            text_encoder=self.text_encoder,
-            tokenizer_2=self.tokenizer_2,
-            text_encoder_2=self.text_encoder_2,
-            transformer=unwrap_model(accelerator, self.transformer),
-            vae=self.vae,
-            device=accelerator.device,
-            revision=self.args.revision,
-            cache_dir=self.args.cache_dir,
-            enable_slicing=self.args.enable_slicing,
-            enable_tiling=self.args.enable_tiling,
-            enable_model_cpu_offload=self.args.enable_model_cpu_offload,
-        )
+        if not final_validation:
+            pipeline = self.model_config["initialize_pipeline"](
+                model_id=self.args.pretrained_model_name_or_path,
+                tokenizer=self.tokenizer,
+                text_encoder=self.text_encoder,
+                tokenizer_2=self.tokenizer_2,
+                text_encoder_2=self.text_encoder_2,
+                transformer=unwrap_model(accelerator, self.transformer),
+                vae=self.vae,
+                device=accelerator.device,
+                revision=self.args.revision,
+                cache_dir=self.args.cache_dir,
+                enable_slicing=self.args.enable_slicing,
+                enable_tiling=self.args.enable_tiling,
+                enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+            )
+        else:
+            # `torch_dtype` is manually set within `initialize_pipeline()`.
+            self._delete_components()
+            pipeline = self.model_config["initialize_pipeline"](
+                model_id=self.args.pretrained_model_name_or_path, 
+                device=accelerator.device,
+                revision=self.args.revision,
+                cache_dir=self.args.cache_dir,
+                enable_slicing=self.args.enable_slicing,
+                enable_tiling=self.args.enable_tiling,
+                enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+            )
+            pipeline.load_lora_weights(self.args.output_dir)
 
         all_processes_artifacts = []
         for i in range(num_validation_samples):
@@ -811,6 +840,7 @@ class Trainer:
                 num_frames=num_frames,
                 num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
                 generator=self.state.generator,
+                # todo support passing `fps` for supported pipelines.
             )
 
             # Remove all hooks that might have been added during pipeline initialization to the models
@@ -845,7 +875,8 @@ class Trainer:
                     artifact_value = wandb.Image(filename)
                 elif artifact_type == "video":
                     logger.debug(f"Saving video to {filename}")
-                    export_to_video(artifact_value, filename, fps=15)
+                    # TODO: this should be configurable here as well as in validation runs where we call the pipeline that has `fps`.
+                    export_to_video(artifact_value, filename, fps=15) 
                     artifact_value = wandb.Video(filename, caption=prompt)
 
                 all_processes_artifacts.append(artifact_value)
@@ -853,9 +884,10 @@ class Trainer:
         all_artifacts = gather_object(all_processes_artifacts)
 
         if accelerator.is_main_process:
+            tracker_key = "final" if final_validation else "validation"
             for tracker in accelerator.trackers:
                 if tracker.name == "wandb":
-                    tracker.log({"validation": all_artifacts}, step=step)
+                    tracker.log({tracker_key: all_artifacts}, step=step)
 
         accelerator.wait_for_everyone()
 
@@ -864,11 +896,11 @@ class Trainer:
         logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
         torch.cuda.reset_peak_memory_stats(accelerator.device)
 
-        self.transformer.train()
+        if not final_validation:
+            self.transformer.train()
 
     def evaluate(self) -> None:
-        logger.info("Starting evaluation")
-        # TODO: implement metrics for evaluation
+        raise NotImplementedError
 
     def _init_distributed(self) -> None:
         logging_dir = Path(self.args.output_dir, self.args.logging_dir)
