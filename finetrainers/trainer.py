@@ -880,6 +880,10 @@ class Trainer:
         pipeline.remove_all_hooks()
         del pipeline
 
+        # Remove all hooks that might have been added during pipeline initialization to the models
+        pipeline.remove_all_hooks()
+        del pipeline
+
         accelerator.wait_for_everyone()
 
         free_memory()
