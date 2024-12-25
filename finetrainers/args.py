@@ -11,6 +11,7 @@ class Args:
     The arguments for the finetrainers training script.
 
     Args:
+        TODO: write informational docstring
         flow_resolution_shifting (`bool`, defaults to `False`):
             Resolution-dependant shifting of timestep schedules.
             [Scaling Rectified Flow Transformers for High-Resolution Image Synthesis](https://arxiv.org/abs/2403.03206)
@@ -37,8 +38,6 @@ class Args:
     image_resolution_buckets: List[Tuple[int, int]] = None
     video_resolution_buckets: List[Tuple[int, int, int]] = None
     video_reshape_mode: Optional[str] = None
-    caption_dropout_p: float = 0.00
-    caption_dropout_technique: str = "empty"
     precompute_conditions: bool = False
 
     # Dataloader arguments
@@ -56,6 +55,15 @@ class Args:
     flow_logit_mean: float = 0.0
     flow_logit_std: float = 1.0
     flow_mode_scale: float = 1.29
+
+    # Regularization arguments
+    caption_dropout_p: float = 0.00
+    caption_dropout_technique: str = "empty"
+    image_condition_dropout_p: float = 0.00
+    image_condition_noise_scale: float = 0.00
+    image_condition_noise_type: float = "gaussian"
+    # We are currently only supporting adding noise post-encoding for regularization. For models like CogVideoX
+    # noise is added to image before the vae encoding. TODO: add support for this.
 
     # Training arguments
     training_type: str = None
@@ -136,13 +144,18 @@ class Args:
                 "image_resolution_buckets": self.image_resolution_buckets,
                 "video_resolution_buckets": self.video_resolution_buckets,
                 "video_reshape_mode": self.video_reshape_mode,
-                "caption_dropout_p": self.caption_dropout_p,
-                "caption_dropout_technique": self.caption_dropout_technique,
                 "precompute_conditions": self.precompute_conditions,
             },
             "dataloader_arguments": {
                 "dataloader_num_workers": self.dataloader_num_workers,
                 "pin_memory": self.pin_memory,
+            },
+            "regularization_arguments": {
+                "caption_dropout_p": self.caption_dropout_p,
+                "caption_dropout_technique": self.caption_dropout_technique,
+                "image_condition_dropout_p": self.image_condition_dropout_p,
+                "image_condition_noise_scale": self.image_condition_noise_scale,
+                "image_condition_noise_type": self.image_condition_noise_type,
             },
             "training_arguments": {
                 "training_type": self.training_type,
@@ -207,6 +220,7 @@ def parse_arguments() -> Args:
     _add_dataset_arguments(parser)
     _add_dataloader_arguments(parser)
     _add_diffusion_arguments(parser)
+    _add_regularization_arguments(parser)
     _add_training_arguments(parser)
     _add_optimizer_arguments(parser)
     _add_validation_arguments(parser)
@@ -325,19 +339,6 @@ def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
         help="All input videos are reshaped to this mode. Choose between ['center', 'random', 'none']",
     )
     parser.add_argument(
-        "--caption_dropout_p",
-        type=float,
-        default=0.00,
-        help="Probability of dropout for the caption tokens.",
-    )
-    parser.add_argument(
-        "--caption_dropout_technique",
-        type=str,
-        default="empty",
-        choices=["empty", "zero"],
-        help="Technique to use for caption dropout.",
-    )
-    parser.add_argument(
         "--precompute_conditions",
         action="store_true",
         help="Whether or not to precompute the conditionings for the model.",
@@ -388,6 +389,41 @@ def _add_diffusion_arguments(parser: argparse.ArgumentParser) -> None:
         type=float,
         default=1.29,
         help="Scale of mode weighting scheme. Only effective when using the `'mode'` as the `weighting_scheme`.",
+    )
+
+
+def _add_regularization_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--caption_dropout_p",
+        type=float,
+        default=0.00,
+        help="Probability of dropout for the caption tokens.",
+    )
+    parser.add_argument(
+        "--caption_dropout_technique",
+        type=str,
+        default="empty",
+        choices=["empty", "zero"],
+        help="Technique to use for caption dropout.",
+    )
+    parser.add_argument(
+        "--image_condition_dropout_p",
+        type=float,
+        default=0.00,
+        help="Probability of dropout for the image condition latents. This will replace the image latent condition with a zero tensor.",
+    )
+    parser.add_argument(
+        "--image_condition_noise_scale",
+        type=float,
+        default=0.00,
+        help="Maximum scale of noise to add to the image condition latents. A random noise tensor will be added to the image condition latents at at strength between 0 and this value.",
+    )
+    parser.add_argument(
+        "--image_condition_noise_type",
+        type=str,
+        default="gaussian",
+        choices=["gaussian"],
+        help="Type of noise to add to the image condition latents. Defaults to plain Gaussian noise.",
     )
 
 
@@ -704,8 +740,6 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.image_resolution_buckets = args.image_resolution_buckets or DEFAULT_IMAGE_RESOLUTION_BUCKETS
     result_args.video_resolution_buckets = args.video_resolution_buckets or DEFAULT_VIDEO_RESOLUTION_BUCKETS
     result_args.video_reshape_mode = args.video_reshape_mode
-    result_args.caption_dropout_p = args.caption_dropout_p
-    result_args.caption_dropout_technique = args.caption_dropout_technique
     result_args.precompute_conditions = args.precompute_conditions
 
     # Dataloader arguments
@@ -718,6 +752,13 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.flow_logit_mean = args.flow_logit_mean
     result_args.flow_logit_std = args.flow_logit_std
     result_args.flow_mode_scale = args.flow_mode_scale
+
+    # Regularization arguments
+    result_args.caption_dropout_p = args.caption_dropout_p
+    result_args.caption_dropout_technique = args.caption_dropout_technique
+    result_args.image_condition_dropout_p = args.image_condition_dropout_p
+    result_args.image_condition_noise_scale = args.image_condition_noise_scale
+    result_args.image_condition_noise_type = args.image_condition_noise_type
 
     # Training arguments
     result_args.training_type = args.training_type

@@ -1,1 +1,1 @@
-from .ltx_video_lora import LTX_VIDEO_T2V_LORA_CONFIG
+from .ltx_video_lora import LTX_VIDEO_T2V_LORA_CONFIG, LTX_VIDEO_I2V_LORA_CONFIG
