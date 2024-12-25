@@ -611,7 +611,13 @@ class Trainer:
                             latent_conditions["latents"]
                         ).sample(generator)
                         if "post_latent_preparation" in self.model_config.keys():
-                            latent_conditions = self.model_config["post_latent_preparation"](**latent_conditions)
+                            latent_conditions = self.model_config["post_latent_preparation"](
+                                image_condition_dropout_p=self.args.image_condition_dropout_p,
+                                image_condition_noise_scale=self.args.image_condition_noise_scale,
+                                image_condition_noise_type=self.args.image_condition_noise_type,
+                                generator=generator,
+                                **latent_conditions,
+                            )
                         align_device_and_dtype(latent_conditions, accelerator.device, weight_dtype)
                         align_device_and_dtype(text_conditions, accelerator.device, weight_dtype)
                         batch_size = latent_conditions["latents"].shape[0]
@@ -646,7 +652,14 @@ class Trainer:
                         device=accelerator.device,
                         dtype=weight_dtype,
                     )
-                    noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
+                    # TODO(aryan): It seems like we need to specialize for how to add noise to latents as well
+                    # This might have to be implemented for every model
+                    if "prepare_noisy_latents" in self.model_config.keys():
+                        noisy_latents = self.model_config["prepare_noisy_latents"](
+                            sigmas=sigmas, noise=noise, **latent_conditions
+                        )
+                    else:
+                        noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
 
                     latent_conditions.update({"noisy_latents": noisy_latents})
 
@@ -668,6 +681,8 @@ class Trainer:
 
                     if accelerator.sync_gradients and accelerator.distributed_type != DistributedType.DEEPSPEED:
                         grad_norm = accelerator.clip_grad_norm_(self.transformer.parameters(), self.args.max_grad_norm)
+                        if torch.is_tensor(grad_norm):
+                            grad_norm = grad_norm.item()
                         logs["grad_norm"] = grad_norm
 
                     self.optimizer.step()
@@ -705,7 +720,8 @@ class Trainer:
                 if should_run_validation:
                     self.validate(global_step)
 
-                logs = {"loss": loss.detach().item(), "lr": self.lr_scheduler.get_last_lr()[0]}
+                logs["loss"] = loss.detach().item()
+                logs["lr"] = self.lr_scheduler.get_last_lr()[0]
                 progress_bar.set_postfix(logs)
                 accelerator.log(logs, step=global_step)
 
@@ -813,10 +829,6 @@ class Trainer:
                 generator=self.state.generator,
             )
 
-            # Remove all hooks that might have been added during pipeline initialization to the models
-            pipeline.remove_all_hooks()
-            del pipeline
-
             prompt_filename = string_to_filename(prompt)[:25]
             artifacts = {
                 "image": {"type": "image", "value": image},
@@ -855,7 +867,18 @@ class Trainer:
         if accelerator.is_main_process:
             for tracker in accelerator.trackers:
                 if tracker.name == "wandb":
-                    tracker.log({"validation": all_artifacts}, step=step)
+                    image_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Image)]
+                    video_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Video)]
+                    tracker.log(
+                        {
+                            "validation": {"images": image_artifacts, "videos": video_artifacts},
+                        },
+                        step=step,
+                    )
+
+        # Remove all hooks that might have been added during pipeline initialization to the models
+        pipeline.remove_all_hooks()
+        del pipeline
 
         accelerator.wait_for_everyone()
 

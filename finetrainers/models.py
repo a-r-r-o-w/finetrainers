@@ -1,7 +1,7 @@
 from typing import Any, Dict
 
 from .hunyuan_video import HUNYUAN_VIDEO_T2V_LORA_CONFIG
-from .ltx_video import LTX_VIDEO_T2V_LORA_CONFIG
+from .ltx_video import LTX_VIDEO_T2V_LORA_CONFIG, LTX_VIDEO_I2V_LORA_CONFIG
 
 
 SUPPORTED_MODEL_CONFIGS = {
@@ -10,6 +10,7 @@ SUPPORTED_MODEL_CONFIGS = {
     },
     "ltx_video": {
         "lora": LTX_VIDEO_T2V_LORA_CONFIG,
+        "lora_i2v": LTX_VIDEO_I2V_LORA_CONFIG,
     },
 }
 
