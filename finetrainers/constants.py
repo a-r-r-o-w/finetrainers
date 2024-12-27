@@ -52,3 +52,29 @@ For more details, including weighting, merging and fusing LoRAs, check the [docu
 
 Please adhere to the license of the base model.
 """.strip()
+
+_COMMON_BEGINNING_PHRASES = (
+    "This video",
+    "The video",
+    "This clip",
+    "The clip",
+    "The animation",
+    "This image",
+    "The image",
+    "This picture",
+    "The picture",
+)
+_COMMON_CONTINUATION_WORDS = ("shows", "depicts", "features", "captures", "highlights", "introduces", "presents")
+
+COMMON_LLM_START_PHRASES = (
+    "In the video,",
+    "In this video,",
+    "In this video clip,",
+    "In the clip,",
+    "Caption:",
+    *(
+        f"{beginning} {continuation}"
+        for beginning in _COMMON_BEGINNING_PHRASES
+        for continuation in _COMMON_CONTINUATION_WORDS
+    ),
+)

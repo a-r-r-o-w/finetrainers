@@ -1,3 +1,4 @@
+import json
 import os
 import random
 from pathlib import Path
@@ -20,7 +21,12 @@ import decord  # isort:skip
 
 decord.bridge.set_bridge("torch")
 
-from .constants import PRECOMPUTED_DIR_NAME, PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME
+from .constants import (
+    PRECOMPUTED_DIR_NAME,
+    PRECOMPUTED_CONDITIONS_DIR_NAME,
+    PRECOMPUTED_LATENTS_DIR_NAME,
+    COMMON_LLM_START_PHRASES,
+)
 
 
 logger = get_logger(__name__)
@@ -45,27 +51,44 @@ class VideoDataset(Dataset):
         self.id_token = f"{id_token.strip()} " if id_token else ""
         self.resolution_buckets = resolution_buckets
 
-        # Two methods of loading data are supported.
+        # Three methods of loading data are supported.
         #   - Using a CSV: caption_column and video_column must be some column in the CSV. One could
         #     make use of other columns too, such as a motion score or aesthetic score, by modifying the
         #     logic in CSV processing.
         #   - Using two files containing line-separate captions and relative paths to videos.
+        #   - Using a JSON file containing a list of dictionaries, where each dictionary has a `caption_column` and `video_column` key.
         # For a more detailed explanation about preparing dataset format, checkout the README.
         if dataset_file is None:
             (
                 self.prompts,
                 self.video_paths,
             ) = self._load_dataset_from_local_path()
-        else:
+        elif dataset_file.endswith(".csv"):
             (
                 self.prompts,
                 self.video_paths,
             ) = self._load_dataset_from_csv()
+        elif dataset_file.endswith(".json"):
+            (
+                self.prompts,
+                self.video_paths,
+            ) = self._load_dataset_from_json()
+        else:
+            raise ValueError(
+                "Expected `--dataset_file` to be a path to a CSV file or a directory containing line-separated text prompts and video paths."
+            )
 
         if len(self.video_paths) != len(self.prompts):
             raise ValueError(
                 f"Expected length of prompts and videos to be the same but found {len(self.prompts)=} and {len(self.video_paths)=}. Please ensure that the number of caption prompts and videos match in your dataset."
             )
+
+        # Clean LLM start phrases
+        for i in range(len(self.prompts)):
+            self.prompts[i] = self.prompts[i].strip()
+            for phrase in COMMON_LLM_START_PHRASES:
+                if self.prompts[i].startswith(phrase):
+                    self.prompts[i] = self.prompts[i].removeprefix(phrase).strip()
 
         self.video_transforms = transforms.Compose(
             [
@@ -140,6 +163,20 @@ class VideoDataset(Dataset):
         prompts = df[self.caption_column].tolist()
         video_paths = df[self.video_column].tolist()
         video_paths = [self.data_root.joinpath(line.strip()) for line in video_paths]
+
+        if any(not path.is_file() for path in video_paths):
+            raise ValueError(
+                f"Expected `{self.video_column=}` to be a path to a file in `{self.data_root=}` containing line-separated paths to video data but found atleast one path that is not a valid file."
+            )
+
+        return prompts, video_paths
+
+    def _load_dataset_from_json(self) -> Tuple[List[str], List[str]]:
+        with open(self.dataset_file, "r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        prompts = [entry[self.caption_column] for entry in data]
+        video_paths = [self.data_root.joinpath(entry[self.video_column].strip()) for entry in data]
 
         if any(not path.is_file() for path in video_paths):
             raise ValueError(
