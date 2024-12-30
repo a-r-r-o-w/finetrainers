@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torchvision.transforms as TT
+import torchvision.transforms.functional as TTF
 from accelerate.logging import get_logger
 from torch.utils.data import Dataset, Sampler
 from torchvision import transforms
@@ -32,7 +33,14 @@ from .constants import (
 logger = get_logger(__name__)
 
 
-class VideoDataset(Dataset):
+# TODO(aryan): This needs a refactor with separation of concerns.
+# Images should be handled separately. Videos should be handled separately.
+# Loading should be handled separately.
+# Preprocessing (aspect ratio, resizing) should be handled separately.
+# URL loading should be handled.
+# Parquet format should be handled.
+# Loading from ZIP should be handled.
+class ImageOrVideoDataset(Dataset):
     def __init__(
         self,
         data_root: str,
@@ -73,6 +81,11 @@ class VideoDataset(Dataset):
                 self.prompts,
                 self.video_paths,
             ) = self._load_dataset_from_json()
+        elif dataset_file.endswith(".jsonl"):
+            (
+                self.prompts,
+                self.video_paths,
+            ) = self._load_dataset_from_jsonl()
         else:
             raise ValueError(
                 "Expected `--dataset_file` to be a path to a CSV file or a directory containing line-separated text prompts and video paths."
@@ -118,7 +131,12 @@ class VideoDataset(Dataset):
             return index
 
         prompt = self.id_token + self.prompts[index]
-        video = self._preprocess_video(self.video_paths[index])
+
+        video_path: Path = self.video_paths[index]
+        if video_path.suffix.lower() in [".png", ".jpg", ".jpeg"]:
+            video = self._preprocess_image(video_path)
+        else:
+            video = self._preprocess_video(video_path)
 
         return {
             "prompt": prompt,
@@ -185,12 +203,33 @@ class VideoDataset(Dataset):
 
         return prompts, video_paths
 
+    def _load_dataset_from_jsonl(self) -> Tuple[List[str], List[str]]:
+        with open(self.dataset_file, "r", encoding="utf-8") as file:
+            data = [json.loads(line) for line in file]
+
+        prompts = [entry[self.caption_column] for entry in data]
+        video_paths = [self.data_root.joinpath(entry[self.video_column].strip()) for entry in data]
+
+        if any(not path.is_file() for path in video_paths):
+            raise ValueError(
+                f"Expected `{self.video_column=}` to be a path to a file in `{self.data_root=}` containing line-separated paths to video data but found atleast one path that is not a valid file."
+            )
+
+        return prompts, video_paths
+
+    def _preprocess_image(self, path: Path) -> torch.Tensor:
+        # TODO(aryan): Support alpha channel in future by whitening background
+        image = TTF.Image.open(path.as_posix()).convert("RGB")
+        image = TTF.to_tensor(image)
+        image = self.video_transforms(image)
+        image = image.unsqueeze(0).contiguous()  # [C, H, W] -> [C, 1, H, W] (1-frame video)
+        return image
+
     def _preprocess_video(self, path: Path) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         r"""
         Loads a single video, or latent and prompt embedding, based on initialization parameters.
 
-        If returning a video, returns a [F, C, H, W] video tensor, and None for the prompt embedding. Here,
-        F, C, H and W are the frames, channels, height and width of the input video.
+        Returns a [F, C, H, W] video tensor.
         """
         video_reader = decord.VideoReader(uri=path.as_posix())
         video_num_frames = len(video_reader)
@@ -203,11 +242,23 @@ class VideoDataset(Dataset):
         return frames
 
 
-class VideoDatasetWithResizing(VideoDataset):
+class ImageOrVideoDatasetWithResizing(ImageOrVideoDataset):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         self.max_num_frames = max(self.resolution_buckets, key=lambda x: x[0])[0]
+
+    def _preprocess_image(self, path: Path) -> torch.Tensor:
+        # TODO(aryan): Support alpha channel in future by whitening background
+        image = TTF.Image.open(path.as_posix()).convert("RGB")
+        image = TTF.to_tensor(image)
+
+        nearest_res = self._find_nearest_resolution(image.shape[1], image.shape[2])
+        image = resize(image, nearest_res)
+
+        image = self.video_transforms(image)
+        image = image.unsqueeze(0).contiguous()
+        return image
 
     def _preprocess_video(self, path: Path) -> torch.Tensor:
         video_reader = decord.VideoReader(uri=path.as_posix())
@@ -235,7 +286,7 @@ class VideoDatasetWithResizing(VideoDataset):
         return nearest_res[1], nearest_res[2]
 
 
-class VideoDatasetWithResizeAndRectangleCrop(VideoDataset):
+class ImageOrVideoDatasetWithResizeAndRectangleCrop(ImageOrVideoDataset):
     def __init__(self, video_reshape_mode: str = "center", *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
@@ -329,8 +380,8 @@ class BucketSampler(Sampler):
     PyTorch Sampler that groups 3D data by height, width and frames.
 
     Args:
-        data_source (`VideoDataset`):
-            A PyTorch dataset object that is an instance of `VideoDataset`.
+        data_source (`ImageOrVideoDataset`):
+            A PyTorch dataset object that is an instance of `ImageOrVideoDataset`.
         batch_size (`int`, defaults to `8`):
             The batch size to use for training.
         shuffle (`bool`, defaults to `True`):
@@ -343,7 +394,7 @@ class BucketSampler(Sampler):
     """
 
     def __init__(
-        self, data_source: VideoDataset, batch_size: int = 8, shuffle: bool = True, drop_last: bool = False
+        self, data_source: ImageOrVideoDataset, batch_size: int = 8, shuffle: bool = True, drop_last: bool = False
     ) -> None:
         self.data_source = data_source
         self.batch_size = batch_size

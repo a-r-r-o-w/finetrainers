@@ -40,7 +40,7 @@ from .constants import (
     PRECOMPUTED_CONDITIONS_DIR_NAME,
     PRECOMPUTED_LATENTS_DIR_NAME,
 )
-from .dataset import BucketSampler, PrecomputedDataset, VideoDatasetWithResizing
+from .dataset import BucketSampler, PrecomputedDataset, ImageOrVideoDatasetWithResizing
 from .models import get_config_from_model_name
 from .state import State
 from .utils.data_utils import should_perform_precomputation
@@ -93,7 +93,7 @@ class Trainer:
         # TODO(aryan): Make a background process for fetching
         logger.info("Initializing dataset and dataloader")
 
-        self.dataset = VideoDatasetWithResizing(
+        self.dataset = ImageOrVideoDatasetWithResizing(
             data_root=self.args.data_root,
             caption_column=self.args.caption_column,
             video_column=self.args.video_column,
