@@ -79,7 +79,7 @@ class Args:
 
     # Optimizer arguments
     optimizer: str = "adamw"
-    use_8bit_bnb_bnb: bool = False
+    use_8bit_bnb: bool = False
     lr: float = 1e-4
     scale_lr: bool = False
     lr_scheduler: str = "cosine_with_restarts"
