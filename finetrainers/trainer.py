@@ -506,6 +506,7 @@ class Trainer:
             beta3=self.args.beta3,
             epsilon=self.args.epsilon,
             weight_decay=self.args.weight_decay,
+            use_8bit=self.args.use_8bit,
             use_deepspeed=use_deepspeed_opt,
         )
 

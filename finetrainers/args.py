@@ -79,6 +79,7 @@ class Args:
 
     # Optimizer arguments
     optimizer: str = "adamw"
+    use_8bit: bool = False
     lr: float = 1e-4
     scale_lr: bool = False
     lr_scheduler: str = "cosine_with_restarts"
@@ -166,6 +167,7 @@ class Args:
             },
             "optimizer_arguments": {
                 "optimizer": self.optimizer,
+                "use_8bit": self.use_8bit,
                 "lr": self.lr,
                 "scale_lr": self.scale_lr,
                 "lr_scheduler": self.lr_scheduler,
@@ -533,6 +535,11 @@ def _add_optimizer_arguments(parser: argparse.ArgumentParser) -> None:
         help=("The optimizer type to use."),
     )
     parser.add_argument(
+        "--use_8bit",
+        action="store_true",
+        help=("Whether to use 8bit variant of the `--optimizer`. Only `bitsandbytes` 8bit optimizers are supported at the moment."),
+    )
+    parser.add_argument(
         "--beta1",
         type=float,
         default=0.9,
@@ -741,6 +748,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
 
     # Optimizer arguments
     result_args.optimizer = args.optimizer or "adamw"
+    result_args.use_8bit = args.use_8bit
     result_args.lr = args.lr or 1e-4
     result_args.scale_lr = args.scale_lr
     result_args.lr_scheduler = args.lr_scheduler
