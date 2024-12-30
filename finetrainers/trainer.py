@@ -3,7 +3,7 @@ import logging
 import math
 import os
 import random
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict
 
@@ -62,6 +62,7 @@ class Trainer:
         validate_args(args)
 
         self.args = args
+        self.args.seed = self.args.seed or datetime.now().year
         self.state = State()
 
         # Tokenizers
@@ -316,7 +317,7 @@ class Trainer:
                 image_or_video=data["video"].unsqueeze(0),
                 device=self.state.accelerator.device,
                 dtype=self.state.weight_dtype,
-                generator=self.state.generator,
+                generator=torch.manual_seed(self.args.seed),
                 precompute=True,
             )
             filename = latents_dir / f"latents-{self.state.accelerator.process_index}-{index}.pt"
@@ -618,10 +619,6 @@ class Trainer:
             if hasattr(self.scheduler, "alphas_cumprod")
             else None
         )
-        generator = torch.Generator(device=accelerator.device)
-        if self.args.seed is not None:
-            generator = generator.manual_seed(self.args.seed)
-        self.state.generator = generator
 
         is_cog = "Cog" in self.model_config["pipeline_cls"].__class__.__name__
         if is_cog:
@@ -661,7 +658,7 @@ class Trainer:
                             patch_size_t=self.transformer_config.patch_size_t,
                             device=accelerator.device,
                             dtype=weight_dtype,
-                            generator=generator,
+                            generator=torch.manual_seed(self.args.seed),
                         )
                         text_conditions = self.model_config["prepare_conditions"](
                             tokenizer=self.tokenizer,
@@ -677,7 +674,7 @@ class Trainer:
                         text_conditions = batch["text_conditions"]
                         latent_conditions["latents"] = DiagonalGaussianDistribution(
                             latent_conditions["latents"]
-                        ).sample(generator)
+                        ).sample(torch.manual_seed(self.args.seed))
                         if "post_latent_preparation" in self.model_config.keys():
                             latent_conditions = self.model_config["post_latent_preparation"](**latent_conditions)
                         align_device_and_dtype(latent_conditions, accelerator.device, weight_dtype)
@@ -703,7 +700,7 @@ class Trainer:
                         noise, noisy_latents = self._calculate_noisy_latents_for_flow(
                             sigmas=sigmas,
                             latent_conditions=latent_conditions,
-                            generator=generator,
+                            generator=torch.manual_seed(self.args.seed),
                             weight_dtype=weight_dtype,
                         )
                     elif is_cog:
@@ -713,6 +710,7 @@ class Trainer:
                             (batch_size,),
                             dtype=torch.int64,
                             device=latent_conditions["latents"].device,
+                            generator=torch.manual_seed(self.args.seed),
                         )
                         noise, noisy_latents = self._calculate_noisy_latents_for_cog(
                             latent_conditions=latent_conditions, timesteps=timesteps
@@ -927,7 +925,7 @@ class Trainer:
                 width=width,
                 num_frames=num_frames,
                 num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
-                generator=self.state.generator,
+                generator=torch.manual_seed(self.args.seed),
                 # todo support passing `fps` for supported pipelines.
             )
 
@@ -1020,10 +1018,8 @@ class Trainer:
             accelerator.native_amp = False
 
         self.state.accelerator = accelerator
-
-        if self.args.seed is not None:
-            self.state.seed = self.args.seed
-            set_seed(self.args.seed)
+        self.state.seed = self.args.seed
+        set_seed(self.args.seed)
 
     def _init_logging(self) -> None:
         logging.basicConfig(
@@ -1099,10 +1095,10 @@ class Trainer:
         sigmas = scheduler_sigmas[indices]
         return sigmas
 
-    def _calculate_noisy_latents_for_flow(self, sigmas, latent_conditions, generator, weight_dtype):
+    def _calculate_noisy_latents_for_flow(self, sigmas, latent_conditions, weight_dtype):
         noise = torch.randn(
             latent_conditions["latents"].shape,
-            generator=generator,
+            generator=torch.manual_seed(self.args.seed),
             device=self.state.accelerator.device,
             dtype=weight_dtype,
         )
