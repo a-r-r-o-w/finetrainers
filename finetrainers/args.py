@@ -227,7 +227,11 @@ def validate_args(args: Args):
 
 def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--model_name", type=str, required=True, choices=list(SUPPORTED_MODEL_CONFIGS.keys()), help="Name of model to train."
+        "--model_name",
+        type=str,
+        required=True,
+        choices=list(SUPPORTED_MODEL_CONFIGS.keys()),
+        help="Name of model to train.",
     )
     parser.add_argument(
         "--pretrained_model_name_or_path",

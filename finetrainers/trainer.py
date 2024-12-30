@@ -627,9 +627,7 @@ class Trainer:
 
         is_cog = "Cog" in self.model_config["pipeline_cls"].__name__
         denoiser_config = (
-            self.transformer.module.config
-            if hasattr(self.transformer, "module")
-            else self.transformer.config
+            self.transformer.module.config if hasattr(self.transformer, "module") else self.transformer.config
         )
         if is_cog:
             vae_config = AutoencoderKLCogVideoX.load_config(self.args.pretrained_model_name_or_path, subfolder="vae")
