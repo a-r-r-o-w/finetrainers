@@ -2,7 +2,7 @@ from typing import Optional, Tuple
 
 import torch
 from diffusers.models.embeddings import get_3d_rotary_pos_embed
-from diffusers.pipelines.hunyuandit.pipeline_hunyuandit import get_resize_crop_region_for_grid
+from diffusers.pipelines.cogvideo.pipeline_cogvideox import get_resize_crop_region_for_grid
 
 
 def prepare_rotary_positional_embeddings(

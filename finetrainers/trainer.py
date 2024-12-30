@@ -33,6 +33,7 @@ from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
+import torch.nn.functional as F
 
 from .args import _INVERSE_DTYPE_MAP, Args, validate_args
 from .cogvideox.utils import prepare_rotary_positional_embeddings
@@ -624,20 +625,20 @@ class Trainer:
             if hasattr(self.scheduler, "alphas_cumprod")
             else None
         )
+        denoiser_config = self.transformer.module.config if hasattr(self.transformer, "module") else self.transformer.config
 
         is_cog = "Cog" in self.model_config["pipeline_cls"].__name__
-        denoiser_config = (
-            self.transformer.module.config if hasattr(self.transformer, "module") else self.transformer.config
-        )
         if is_cog:
-            vae_config = AutoencoderKLCogVideoX.load_config(self.args.pretrained_model_name_or_path, subfolder="vae")
-            cog_vae_scale_factor_spatial = 2 ** (len(vae_config["block_out_channels"]) - 1)
+            cog_vae_config = AutoencoderKLCogVideoX.load_config(self.args.pretrained_model_name_or_path, subfolder="vae")
+            cog_vae_scale_factor_spatial = 2 ** (len(cog_vae_config["block_out_channels"]) - 1)
             cog_rope_base_height = denoiser_config.sample_height * cog_vae_scale_factor_spatial
             cog_rope_base_width = denoiser_config.sample_width * cog_vae_scale_factor_spatial
         else:
+            cog_vae_config = None
             cog_vae_scale_factor_spatial = None
             cog_rope_base_height = None
             cog_rope_base_width = None
+
 
         for epoch in range(first_epoch, self.state.train_epochs):
             logger.debug(f"Starting epoch ({epoch + 1}/{self.state.train_epochs})")
@@ -662,8 +663,8 @@ class Trainer:
                         latent_conditions = self.model_config["prepare_latents"](
                             vae=self.vae,
                             image_or_video=videos,
-                            patch_size=self.transformer_config.patch_size,
-                            patch_size_t=self.transformer_config.patch_size_t,
+                            patch_size=denoiser_config.patch_size,
+                            patch_size_t=denoiser_config.patch_size_t,
                             device=accelerator.device,
                             dtype=weight_dtype,
                             generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
@@ -683,11 +684,20 @@ class Trainer:
                         latent_conditions["latents"] = DiagonalGaussianDistribution(
                             latent_conditions["latents"]
                         ).sample(torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed))
-                        if "post_latent_preparation" in self.model_config.keys():
-                            latent_conditions = self.model_config["post_latent_preparation"](**latent_conditions)
-                        align_device_and_dtype(latent_conditions, accelerator.device, weight_dtype)
-                        align_device_and_dtype(text_conditions, accelerator.device, weight_dtype)
-                        batch_size = latent_conditions["latents"].shape[0]
+                        if is_cog:
+                            if not cog_vae_config["invert_scale_latents"]:
+                                latent_conditions["latents"] = latent_conditions["latents"] * cog_vae_config["scaling_factor"]
+                            else:
+                                latent_conditions["latents"] = 1 / cog_vae_config["scaling_factor"] * latent_conditions["latents"]
+                        
+                    if is_cog:
+                        latent_conditions["latents"] = self._pad_frames(latents=latent_conditions["latents"], denoiser_config=denoiser_config)
+                    
+                    if "post_latent_preparation" in self.model_config.keys():
+                        latent_conditions = self.model_config["post_latent_preparation"](**latent_conditions)
+                    align_device_and_dtype(latent_conditions, accelerator.device, weight_dtype)
+                    align_device_and_dtype(text_conditions, accelerator.device, weight_dtype)
+                    batch_size = latent_conditions["latents"].shape[0]
 
                     latent_conditions = make_contiguous(latent_conditions)
                     text_conditions = make_contiguous(text_conditions)
@@ -1148,3 +1158,19 @@ class Trainer:
         )
         loss = loss.mean()
         return loss
+
+    def _pad_frames(self, latents, denoiser_config):
+        # `latents` should be of the following format: [B, C, F, H, W].
+        # For CogVideoX 1.5, the latent frames should be padded to make it divisible by patch_size_t
+        latent_num_frames = latents.shape[2]
+        additional_frames = 0
+        patch_size_t = denoiser_config.patch_size_t
+        if patch_size_t is not None and latent_num_frames % patch_size_t != 0:
+            additional_frames = patch_size_t - latent_num_frames % patch_size_t
+        
+        if additional_frames:
+            pad = (0, 0, 0, 0, 0, additional_frames) 
+            latents = F.pad(latents, pad)
+
+        return latents
+

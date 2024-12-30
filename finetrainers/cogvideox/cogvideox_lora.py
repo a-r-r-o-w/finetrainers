@@ -143,6 +143,7 @@ def prepare_latents(
         latents = latents.to(dtype=dtype)
         return {"latents": latents}
     else:
+        # handle vae scaling in the `train()` method directly.
         if vae.use_slicing and image_or_video.shape[0] > 1:
             encoded_slices = [vae._encode(x_slice) for x_slice in image_or_video.split(1)]
             h = torch.cat(encoded_slices)
