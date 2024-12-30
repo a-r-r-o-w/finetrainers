@@ -509,6 +509,7 @@ class Trainer:
             beta3=self.args.beta3,
             epsilon=self.args.epsilon,
             weight_decay=self.args.weight_decay,
+            use_8bit=self.args.use_8bit_bnb,
             use_deepspeed=use_deepspeed_opt,
         )
 
@@ -1045,7 +1046,7 @@ class Trainer:
 
             if self.args.push_to_hub:
                 repo_id = self.args.hub_model_id or Path(self.args.output_dir).name
-                self.state.repo_id = create_repo(token=self.args.hub_token, repo_id=repo_id).repo_id
+                self.state.repo_id = create_repo(token=self.args.hub_token, repo_id=repo_id, exist_ok=True).repo_id
 
     def _move_components_to_device(self):
         if self.text_encoder is not None:
