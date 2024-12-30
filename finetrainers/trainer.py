@@ -257,7 +257,7 @@ class Trainer:
                 continue
 
             logger.debug(
-                f"Precomputing conditions and latents for batch {i + 1}/{len(self.dataset)} on process {self.state.accelerator.process_index}"
+                f"Precomputing conditions for batch {i + 1}/{len(self.dataset)} on process {self.state.accelerator.process_index}"
             )
 
             text_conditions = self.model_config["prepare_conditions"](
@@ -317,7 +317,7 @@ class Trainer:
                 image_or_video=data["video"].unsqueeze(0),
                 device=self.state.accelerator.device,
                 dtype=self.state.weight_dtype,
-                generator=torch.manual_seed(self.args.seed),
+                generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
                 precompute=True,
             )
             filename = latents_dir / f"latents-{self.state.accelerator.process_index}-{index}.pt"
@@ -614,19 +614,28 @@ class Trainer:
 
         accelerator = self.state.accelerator
         weight_dtype = self.state.weight_dtype
-        scheduler_sigmas = self.scheduler.sigmas.clone().to(device=accelerator.device, dtype=weight_dtype)
+        scheduler_sigmas = (
+            self.scheduler.sigmas.clone().to(device=accelerator.device, dtype=weight_dtype)
+            if hasattr(self.scheduler, "sigmas")
+            else None
+        )
         scheduler_alphas_cumprod = (
-            self.scheduler.alphas_cumprod.to(accelerator.device, dtype=torch.float32)
+            self.scheduler.alphas_cumprod.clone().to(accelerator.device, dtype=torch.float32)
             if hasattr(self.scheduler, "alphas_cumprod")
             else None
         )
 
-        is_cog = "Cog" in self.model_config["pipeline_cls"].__class__.__name__
+        is_cog = "Cog" in self.model_config["pipeline_cls"].__name__
+        denoiser_config = (
+            self.transformer.module.config
+            if hasattr(self.transformer, "module")
+            else self.transformer.config
+        )
         if is_cog:
-            vae_config = AutoencoderKLCogVideoX.load_config(self.args.pretrained_model_name_or_path, subfolde="vae")
+            vae_config = AutoencoderKLCogVideoX.load_config(self.args.pretrained_model_name_or_path, subfolder="vae")
             cog_vae_scale_factor_spatial = 2 ** (len(vae_config["block_out_channels"]) - 1)
-            cog_rope_base_height = self.transformer.config.sample_height * cog_vae_scale_factor_spatial
-            cog_rope_base_width = self.transformer.config.sample_width * cog_vae_scale_factor_spatial
+            cog_rope_base_height = denoiser_config.sample_height * cog_vae_scale_factor_spatial
+            cog_rope_base_width = denoiser_config.sample_width * cog_vae_scale_factor_spatial
         else:
             cog_vae_scale_factor_spatial = None
             cog_rope_base_height = None
@@ -659,7 +668,7 @@ class Trainer:
                             patch_size_t=self.transformer_config.patch_size_t,
                             device=accelerator.device,
                             dtype=weight_dtype,
-                            generator=torch.manual_seed(self.args.seed),
+                            generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
                         )
                         text_conditions = self.model_config["prepare_conditions"](
                             tokenizer=self.tokenizer,
@@ -675,7 +684,7 @@ class Trainer:
                         text_conditions = batch["text_conditions"]
                         latent_conditions["latents"] = DiagonalGaussianDistribution(
                             latent_conditions["latents"]
-                        ).sample(torch.manual_seed(self.args.seed))
+                        ).sample(torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed))
                         if "post_latent_preparation" in self.model_config.keys():
                             latent_conditions = self.model_config["post_latent_preparation"](**latent_conditions)
                         align_device_and_dtype(latent_conditions, accelerator.device, weight_dtype)
@@ -701,7 +710,7 @@ class Trainer:
                         noise, noisy_latents = self._calculate_noisy_latents_for_flow(
                             sigmas=sigmas,
                             latent_conditions=latent_conditions,
-                            generator=torch.manual_seed(self.args.seed),
+                            generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
                             weight_dtype=weight_dtype,
                         )
                     elif is_cog:
@@ -711,15 +720,10 @@ class Trainer:
                             (batch_size,),
                             dtype=torch.int64,
                             device=latent_conditions["latents"].device,
-                            generator=torch.manual_seed(self.args.seed),
+                            generator=torch.Generator(latent_conditions["latents"].device).manual_seed(self.args.seed),
                         )
                         noise, noisy_latents = self._calculate_noisy_latents_for_cog(
-                            latent_conditions=latent_conditions, timesteps=timesteps
-                        )
-                        model_config = (
-                            self.transformer.module.config
-                            if hasattr(self.transformer, "module")
-                            else self.transformer.config
+                            latent_conditions=latent_conditions, timesteps=timesteps, weight_dtype=weight_dtype
                         )
                         _, num_channels, num_frames, height, width = noisy_latents.shape
                         image_rotary_emb = (
@@ -728,16 +732,16 @@ class Trainer:
                                 width=width * cog_vae_scale_factor_spatial,
                                 num_frames=num_frames,
                                 vae_scale_factor_spatial=cog_vae_scale_factor_spatial,
-                                patch_size=model_config.patch_size,
-                                patch_size_t=model_config.patch_size_t
-                                if hasattr(model_config, "patch_size_t")
+                                patch_size=denoiser_config.patch_size,
+                                patch_size_t=denoiser_config.patch_size_t
+                                if hasattr(denoiser_config, "patch_size_t")
                                 else None,
-                                attention_head_dim=model_config.attention_head_dim,
+                                attention_head_dim=denoiser_config.attention_head_dim,
                                 device=accelerator.device,
                                 base_height=cog_rope_base_height,
                                 base_width=cog_rope_base_width,
                             )
-                            if model_config.use_rotary_positional_embeddings
+                            if denoiser_config.use_rotary_positional_embeddings
                             else None
                         )
 
@@ -926,7 +930,7 @@ class Trainer:
                 width=width,
                 num_frames=num_frames,
                 num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
-                generator=torch.manual_seed(self.args.seed),
+                generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
                 # todo support passing `fps` for supported pipelines.
             )
 
@@ -1099,7 +1103,7 @@ class Trainer:
     def _calculate_noisy_latents_for_flow(self, sigmas, latent_conditions, weight_dtype):
         noise = torch.randn(
             latent_conditions["latents"].shape,
-            generator=torch.manual_seed(self.args.seed),
+            generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
             device=self.state.accelerator.device,
             dtype=weight_dtype,
         )
@@ -1107,8 +1111,13 @@ class Trainer:
         noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
         return noise, noisy_latents
 
-    def _calculate_noisy_latents_for_cog(self, latent_conditions, timesteps):
-        noise = torch.randn_like(latent_conditions["latents"], generator=torch.manual_seed(self.args.seed))
+    def _calculate_noisy_latents_for_cog(self, latent_conditions, timesteps, weight_dtype):
+        noise = torch.randn(
+            latent_conditions["latents"].shape,
+            generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
+            device=self.state.accelerator.device,
+            dtype=weight_dtype,
+        )
         noisy_latents = self.scheduler.add_noise(latent_conditions["latents"], noise, timesteps)
         return noise, noisy_latents
 
@@ -1128,16 +1137,13 @@ class Trainer:
         return loss
 
     def _calculate_cog_loss(self, scheduler_alphas_cumprod, timesteps, latent_conditions, text_conditions):
-        batch_size = latent_conditions["latents"].shape[0]
+        batch_size = latent_conditions["noisy_latents"].shape[0]
         model_pred = self.model_config["forward_pass"](
             transformer=self.transformer, timesteps=timesteps, **latent_conditions, **text_conditions
-        )
+        )["latents"]
         weights = 1 / (1 - scheduler_alphas_cumprod[timesteps])
-        weights = expand_tensor_to_dims(weights, model_pred.ndim)
-        while len(weights.shape) < len(model_pred.shape):
-            weights = weights.unsqueeze(-1)
-
-        target = latent_conditions["latents"]
+        weights = expand_tensor_to_dims(weights, latent_conditions["noisy_latents"].ndim)
+        target = latent_conditions["latents"].view_as(model_pred)
         loss = torch.mean(
             (weights * (model_pred - target) ** 2).reshape(batch_size, -1),
             dim=1,

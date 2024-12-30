@@ -102,6 +102,7 @@ def prepare_conditions(
     device: Optional[torch.device] = None,
     dtype: Optional[torch.dtype] = None,
     max_sequence_length: int = 226,  # TODO: this should be configurable
+    **kwargs,
 ):
     device = device or text_encoder.device
     dtype = dtype or text_encoder.dtype
@@ -168,13 +169,14 @@ def forward_pass(
     timesteps: torch.LongTensor,
     image_rotary_emb: torch.Tensor,
     ofs_emb: Optional[torch.Tensor] = None,
+    latents: torch.Tensor = None,
 ) -> torch.Tensor:
     noisy_latents = noisy_latents.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
     denoised_latents = transformer(
         hidden_states=noisy_latents,
         timestep=timesteps,
         encoder_hidden_states=prompt_embeds,
-        ofs_emb=ofs_emb,
+        ofs=ofs_emb,
         image_rotary_emb=image_rotary_emb,
         return_dict=False,
     )[0]
