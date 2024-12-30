@@ -4,8 +4,8 @@ import math
 import os
 import random
 from datetime import timedelta
-from typing import Any, Dict
 from pathlib import Path
+from typing import Any, Dict
 
 import diffusers
 import torch
@@ -18,37 +18,39 @@ from accelerate.utils import (
     DistributedDataParallelKwargs,
     InitProcessGroupKwargs,
     ProjectConfiguration,
-    set_seed,
     gather_object,
+    set_seed,
 )
+from diffusers import AutoencoderKLCogVideoX
+from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import (
     cast_training_params,
     compute_density_for_timestep_sampling,
     compute_loss_weighting_for_sd3,
 )
-from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
 
-from .args import Args, validate_args, _INVERSE_DTYPE_MAP
+from .args import _INVERSE_DTYPE_MAP, Args, validate_args
+from .cogvideox.utils import prepare_rotary_positional_embeddings
 from .constants import (
     FINETRAINERS_LOG_LEVEL,
-    PRECOMPUTED_DIR_NAME,
     PRECOMPUTED_CONDITIONS_DIR_NAME,
+    PRECOMPUTED_DIR_NAME,
     PRECOMPUTED_LATENTS_DIR_NAME,
 )
 from .dataset import BucketSampler, PrecomputedDataset, VideoDatasetWithResizing
 from .models import get_config_from_model_name
 from .state import State
+from .utils.checkpointing import get_intermediate_ckpt_path, get_latest_ckpt_path_to_resume_from
 from .utils.data_utils import should_perform_precomputation
 from .utils.file_utils import string_to_filename
+from .utils.memory_utils import free_memory, get_memory_statistics, make_contiguous
 from .utils.optimizer_utils import get_optimizer
-from .utils.memory_utils import get_memory_statistics, free_memory, make_contiguous
-from .utils.torch_utils import unwrap_model, align_device_and_dtype, expand_tensor_to_dims
-from .utils.checkpointing import get_latest_ckpt_path_to_resume_from, get_intermediate_ckpt_path
+from .utils.torch_utils import align_device_and_dtype, expand_tensor_to_dims, unwrap_model
 
 
 logger = get_logger("finetrainers")
@@ -611,10 +613,26 @@ class Trainer:
         accelerator = self.state.accelerator
         weight_dtype = self.state.weight_dtype
         scheduler_sigmas = self.scheduler.sigmas.clone().to(device=accelerator.device, dtype=weight_dtype)
+        scheduler_alphas_cumprod = (
+            self.scheduler.alphas_cumprod.to(accelerator.device, dtype=torch.float32)
+            if hasattr(self.scheduler, "alphas_cumprod")
+            else None
+        )
         generator = torch.Generator(device=accelerator.device)
         if self.args.seed is not None:
             generator = generator.manual_seed(self.args.seed)
         self.state.generator = generator
+
+        is_cog = "Cog" in self.model_config["pipeline_cls"].__class__.__name__
+        if is_cog:
+            vae_config = AutoencoderKLCogVideoX.load_config(self.args.pretrained_model_name_or_path, subfolde="vae")
+            cog_vae_scale_factor_spatial = 2 ** (len(vae_config["block_out_channels"]) - 1)
+            cog_rope_base_height = self.transformer.config.sample_height * cog_vae_scale_factor_spatial
+            cog_rope_base_width = self.transformer.config.sample_width * cog_vae_scale_factor_spatial
+        else:
+            cog_vae_scale_factor_spatial = None
+            cog_rope_base_height = None
+            cog_rope_base_width = None
 
         for epoch in range(first_epoch, self.state.train_epochs):
             logger.debug(f"Starting epoch ({epoch + 1}/{self.state.train_epochs})")
@@ -678,43 +696,72 @@ class Trainer:
                             if "pooled_prompt_embeds" in text_conditions:
                                 text_conditions["pooled_prompt_embeds"].fill_(0)
 
-                    # These weighting schemes use a uniform timestep sampling and instead post-weight the loss
-                    weights = compute_density_for_timestep_sampling(
-                        weighting_scheme=self.args.flow_weighting_scheme,
-                        batch_size=batch_size,
-                        logit_mean=self.args.flow_logit_mean,
-                        logit_std=self.args.flow_logit_std,
-                        mode_scale=self.args.flow_mode_scale,
-                    )
-                    indices = (weights * self.scheduler.config.num_train_timesteps).long()
-                    sigmas = scheduler_sigmas[indices]
-                    timesteps = (sigmas * 1000.0).long()
-
-                    noise = torch.randn(
-                        latent_conditions["latents"].shape,
-                        generator=generator,
-                        device=accelerator.device,
-                        dtype=weight_dtype,
-                    )
-                    sigmas = expand_tensor_to_dims(sigmas, ndim=latent_conditions["latents"].ndim)
-                    noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
+                    is_flow = "Flow" in self.scheduler.__class__.__name__
+                    if is_flow:
+                        sigmas = self._derive_sigmas_for_flow(batch_size=batch_size, scheduler_sigmas=scheduler_sigmas)
+                        timesteps = (sigmas * 1000.0).long()
+                        noise, noisy_latents = self._calculate_noisy_latents_for_flow(
+                            sigmas=sigmas,
+                            latent_conditions=latent_conditions,
+                            generator=generator,
+                            weight_dtype=weight_dtype,
+                        )
+                    elif is_cog:
+                        timesteps = torch.randint(
+                            0,
+                            self.scheduler.config.num_train_timesteps,
+                            (batch_size,),
+                            dtype=torch.int64,
+                            device=latent_conditions["latents"].device,
+                        )
+                        noise, noisy_latents = self._calculate_noisy_latents_for_cog(
+                            latent_conditions=latent_conditions, timesteps=timesteps
+                        )
+                        model_config = (
+                            self.transformer.module.config
+                            if hasattr(self.transformer, "module")
+                            else self.transformer.config
+                        )
+                        _, num_channels, num_frames, height, width = noisy_latents.shape
+                        image_rotary_emb = (
+                            prepare_rotary_positional_embeddings(
+                                height=height * cog_vae_scale_factor_spatial,
+                                width=width * cog_vae_scale_factor_spatial,
+                                num_frames=num_frames,
+                                vae_scale_factor_spatial=cog_vae_scale_factor_spatial,
+                                patch_size=model_config.patch_size,
+                                patch_size_t=model_config.patch_size_t
+                                if hasattr(model_config, "patch_size_t")
+                                else None,
+                                attention_head_dim=model_config.attention_head_dim,
+                                device=accelerator.device,
+                                base_height=cog_rope_base_height,
+                                base_width=cog_rope_base_width,
+                            )
+                            if model_config.use_rotary_positional_embeddings
+                            else None
+                        )
 
                     latent_conditions.update({"noisy_latents": noisy_latents})
+                    if is_cog:
+                        latent_conditions.update({"image_rotary_emb": image_rotary_emb})
 
-                    # These weighting schemes use a uniform timestep sampling and instead post-weight the loss
-                    weights = compute_loss_weighting_for_sd3(
-                        weighting_scheme=self.args.flow_weighting_scheme, sigmas=sigmas
-                    )
-                    pred = self.model_config["forward_pass"](
-                        transformer=self.transformer, timesteps=timesteps, **latent_conditions, **text_conditions
-                    )
-                    target = noise - latent_conditions["latents"]
+                    if is_flow:
+                        loss = self._calculate_flow_loss(
+                            sigmas=sigmas,
+                            timesteps=timesteps,
+                            latent_conditions=latent_conditions,
+                            text_conditions=text_conditions,
+                            noise=noise,
+                        )
+                    elif is_cog:
+                        loss = self._calculate_cog_loss(
+                            scheduler_alphas_cumprod=scheduler_alphas_cumprod,
+                            timesteps=timesteps,
+                            latent_conditions=latent_conditions,
+                            text_conditions=text_conditions,
+                        )
 
-                    loss = weights.float() * (pred["latents"].float() - target.float()).pow(2)
-                    # Average loss across channel dimension
-                    loss = loss.mean(list(range(1, loss.ndim)))
-                    # Average loss across batch dimension
-                    loss = loss.mean()
                     accelerator.backward(loss)
 
                     if accelerator.sync_gradients:
@@ -933,7 +980,6 @@ class Trainer:
                         step=step,
                     )
 
-
         # Remove all hooks that might have been added during pipeline initialization to the models
         pipeline.remove_all_hooks()
         del pipeline
@@ -1039,3 +1085,65 @@ class Trainer:
             elif self.state.accelerator.mixed_precision == "bf16":
                 weight_dtype = torch.bfloat16
         return weight_dtype
+
+    def _derive_sigmas_for_flow(self, batch_size, scheduler_sigmas):
+        # These weighting schemes use a uniform timestep sampling and instead post-weight the loss
+        weights = compute_density_for_timestep_sampling(
+            weighting_scheme=self.args.flow_weighting_scheme,
+            batch_size=batch_size,
+            logit_mean=self.args.flow_logit_mean,
+            logit_std=self.args.flow_logit_std,
+            mode_scale=self.args.flow_mode_scale,
+        )
+        indices = (weights * self.scheduler.config.num_train_timesteps).long()
+        sigmas = scheduler_sigmas[indices]
+        return sigmas
+
+    def _calculate_noisy_latents_for_flow(self, sigmas, latent_conditions, generator, weight_dtype):
+        noise = torch.randn(
+            latent_conditions["latents"].shape,
+            generator=generator,
+            device=self.state.accelerator.device,
+            dtype=weight_dtype,
+        )
+        sigmas = expand_tensor_to_dims(sigmas, ndim=latent_conditions["latents"].ndim)
+        noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
+        return noise, noisy_latents
+
+    def _calculate_noisy_latents_for_cog(self, latent_conditions, timesteps):
+        noise = torch.randn_like(latent_conditions["latents"], generator=torch.manual_seed(self.args.seed))
+        noisy_latents = self.scheduler.add_noise(latent_conditions["latents"], noise, timesteps)
+        return noise, noisy_latents
+
+    def _calculate_flow_loss(self, sigmas, timesteps, latent_conditions, text_conditions, noise):
+        # These weighting schemes use a uniform timestep sampling and instead post-weight the loss
+        weights = compute_loss_weighting_for_sd3(weighting_scheme=self.args.flow_weighting_scheme, sigmas=sigmas)
+        pred = self.model_config["forward_pass"](
+            transformer=self.transformer, timesteps=timesteps, **latent_conditions, **text_conditions
+        )
+        target = noise - latent_conditions["latents"]
+
+        loss = weights.float() * (pred["latents"].float() - target.float()).pow(2)
+        # Average loss across channel dimension
+        loss = loss.mean(list(range(1, loss.ndim)))
+        # Average loss across batch dimension
+        loss = loss.mean()
+        return loss
+
+    def _calculate_cog_loss(self, scheduler_alphas_cumprod, timesteps, latent_conditions, text_conditions):
+        batch_size = latent_conditions["latents"].shape[0]
+        model_pred = self.model_config["forward_pass"](
+            transformer=self.transformer, timesteps=timesteps, **latent_conditions, **text_conditions
+        )
+        weights = 1 / (1 - scheduler_alphas_cumprod[timesteps])
+        weights = expand_tensor_to_dims(weights, model_pred.ndim)
+        while len(weights.shape) < len(model_pred.shape):
+            weights = weights.unsqueeze(-1)
+
+        target = latent_conditions["latents"]
+        loss = torch.mean(
+            (weights * (model_pred - target) ** 2).reshape(batch_size, -1),
+            dim=1,
+        )
+        loss = loss.mean()
+        return loss
