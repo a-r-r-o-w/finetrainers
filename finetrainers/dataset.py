@@ -222,7 +222,7 @@ class ImageOrVideoDataset(Dataset):
         image = TTF.Image.open(path.as_posix()).convert("RGB")
         image = TTF.to_tensor(image)
         image = self.video_transforms(image)
-        image = image.unsqueeze(0).contiguous()  # [C, H, W] -> [C, 1, H, W] (1-frame video)
+        image = image.unsqueeze(0).contiguous()  # [C, H, W] -> [1, C, H, W] (1-frame video)
         return image
 
     def _preprocess_video(self, path: Path) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
