@@ -47,8 +47,8 @@ class Args:
 
     # Diffusion arguments
     flow_resolution_shifting: bool = False
-    flow_base_image_seq_len: int = 256
-    flow_max_image_seq_len: int = 4096
+    flow_base_seq_len: int = 256
+    flow_max_seq_len: int = 4096
     flow_base_shift: float = 0.5
     flow_max_shift: float = 1.15
     flow_shift: float = 1.0
@@ -145,6 +145,18 @@ class Args:
             "dataloader_arguments": {
                 "dataloader_num_workers": self.dataloader_num_workers,
                 "pin_memory": self.pin_memory,
+            },
+            "diffusion_arguments": {
+                "flow_resolution_shifting": self.flow_resolution_shifting,
+                "flow_base_seq_len": self.flow_base_seq_len,
+                "flow_max_seq_len": self.flow_max_seq_len,
+                "flow_base_shift": self.flow_base_shift,
+                "flow_max_shift": self.flow_max_shift,
+                "flow_shift": self.flow_shift,
+                "flow_weighting_scheme": self.flow_weighting_scheme,
+                "flow_logit_mean": self.flow_logit_mean,
+                "flow_logit_std": self.flow_logit_std,
+                "flow_mode_scale": self.flow_mode_scale,
             },
             "training_arguments": {
                 "training_type": self.training_type,
@@ -365,6 +377,36 @@ def _add_diffusion_arguments(parser: argparse.ArgumentParser) -> None:
         "--flow_resolution_shifting",
         action="store_true",
         help="Resolution-dependant shifting of timestep schedules.",
+    )
+    parser.add_argument(
+        "--flow_base_seq_len",
+        type=int,
+        default=256,
+        help="Base image/video sequence length for the diffusion model.",
+    )
+    parser.add_argument(
+        "--flow_max_seq_len",
+        type=int,
+        default=4096,
+        help="Maximum image/video sequence length for the diffusion model.",
+    )
+    parser.add_argument(
+        "--flow_base_shift",
+        type=float,
+        default=0.5,
+        help="Base shift as described in [Scaling Rectified Flow Transformers for High-Resolution Image Synthesis](https://arxiv.org/abs/2403.03206)",
+    )
+    parser.add_argument(
+        "--flow_max_shift",
+        type=float,
+        default=1.15,
+        help="Maximum shift as described in [Scaling Rectified Flow Transformers for High-Resolution Image Synthesis](https://arxiv.org/abs/2403.03206)",
+    )
+    parser.add_argument(
+        "--flow_shift",
+        type=float,
+        default=1.0,
+        help="Shift value to use for the flow matching timestep schedule.",
     )
     parser.add_argument(
         "--flow_weighting_scheme",
@@ -717,6 +759,11 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
 
     # Diffusion arguments
     result_args.flow_resolution_shifting = args.flow_resolution_shifting
+    result_args.flow_base_seq_len = args.flow_base_seq_len
+    result_args.flow_max_seq_len = args.flow_max_seq_len
+    result_args.flow_base_shift = args.flow_base_shift
+    result_args.flow_max_shift = args.flow_max_shift
+    result_args.flow_shift = args.flow_shift
     result_args.flow_weighting_scheme = args.flow_weighting_scheme
     result_args.flow_logit_mean = args.flow_logit_mean
     result_args.flow_logit_std = args.flow_logit_std
@@ -731,6 +778,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.train_steps = args.train_steps
     result_args.rank = args.rank
     result_args.lora_alpha = args.lora_alpha
+    result_args.target_modules = args.target_modules
     result_args.gradient_accumulation_steps = args.gradient_accumulation_steps
     result_args.gradient_checkpointing = args.gradient_checkpointing
     result_args.checkpointing_steps = args.checkpointing_steps

@@ -58,6 +58,7 @@ def load_latent_models(
 def load_diffusion_models(
     model_id: str = "hunyuanvideo-community/HunyuanVideo",
     transformer_dtype: torch.dtype = torch.bfloat16,
+    shift: float = 1.0,
     revision: Optional[str] = None,
     cache_dir: Optional[str] = None,
     **kwargs,
@@ -65,7 +66,7 @@ def load_diffusion_models(
     transformer = HunyuanVideoTransformer3DModel.from_pretrained(
         model_id, subfolder="transformer", torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
     )
-    scheduler = FlowMatchEulerDiscreteScheduler()
+    scheduler = FlowMatchEulerDiscreteScheduler(shift=shift)
     return {"transformer": transformer, "scheduler": scheduler}
 
 
@@ -195,13 +196,15 @@ def prepare_latents(
             h = torch.cat(encoded_slices)
         else:
             h = vae._encode(image_or_video)
-            return {"latents": h}
+        return {"latents": h, "scaling_factor": vae.config.scaling_factor}
 
 
 def post_latent_preparation(
     latents: torch.Tensor,
+    scaling_factor: float,
     **kwargs,
 ) -> torch.Tensor:
+    latents = latents * scaling_factor
     return {"latents": latents}
 
 
