@@ -4,6 +4,8 @@ import torch
 from diffusers import AutoencoderKLCogVideoX, CogVideoXDPMScheduler, CogVideoXPipeline, CogVideoXTransformer3DModel
 from PIL import Image
 from transformers import T5EncoderModel, T5Tokenizer
+from .utils import prepare_rotary_positional_embeddings
+from ..utils.torch_utils import expand_tensor_to_dims
 
 
 def load_condition_models(
@@ -153,6 +155,10 @@ def prepare_latents(
 
 
 def post_latent_preparation(latents: torch.Tensor, **kwargs) -> torch.Tensor:
+    if kwargs.get("precompute_conditions", False) and kwargs.get("vae_config", None) is not None:
+        latents = _scale_latents(latents, kwargs.get("vae_config"))
+    latents = _pad_frames(latents, kwargs.get("denoier_config", None))
+    latents = latents.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
     return {"latents": latents}
 
 
@@ -162,17 +168,51 @@ def collate_fn_t2v(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torc
         "videos": torch.stack([x["video"] for x in batch[0]]),
     }
 
+def calculate_noisy_latents(scheduler, latent_conditions, timesteps, state):
+    noise = torch.randn(
+        latent_conditions["latents"].shape,
+        generator=state.generator,
+        device=state.accelerator.device,
+        dtype=state.weight_dtype,
+    )
+    noisy_latents = scheduler.add_noise(latent_conditions["latents"], noise, timesteps)
+    return noise, noisy_latents
 
 def forward_pass(
     transformer: CogVideoXTransformer3DModel,
     prompt_embeds: torch.Tensor,
     noisy_latents: torch.Tensor,
     timesteps: torch.LongTensor,
-    image_rotary_emb: torch.Tensor,
     ofs_emb: Optional[torch.Tensor] = None,
     latents: torch.Tensor = None,
+    **kwargs
 ) -> torch.Tensor:
-    noisy_latents = noisy_latents.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
+    denoiser_config = transformer.module.config if hasattr(transformer, "module") else transformer.config
+    _, num_channels, num_frames, height, width = noisy_latents.shape
+    vae_config = kwargs.get("vae_config")
+    cog_vae_scale_factor_spatial = 2 ** (len(vae_config["block_out_channels"]) - 1)
+    cog_rope_base_height = denoiser_config.sample_height * cog_vae_scale_factor_spatial
+    cog_rope_base_width = denoiser_config.sample_width * cog_vae_scale_factor_spatial
+
+    image_rotary_emb = (
+        prepare_rotary_positional_embeddings(
+            height=height * cog_vae_scale_factor_spatial,
+            width=width * cog_vae_scale_factor_spatial,
+            num_frames=num_frames,
+            vae_scale_factor_spatial=cog_vae_scale_factor_spatial,
+            patch_size=denoiser_config.patch_size,
+            patch_size_t=denoiser_config.patch_size_t
+            if hasattr(denoiser_config, "patch_size_t")
+            else None,
+            attention_head_dim=denoiser_config.attention_head_dim,
+            device=transformer.device,
+            base_height=cog_rope_base_height,
+            base_width=cog_rope_base_width,
+        )
+        if denoiser_config.use_rotary_positional_embeddings
+        else None
+    )
+    
     denoised_latents = transformer(
         hidden_states=noisy_latents,
         timestep=timesteps,
@@ -211,6 +251,40 @@ def validation(
     output = pipeline(**generation_kwargs).frames[0]
     return [("video", output)]
 
+def calculate_timesteps(scheduler, latent_conditions, generator):
+    batch_size = latent_conditions["latents"].shape[0]
+    timesteps = torch.randint(
+        0,
+        scheduler.config.num_train_timesteps,
+        (batch_size,),
+        dtype=torch.int64,
+        device=latent_conditions["latents"].device,
+        generator=generator,
+    )
+    return timesteps
+
+def calculate_loss(denoiser, model_config, scheduler, latent_conditions, text_conditions, timesteps):
+    batch_size = latent_conditions["noisy_latents"].shape[0]
+    scheduler_alphas_cumprod = (
+        scheduler.alphas_cumprod.clone().to(denoiser.device, dtype=torch.float32)
+    )
+
+    model_pred = model_config["forward_pass"](
+        transformer=denoiser, timesteps=timesteps, **latent_conditions, **text_conditions
+    )["latents"]
+    model_pred = scheduler.get_velocity(model_pred, latent_conditions["noisy_latents"], timesteps)
+    
+    weights = 1 / (1 - scheduler_alphas_cumprod[timesteps])
+    weights = expand_tensor_to_dims(weights, latent_conditions["noisy_latents"].ndim)
+    target = latent_conditions["latents"].view_as(model_pred)
+    
+    loss = torch.mean(
+        (weights * (model_pred - target) ** 2).reshape(batch_size, -1),
+        dim=1,
+    )
+    loss = loss.mean()
+    return loss
+
 
 def _get_t5_prompt_embeds(
     tokenizer: T5Tokenizer,
@@ -238,6 +312,32 @@ def _get_t5_prompt_embeds(
     return {"prompt_embeds": prompt_embeds}
 
 
+def _pad_frames(latents, denoiser_config=None):
+    if denoiser_config:
+        # `latents` should be of the following format: [B, C, F, H, W].
+        # For CogVideoX 1.5, the latent frames should be padded to make it divisible by patch_size_t
+        latent_num_frames = latents.shape[2]
+        additional_frames = 0
+        patch_size_t = denoiser_config.patch_size_t
+        if patch_size_t is not None and latent_num_frames % patch_size_t != 0:
+            additional_frames = patch_size_t - latent_num_frames % patch_size_t
+        
+        if additional_frames:
+            last_frame = latents[:, :, -1:, :, :]
+            padding_frames = last_frame.repeat(1, 1, additional_frames, 1, 1)
+            latents = torch.cat([latents, padding_frames], dim=2)
+
+    return latents
+
+
+def _scale_latents(latents, vae_config):
+    if not vae_config["invert_scale_latents"]:
+        latents = latents * vae_config["scaling_factor"]
+    else:
+        latents = 1 / vae_config["scaling_factor"] * latents
+    return latents
+
+
 COGVIDEOX_T2V_LORA_CONFIG = {
     "pipeline_cls": CogVideoXPipeline,
     "load_condition_models": load_condition_models,
@@ -248,6 +348,9 @@ COGVIDEOX_T2V_LORA_CONFIG = {
     "prepare_latents": prepare_latents,
     "post_latent_preparation": post_latent_preparation,
     "collate_fn": collate_fn_t2v,
+    "calculate_noisy_latents": calculate_noisy_latents,
     "forward_pass": forward_pass,
+    "calculate_timesteps": calculate_timesteps,
+    "calculate_loss": calculate_loss,
     "validation": validation,
 }

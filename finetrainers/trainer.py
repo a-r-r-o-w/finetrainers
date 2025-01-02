@@ -52,7 +52,7 @@ from .utils.file_utils import string_to_filename
 from .utils.memory_utils import free_memory, get_memory_statistics, make_contiguous
 from .utils.optimizer_utils import get_optimizer
 from .utils.torch_utils import align_device_and_dtype, expand_tensor_to_dims, unwrap_model
-
+from .utils.model_utils import _resolve_vae_cls_from_ckpt_path
 
 logger = get_logger("finetrainers")
 logger.setLevel(FINETRAINERS_LOG_LEVEL)
@@ -631,19 +631,13 @@ class Trainer:
             else None
         )
         denoiser_config = self.transformer.module.config if hasattr(self.transformer, "module") else self.transformer.config
-
-        is_cog = "Cog" in self.model_config["pipeline_cls"].__name__
-        if is_cog:
-            cog_vae_config = AutoencoderKLCogVideoX.load_config(self.args.pretrained_model_name_or_path, subfolder="vae")
-            cog_vae_scale_factor_spatial = 2 ** (len(cog_vae_config["block_out_channels"]) - 1)
-            cog_rope_base_height = denoiser_config.sample_height * cog_vae_scale_factor_spatial
-            cog_rope_base_width = denoiser_config.sample_width * cog_vae_scale_factor_spatial
-        else:
-            cog_vae_config = None
-            cog_vae_scale_factor_spatial = None
-            cog_rope_base_height = None
-            cog_rope_base_width = None
-
+        vae_cls_name = _resolve_vae_cls_from_ckpt_path(self.args.pretrained_model_name_or_path)
+        vae_config = vae_cls_name.load_config(self.args.pretrained_model_name_or_path, subfolder="vae")
+        configs = {
+            "denoiser_config": denoiser_config,
+            "vae_config": vae_config, 
+            "precompute_conditions": self.args.precompute_conditions
+        }
 
         for epoch in range(first_epoch, self.state.train_epochs):
             logger.debug(f"Starting epoch ({epoch + 1}/{self.state.train_epochs})")
@@ -689,17 +683,11 @@ class Trainer:
                         latent_conditions["latents"] = DiagonalGaussianDistribution(
                             latent_conditions["latents"]
                         ).sample(self.state.generator)
-                        if is_cog:
-                            if not cog_vae_config["invert_scale_latents"]:
-                                latent_conditions["latents"] = latent_conditions["latents"] * cog_vae_config["scaling_factor"]
-                            else:
-                                latent_conditions["latents"] = 1 / cog_vae_config["scaling_factor"] * latent_conditions["latents"]
-                        
-                    if is_cog:
-                        latent_conditions["latents"] = self._pad_frames(latents=latent_conditions["latents"], denoiser_config=denoiser_config)
                     
                     if "post_latent_preparation" in self.model_config.keys():
-                        latent_conditions = self.model_config["post_latent_preparation"](**latent_conditions)
+                        latent_conditions = self.model_config["post_latent_preparation"](
+                            **latent_conditions, **configs
+                        )
                     align_device_and_dtype(latent_conditions, accelerator.device, weight_dtype)
                     align_device_and_dtype(text_conditions, accelerator.device, weight_dtype)
                     batch_size = latent_conditions["latents"].shape[0]
@@ -716,66 +704,48 @@ class Trainer:
                             if "pooled_prompt_embeds" in text_conditions:
                                 text_conditions["pooled_prompt_embeds"].fill_(0)
 
-                    is_flow = "Flow" in self.scheduler.__class__.__name__
-                    if is_flow:
-                        sigmas = self._derive_sigmas_for_flow(batch_size=batch_size, scheduler_sigmas=scheduler_sigmas)
+                    if "calculate_timesteps" in self.model_config.keys():
+                        timesteps = self.model_config["calculate_timesteps"]()
+                    else: # As flow-based calculations are more common for now.
+                        sigmas = self.derive_sigmas_for_flow(batch_size=batch_size, scheduler_sigmas=scheduler_sigmas)
                         timesteps = (sigmas * 1000.0).long()
-                        noise, noisy_latents = self._calculate_noisy_latents_for_flow(
+                    
+                    # Same reason as above.
+                    if "calculate_noisy_latents" in self.model_config.keys():
+                        noise, noisy_latents = self.model_config["calculate_noisy_latents"](
+                            scheduler=self.scheduler,
+                            latent_conditions=latent_conditions, 
+                            timesteps=timesteps, 
+                            state=self.state
+                        )
+                    else:
+                        noise, noisy_latents = self.calculate_noisy_latents_for_flow(
                             sigmas=sigmas,
                             latent_conditions=latent_conditions,
                             generator=self.state.generator,
                             weight_dtype=weight_dtype,
                         )
-                    elif is_cog:
-                        timesteps = torch.randint(
-                            0,
-                            self.scheduler.config.num_train_timesteps,
-                            (batch_size,),
-                            dtype=torch.int64,
-                            device=latent_conditions["latents"].device,
-                            generator=self.state.generator,
-                        )
-                        noise, noisy_latents = self._calculate_noisy_latents_for_cog(
-                            latent_conditions=latent_conditions, timesteps=timesteps, weight_dtype=weight_dtype
-                        )
-                        _, num_channels, num_frames, height, width = noisy_latents.shape
-                        image_rotary_emb = (
-                            prepare_rotary_positional_embeddings(
-                                height=height * cog_vae_scale_factor_spatial,
-                                width=width * cog_vae_scale_factor_spatial,
-                                num_frames=num_frames,
-                                vae_scale_factor_spatial=cog_vae_scale_factor_spatial,
-                                patch_size=denoiser_config.patch_size,
-                                patch_size_t=denoiser_config.patch_size_t
-                                if hasattr(denoiser_config, "patch_size_t")
-                                else None,
-                                attention_head_dim=denoiser_config.attention_head_dim,
-                                device=accelerator.device,
-                                base_height=cog_rope_base_height,
-                                base_width=cog_rope_base_width,
-                            )
-                            if denoiser_config.use_rotary_positional_embeddings
-                            else None
-                        )
+
 
                     latent_conditions.update({"noisy_latents": noisy_latents})
-                    if is_cog:
-                        latent_conditions.update({"image_rotary_emb": image_rotary_emb})
 
-                    if is_flow:
-                        loss = self._calculate_flow_loss(
+                    if "calculate_loss" in self.model_config.keys():
+                        loss = self.model_config["calculate_loss"](
+                            denoiser=self.transformer,
+                            model_config=self.model_config,
+                            latent_conditions=latent_conditions,
+                            text_conditions=text_conditions,
+                            timesteps=timesteps,
+                            scheduler=self.scheduler
+                        )
+                    # Because flow loss is more common across two models.
+                    else:
+                        loss = self.calculate_flow_loss(
                             sigmas=sigmas,
                             timesteps=timesteps,
                             latent_conditions=latent_conditions,
                             text_conditions=text_conditions,
                             noise=noise,
-                        )
-                    elif is_cog:
-                        loss = self._calculate_cog_loss(
-                            scheduler_alphas_cumprod=scheduler_alphas_cumprod,
-                            timesteps=timesteps,
-                            latent_conditions=latent_conditions,
-                            text_conditions=text_conditions,
                         )
 
                     accelerator.backward(loss)
@@ -1010,6 +980,45 @@ class Trainer:
         if not final_validation:
             self.transformer.train()
 
+    def derive_sigmas_for_flow(self, batch_size, scheduler_sigmas):
+        # These weighting schemes use a uniform timestep sampling and instead post-weight the loss
+        weights = compute_density_for_timestep_sampling(
+            weighting_scheme=self.args.flow_weighting_scheme,
+            batch_size=batch_size,
+            logit_mean=self.args.flow_logit_mean,
+            logit_std=self.args.flow_logit_std,
+            mode_scale=self.args.flow_mode_scale,
+        )
+        indices = (weights * self.scheduler.config.num_train_timesteps).long()
+        sigmas = scheduler_sigmas[indices]
+        return sigmas
+
+    def calculate_noisy_latents_for_flow(self, sigmas, latent_conditions, weight_dtype):
+        noise = torch.randn(
+            latent_conditions["latents"].shape,
+            generator=self.state.generator,
+            device=self.state.accelerator.device,
+            dtype=weight_dtype,
+        )
+        sigmas = expand_tensor_to_dims(sigmas, ndim=latent_conditions["latents"].ndim)
+        noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
+        return noise, noisy_latents
+
+    def calculate_flow_loss(self, sigmas, timesteps, latent_conditions, text_conditions, noise):
+        # These weighting schemes use a uniform timestep sampling and instead post-weight the loss
+        weights = compute_loss_weighting_for_sd3(weighting_scheme=self.args.flow_weighting_scheme, sigmas=sigmas)
+        pred = self.model_config["forward_pass"](
+            transformer=self.transformer, timesteps=timesteps, **latent_conditions, **text_conditions
+        )
+        target = noise - latent_conditions["latents"]
+
+        loss = weights.float() * (pred["latents"].float() - target.float()).pow(2)
+        # Average loss across channel dimension
+        loss = loss.mean(list(range(1, loss.ndim)))
+        # Average loss across batch dimension
+        loss = loss.mean()
+        return loss
+
     def evaluate(self) -> None:
         raise NotImplementedError
 
@@ -1100,83 +1109,4 @@ class Trainer:
                 weight_dtype = torch.bfloat16
         return weight_dtype
 
-    def _derive_sigmas_for_flow(self, batch_size, scheduler_sigmas):
-        # These weighting schemes use a uniform timestep sampling and instead post-weight the loss
-        weights = compute_density_for_timestep_sampling(
-            weighting_scheme=self.args.flow_weighting_scheme,
-            batch_size=batch_size,
-            logit_mean=self.args.flow_logit_mean,
-            logit_std=self.args.flow_logit_std,
-            mode_scale=self.args.flow_mode_scale,
-        )
-        indices = (weights * self.scheduler.config.num_train_timesteps).long()
-        sigmas = scheduler_sigmas[indices]
-        return sigmas
-
-    def _calculate_noisy_latents_for_flow(self, sigmas, latent_conditions, weight_dtype):
-        noise = torch.randn(
-            latent_conditions["latents"].shape,
-            generator=self.state.generator,
-            device=self.state.accelerator.device,
-            dtype=weight_dtype,
-        )
-        sigmas = expand_tensor_to_dims(sigmas, ndim=latent_conditions["latents"].ndim)
-        noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
-        return noise, noisy_latents
-
-    def _calculate_noisy_latents_for_cog(self, latent_conditions, timesteps, weight_dtype):
-        noise = torch.randn(
-            latent_conditions["latents"].shape,
-            generator=self.state.generator,
-            device=self.state.accelerator.device,
-            dtype=weight_dtype,
-        )
-        noisy_latents = self.scheduler.add_noise(latent_conditions["latents"], noise, timesteps)
-        return noise, noisy_latents
-
-    def _calculate_flow_loss(self, sigmas, timesteps, latent_conditions, text_conditions, noise):
-        # These weighting schemes use a uniform timestep sampling and instead post-weight the loss
-        weights = compute_loss_weighting_for_sd3(weighting_scheme=self.args.flow_weighting_scheme, sigmas=sigmas)
-        pred = self.model_config["forward_pass"](
-            transformer=self.transformer, timesteps=timesteps, **latent_conditions, **text_conditions
-        )
-        target = noise - latent_conditions["latents"]
-
-        loss = weights.float() * (pred["latents"].float() - target.float()).pow(2)
-        # Average loss across channel dimension
-        loss = loss.mean(list(range(1, loss.ndim)))
-        # Average loss across batch dimension
-        loss = loss.mean()
-        return loss
-
-    def _calculate_cog_loss(self, scheduler_alphas_cumprod, timesteps, latent_conditions, text_conditions):
-        batch_size = latent_conditions["noisy_latents"].shape[0]
-        model_pred = self.model_config["forward_pass"](
-            transformer=self.transformer, timesteps=timesteps, **latent_conditions, **text_conditions
-        )["latents"]
-        weights = 1 / (1 - scheduler_alphas_cumprod[timesteps])
-        weights = expand_tensor_to_dims(weights, latent_conditions["noisy_latents"].ndim)
-        target = latent_conditions["latents"].view_as(model_pred)
-        loss = torch.mean(
-            (weights * (model_pred - target) ** 2).reshape(batch_size, -1),
-            dim=1,
-        )
-        loss = loss.mean()
-        return loss
-
-    def _pad_frames(self, latents, denoiser_config):
-        # `latents` should be of the following format: [B, C, F, H, W].
-        # For CogVideoX 1.5, the latent frames should be padded to make it divisible by patch_size_t
-        latent_num_frames = latents.shape[2]
-        additional_frames = 0
-        patch_size_t = denoiser_config.patch_size_t
-        if patch_size_t is not None and latent_num_frames % patch_size_t != 0:
-            additional_frames = patch_size_t - latent_num_frames % patch_size_t
-        
-        if additional_frames:
-            last_frame = latents[:, :, -1:, :, :]
-            padding_frames = last_frame.repeat(1, 1, additional_frames, 1, 1)
-            latents = torch.cat([latents, padding_frames], dim=2)
-
-        return latents
 

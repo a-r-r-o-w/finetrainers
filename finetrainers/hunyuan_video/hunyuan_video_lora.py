@@ -198,10 +198,7 @@ def prepare_latents(
             return {"latents": h}
 
 
-def post_latent_preparation(
-    latents: torch.Tensor,
-    **kwargs,
-) -> torch.Tensor:
+def post_latent_preparation(latents: torch.Tensor, **kwargs) -> torch.Tensor:
     return {"latents": latents}
 
 
@@ -221,6 +218,7 @@ def forward_pass(
     latents: torch.Tensor,
     noisy_latents: torch.Tensor,
     timesteps: torch.LongTensor,
+    **kwargs
 ) -> torch.Tensor:
     denoised_latents = transformer(
         hidden_states=noisy_latents,
