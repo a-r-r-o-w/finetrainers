@@ -1,7 +1,8 @@
 import inspect
 
-from accelerate.logging import get_logger
 import torch
+from accelerate.logging import get_logger
+
 
 logger = get_logger("finetrainers")
 
@@ -45,7 +46,7 @@ def get_optimizer(
 
     if (use_torchao and (use_8bit or use_4bit)) or use_cpu_offload_optimizer:
         try:
-            import torchao
+            import torchao  # noqa
 
         except ImportError:
             raise ImportError(

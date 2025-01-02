@@ -8,6 +8,7 @@ python3 test_lora_inference.py --prompt "A girl is ridding a bike." --model_path
 """
 
 import argparse
+
 import torch
 from diffusers import CogVideoXPipeline
 from diffusers.utils import export_to_video
