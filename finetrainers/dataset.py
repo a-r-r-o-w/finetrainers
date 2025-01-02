@@ -20,7 +20,7 @@ import decord  # isort:skip
 
 decord.bridge.set_bridge("torch")
 
-from .constants import PRECOMPUTED_DIR_NAME, PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME
+from .constants import PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME  # noqa
 
 
 logger = get_logger(__name__)

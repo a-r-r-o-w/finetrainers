@@ -4,8 +4,9 @@ import torch
 from diffusers import AutoencoderKLCogVideoX, CogVideoXDPMScheduler, CogVideoXPipeline, CogVideoXTransformer3DModel
 from PIL import Image
 from transformers import T5EncoderModel, T5Tokenizer
-from .utils import prepare_rotary_positional_embeddings
+
 from ..utils.torch_utils import expand_tensor_to_dims
+from .utils import prepare_rotary_positional_embeddings
 
 
 def load_condition_models(
@@ -168,6 +169,7 @@ def collate_fn_t2v(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torc
         "videos": torch.stack([x["video"] for x in batch[0]]),
     }
 
+
 def calculate_noisy_latents(scheduler, latent_conditions, timesteps, state):
     noise = torch.randn(
         latent_conditions["latents"].shape,
@@ -178,6 +180,7 @@ def calculate_noisy_latents(scheduler, latent_conditions, timesteps, state):
     noisy_latents = scheduler.add_noise(latent_conditions["latents"], noise, timesteps)
     return noise, noisy_latents
 
+
 def forward_pass(
     transformer: CogVideoXTransformer3DModel,
     prompt_embeds: torch.Tensor,
@@ -185,7 +188,7 @@ def forward_pass(
     timesteps: torch.LongTensor,
     ofs_emb: Optional[torch.Tensor] = None,
     latents: torch.Tensor = None,
-    **kwargs
+    **kwargs,
 ) -> torch.Tensor:
     denoiser_config = transformer.module.config if hasattr(transformer, "module") else transformer.config
     _, num_channels, num_frames, height, width = noisy_latents.shape
@@ -201,9 +204,7 @@ def forward_pass(
             num_frames=num_frames,
             vae_scale_factor_spatial=cog_vae_scale_factor_spatial,
             patch_size=denoiser_config.patch_size,
-            patch_size_t=denoiser_config.patch_size_t
-            if hasattr(denoiser_config, "patch_size_t")
-            else None,
+            patch_size_t=denoiser_config.patch_size_t if hasattr(denoiser_config, "patch_size_t") else None,
             attention_head_dim=denoiser_config.attention_head_dim,
             device=transformer.device,
             base_height=cog_rope_base_height,
@@ -250,6 +251,7 @@ def validation(
     output = pipeline(**generation_kwargs).frames[0]
     return [("video", output)]
 
+
 def calculate_timesteps(scheduler, latent_conditions, generator):
     batch_size = latent_conditions["latents"].shape[0]
     timesteps = torch.randint(
@@ -262,23 +264,20 @@ def calculate_timesteps(scheduler, latent_conditions, generator):
     )
     return timesteps
 
-def calculate_loss(
-        denoiser, model_config, scheduler, latent_conditions, text_conditions, configs, timesteps
-    ):
+
+def calculate_loss(denoiser, model_config, scheduler, latent_conditions, text_conditions, configs, timesteps):
     batch_size = latent_conditions["noisy_latents"].shape[0]
-    scheduler_alphas_cumprod = (
-        scheduler.alphas_cumprod.clone().to(denoiser.device, dtype=torch.float32)
-    )
+    scheduler_alphas_cumprod = scheduler.alphas_cumprod.clone().to(denoiser.device, dtype=torch.float32)
 
     model_pred = model_config["forward_pass"](
         transformer=denoiser, timesteps=timesteps, **latent_conditions, **text_conditions, **configs
     )["latents"]
     model_pred = scheduler.get_velocity(model_pred, latent_conditions["noisy_latents"], timesteps)
-    
+
     weights = 1 / (1 - scheduler_alphas_cumprod[timesteps])
     weights = expand_tensor_to_dims(weights, latent_conditions["noisy_latents"].ndim)
     target = latent_conditions["latents"].view_as(model_pred)
-    
+
     loss = torch.mean(
         (weights * (model_pred - target) ** 2).reshape(batch_size, -1),
         dim=1,
@@ -322,7 +321,7 @@ def _pad_frames(latents, denoiser_config=None):
         patch_size_t = denoiser_config.patch_size_t
         if patch_size_t is not None and latent_num_frames % patch_size_t != 0:
             additional_frames = patch_size_t - latent_num_frames % patch_size_t
-        
+
         if additional_frames:
             last_frame = latents[:, :, -1:, :, :]
             padding_frames = last_frame.repeat(1, 1, additional_frames, 1, 1)

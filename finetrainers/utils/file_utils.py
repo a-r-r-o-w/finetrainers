@@ -2,7 +2,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import List, Union
 
 
 logger = logging.getLogger("finetrainers")

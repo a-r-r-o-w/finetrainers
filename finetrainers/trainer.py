@@ -21,7 +21,6 @@ from accelerate.utils import (
     gather_object,
     set_seed,
 )
-from diffusers import AutoencoderKLCogVideoX
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import (
@@ -33,10 +32,8 @@ from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
-import torch.nn.functional as F
 
 from .args import _INVERSE_DTYPE_MAP, Args, validate_args
-from .cogvideox.utils import prepare_rotary_positional_embeddings
 from .constants import (
     FINETRAINERS_LOG_LEVEL,
     PRECOMPUTED_CONDITIONS_DIR_NAME,
@@ -50,9 +47,10 @@ from .utils.checkpointing import get_intermediate_ckpt_path, get_latest_ckpt_pat
 from .utils.data_utils import should_perform_precomputation
 from .utils.file_utils import string_to_filename
 from .utils.memory_utils import free_memory, get_memory_statistics, make_contiguous
+from .utils.model_utils import _resolve_vae_cls_from_ckpt_path
 from .utils.optimizer_utils import get_optimizer
 from .utils.torch_utils import align_device_and_dtype, expand_tensor_to_dims, unwrap_model
-from .utils.model_utils import _resolve_vae_cls_from_ckpt_path
+
 
 logger = get_logger("finetrainers")
 logger.setLevel(FINETRAINERS_LOG_LEVEL)
@@ -625,16 +623,18 @@ class Trainer:
             if hasattr(self.scheduler, "sigmas")
             else None
         )
-    
-        denoiser_config = self.transformer.module.config if hasattr(self.transformer, "module") else self.transformer.config
+
+        denoiser_config = (
+            self.transformer.module.config if hasattr(self.transformer, "module") else self.transformer.config
+        )
         vae_cls_name = _resolve_vae_cls_from_ckpt_path(
             self.args.pretrained_model_name_or_path, revision=self.args.revision, cache_dir=self.args.cache_dir
         )
         vae_config = vae_cls_name.load_config(self.args.pretrained_model_name_or_path, subfolder="vae")
         configs = {
             "denoiser_config": denoiser_config,
-            "vae_config": vae_config, 
-            "precompute_conditions": self.args.precompute_conditions
+            "vae_config": vae_config,
+            "precompute_conditions": self.args.precompute_conditions,
         }
 
         for epoch in range(first_epoch, self.state.train_epochs):
@@ -681,7 +681,7 @@ class Trainer:
                         latent_conditions["latents"] = DiagonalGaussianDistribution(
                             latent_conditions["latents"]
                         ).sample(self.state.generator)
-                    
+
                     if "post_latent_preparation" in self.model_config.keys():
                         latent_conditions = self.model_config["post_latent_preparation"](
                             **latent_conditions, **configs
@@ -706,19 +706,19 @@ class Trainer:
                         timesteps = self.model_config["calculate_timesteps"](
                             scheduler=self.scheduler,
                             latent_conditions=latent_conditions,
-                            generator=self.state.generator
+                            generator=self.state.generator,
                         )
-                    else: # As flow-based calculations are more common for now.
+                    else:  # As flow-based calculations are more common for now.
                         sigmas = self.derive_sigmas_for_flow(batch_size=batch_size, scheduler_sigmas=scheduler_sigmas)
                         timesteps = (sigmas * 1000.0).long()
-                    
+
                     # Same reason as above.
                     if "calculate_noisy_latents" in self.model_config.keys():
                         noise, noisy_latents = self.model_config["calculate_noisy_latents"](
                             scheduler=self.scheduler,
-                            latent_conditions=latent_conditions, 
-                            timesteps=timesteps, 
-                            state=self.state
+                            latent_conditions=latent_conditions,
+                            timesteps=timesteps,
+                            state=self.state,
                         )
                     else:
                         noise, noisy_latents = self.calculate_noisy_latents_for_flow(
@@ -727,7 +727,6 @@ class Trainer:
                             generator=self.state.generator,
                             weight_dtype=weight_dtype,
                         )
-
 
                     latent_conditions.update({"noisy_latents": noisy_latents})
 
@@ -739,7 +738,7 @@ class Trainer:
                             text_conditions=text_conditions,
                             configs=configs,
                             timesteps=timesteps,
-                            scheduler=self.scheduler
+                            scheduler=self.scheduler,
                         )
                     # Because flow loss is more common across two models.
                     else:
@@ -1012,11 +1011,7 @@ class Trainer:
         # These weighting schemes use a uniform timestep sampling and instead post-weight the loss
         weights = compute_loss_weighting_for_sd3(weighting_scheme=self.args.flow_weighting_scheme, sigmas=sigmas)
         pred = self.model_config["forward_pass"](
-            transformer=self.transformer, 
-            timesteps=timesteps, 
-            **latent_conditions, 
-            **text_conditions,
-            **configs
+            transformer=self.transformer, timesteps=timesteps, **latent_conditions, **text_conditions, **configs
         )
         target = noise - latent_conditions["latents"]
 
@@ -1116,5 +1111,3 @@ class Trainer:
             elif self.state.accelerator.mixed_precision == "bf16":
                 weight_dtype = torch.bfloat16
         return weight_dtype
-
-

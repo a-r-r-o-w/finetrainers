@@ -3,7 +3,7 @@ from typing import Union
 
 from accelerate.logging import get_logger
 
-from ..constants import PRECOMPUTED_DIR_NAME, PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME
+from ..constants import PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME
 
 
 logger = get_logger("finetrainers")

@@ -9,8 +9,8 @@ from diffusers import (
     HunyuanVideoPipeline,
     HunyuanVideoTransformer3DModel,
 )
-from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, LlamaModel, LlamaTokenizer
 from PIL import Image
+from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, LlamaModel, LlamaTokenizer
 
 
 logger = get_logger("finetrainers")  # pylint: disable=invalid-name
@@ -218,7 +218,7 @@ def forward_pass(
     latents: torch.Tensor,
     noisy_latents: torch.Tensor,
     timesteps: torch.LongTensor,
-    **kwargs
+    **kwargs,
 ) -> torch.Tensor:
     denoised_latents = transformer(
         hidden_states=noisy_latents,
