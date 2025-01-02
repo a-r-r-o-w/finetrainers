@@ -1169,8 +1169,9 @@ class Trainer:
             additional_frames = patch_size_t - latent_num_frames % patch_size_t
         
         if additional_frames:
-            pad = (0, 0, 0, 0, 0, additional_frames) 
-            latents = F.pad(latents, pad)
+            last_frame = latents[:, :, -1:, :, :]
+            padding_frames = last_frame.repeat(1, 1, additional_frames, 1, 1)
+            latents = torch.cat([latents, padding_frames], dim=2)
 
         return latents
 
