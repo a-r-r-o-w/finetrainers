@@ -318,7 +318,7 @@ class Trainer:
                 image_or_video=data["video"].unsqueeze(0),
                 device=self.state.accelerator.device,
                 dtype=self.state.weight_dtype,
-                generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
+                generator=self.state.generator,
                 precompute=True,
             )
             filename = latents_dir / f"latents-{self.state.accelerator.process_index}-{index}.pt"
@@ -615,6 +615,11 @@ class Trainer:
 
         accelerator = self.state.accelerator
         weight_dtype = self.state.weight_dtype
+        generator = torch.Generator(device=accelerator.device)
+        if self.args.seed is not None:
+            generator = generator.manual_seed(self.args.seed)
+        self.state.generator = generator
+
         scheduler_sigmas = (
             self.scheduler.sigmas.clone().to(device=accelerator.device, dtype=weight_dtype)
             if hasattr(self.scheduler, "sigmas")
@@ -667,7 +672,7 @@ class Trainer:
                             patch_size_t=denoiser_config.patch_size_t,
                             device=accelerator.device,
                             dtype=weight_dtype,
-                            generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
+                            generator=self.state.generator,
                         )
                         text_conditions = self.model_config["prepare_conditions"](
                             tokenizer=self.tokenizer,
@@ -683,7 +688,7 @@ class Trainer:
                         text_conditions = batch["text_conditions"]
                         latent_conditions["latents"] = DiagonalGaussianDistribution(
                             latent_conditions["latents"]
-                        ).sample(torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed))
+                        ).sample(self.state.generator)
                         if is_cog:
                             if not cog_vae_config["invert_scale_latents"]:
                                 latent_conditions["latents"] = latent_conditions["latents"] * cog_vae_config["scaling_factor"]
@@ -718,7 +723,7 @@ class Trainer:
                         noise, noisy_latents = self._calculate_noisy_latents_for_flow(
                             sigmas=sigmas,
                             latent_conditions=latent_conditions,
-                            generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
+                            generator=self.state.generator,
                             weight_dtype=weight_dtype,
                         )
                     elif is_cog:
@@ -728,7 +733,7 @@ class Trainer:
                             (batch_size,),
                             dtype=torch.int64,
                             device=latent_conditions["latents"].device,
-                            generator=torch.Generator(latent_conditions["latents"].device).manual_seed(self.args.seed),
+                            generator=self.state.generator,
                         )
                         noise, noisy_latents = self._calculate_noisy_latents_for_cog(
                             latent_conditions=latent_conditions, timesteps=timesteps, weight_dtype=weight_dtype
@@ -938,7 +943,7 @@ class Trainer:
                 width=width,
                 num_frames=num_frames,
                 num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
-                generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
+                generator=self.state.generator,
                 # todo support passing `fps` for supported pipelines.
             )
 
@@ -1111,7 +1116,7 @@ class Trainer:
     def _calculate_noisy_latents_for_flow(self, sigmas, latent_conditions, weight_dtype):
         noise = torch.randn(
             latent_conditions["latents"].shape,
-            generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
+            generator=self.state.generator,
             device=self.state.accelerator.device,
             dtype=weight_dtype,
         )
@@ -1122,7 +1127,7 @@ class Trainer:
     def _calculate_noisy_latents_for_cog(self, latent_conditions, timesteps, weight_dtype):
         noise = torch.randn(
             latent_conditions["latents"].shape,
-            generator=torch.Generator(self.state.accelerator.device).manual_seed(self.args.seed),
+            generator=self.state.generator,
             device=self.state.accelerator.device,
             dtype=weight_dtype,
         )
