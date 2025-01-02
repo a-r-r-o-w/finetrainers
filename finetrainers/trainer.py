@@ -40,7 +40,7 @@ from .constants import (
     PRECOMPUTED_DIR_NAME,
     PRECOMPUTED_LATENTS_DIR_NAME,
 )
-from .dataset import BucketSampler, PrecomputedDataset, VideoDatasetWithResizing
+from .dataset import BucketSampler, PrecomputedDataset, ImageOrVideoDatasetWithResizing
 from .models import get_config_from_model_name
 from .state import State
 from .utils.checkpointing import get_intermediate_ckpt_path, get_latest_ckpt_path_to_resume_from
@@ -93,7 +93,7 @@ class Trainer:
         # TODO(aryan): Make a background process for fetching
         logger.info("Initializing dataset and dataloader")
 
-        self.dataset = VideoDatasetWithResizing(
+        self.dataset = ImageOrVideoDatasetWithResizing(
             data_root=self.args.data_root,
             caption_column=self.args.caption_column,
             video_column=self.args.video_column,
@@ -117,6 +117,7 @@ class Trainer:
             "text_encoder_3_dtype": self.args.text_encoder_3_dtype,
             "transformer_dtype": self.args.transformer_dtype,
             "vae_dtype": self.args.vae_dtype,
+            "shift": self.args.flow_shift,
             "revision": self.args.revision,
             "cache_dir": self.args.cache_dir,
         }
@@ -268,7 +269,7 @@ class Trainer:
                 device=self.state.accelerator.device,
                 dtype=self.state.weight_dtype,
             )
-            filename = conditions_dir / f"conditions-{i}-{index}.pt"
+            filename = conditions_dir / f"conditions-{self.state.accelerator.process_index}-{index}.pt"
             torch.save(text_conditions, filename.as_posix())
             index += 1
             progress_bar.update(1)
@@ -752,13 +753,13 @@ class Trainer:
                             )
                             accelerator.save_state(save_path)
 
-                # Maybe run validation
-                should_run_validation = (
-                    self.args.validation_every_n_steps is not None
-                    and global_step % self.args.validation_every_n_steps == 0
-                )
-                if should_run_validation:
-                    self.validate(global_step)
+                    # Maybe run validation
+                    should_run_validation = (
+                        self.args.validation_every_n_steps is not None
+                        and global_step % self.args.validation_every_n_steps == 0
+                    )
+                    if should_run_validation:
+                        self.validate(global_step)
 
                 logs["loss"] = loss.detach().item()
                 logs["lr"] = self.lr_scheduler.get_last_lr()[0]
@@ -798,8 +799,7 @@ class Trainer:
                     repo_id=self.state.repo_id, folder_path=self.args.output_dir, ignore_patterns=["checkpoint-*"]
                 )
 
-        del self.tokenizer, self.text_encoder, self.transformer, self.vae, self.scheduler
-        free_memory()
+        self._delete_components()
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory after training end: {json.dumps(memory_statistics, indent=4)}")
 
