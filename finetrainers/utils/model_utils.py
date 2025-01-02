@@ -3,13 +3,16 @@ import os
 import importlib
 import json 
 
-def _resolve_vae_cls_from_ckpt_path(ckpt_path):
-    # TODO: consider accepting revision.
+def _resolve_vae_cls_from_ckpt_path(ckpt_path, **kwargs):
     ckpt_path = str(ckpt_path)
     if os.path.exists(str(ckpt_path)) and os.path.isdir(ckpt_path):
         index_path = os.path.join(ckpt_path, "model_index.json")
     else:
-        index_path = hf_hub_download(repo_id=ckpt_path, filename="model_index.json")
+        revision = kwargs.get("revision", None)
+        cache_dir = kwargs.get("cache_dir", None)
+        index_path = hf_hub_download(
+            repo_id=ckpt_path, filename="model_index.json", revision=revision, cache_dir=cache_dir
+        )
     
     with open(index_path, "r") as f:
         model_index_dict = json.load(f)

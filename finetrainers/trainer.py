@@ -631,7 +631,9 @@ class Trainer:
             else None
         )
         denoiser_config = self.transformer.module.config if hasattr(self.transformer, "module") else self.transformer.config
-        vae_cls_name = _resolve_vae_cls_from_ckpt_path(self.args.pretrained_model_name_or_path)
+        vae_cls_name = _resolve_vae_cls_from_ckpt_path(
+            self.args.pretrained_model_name_or_path, revision=self.args.revision, cache_dir=self.args.cache_dir
+        )
         vae_config = vae_cls_name.load_config(self.args.pretrained_model_name_or_path, subfolder="vae")
         configs = {
             "denoiser_config": denoiser_config,
