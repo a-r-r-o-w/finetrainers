@@ -703,7 +703,11 @@ class Trainer:
                                 text_conditions["pooled_prompt_embeds"].fill_(0)
 
                     if "calculate_timesteps" in self.model_config.keys():
-                        timesteps = self.model_config["calculate_timesteps"]()
+                        timesteps = self.model_config["calculate_timesteps"](
+                            scheduler=self.scheduler,
+                            latent_conditions=latent_conditions,
+                            generator=self.state.generator
+                        )
                     else: # As flow-based calculations are more common for now.
                         sigmas = self.derive_sigmas_for_flow(batch_size=batch_size, scheduler_sigmas=scheduler_sigmas)
                         timesteps = (sigmas * 1000.0).long()
@@ -733,6 +737,7 @@ class Trainer:
                             model_config=self.model_config,
                             latent_conditions=latent_conditions,
                             text_conditions=text_conditions,
+                            configs=configs,
                             timesteps=timesteps,
                             scheduler=self.scheduler
                         )
@@ -743,6 +748,7 @@ class Trainer:
                             timesteps=timesteps,
                             latent_conditions=latent_conditions,
                             text_conditions=text_conditions,
+                            configs=configs,
                             noise=noise,
                         )
 
@@ -1002,11 +1008,15 @@ class Trainer:
         noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
         return noise, noisy_latents
 
-    def calculate_flow_loss(self, sigmas, timesteps, latent_conditions, text_conditions, noise):
+    def calculate_flow_loss(self, sigmas, timesteps, latent_conditions, text_conditions, configs, noise):
         # These weighting schemes use a uniform timestep sampling and instead post-weight the loss
         weights = compute_loss_weighting_for_sd3(weighting_scheme=self.args.flow_weighting_scheme, sigmas=sigmas)
         pred = self.model_config["forward_pass"](
-            transformer=self.transformer, timesteps=timesteps, **latent_conditions, **text_conditions
+            transformer=self.transformer, 
+            timesteps=timesteps, 
+            **latent_conditions, 
+            **text_conditions,
+            **configs
         )
         target = noise - latent_conditions["latents"]
 

@@ -151,7 +151,7 @@ def prepare_latents(
             h = torch.cat(encoded_slices)
         else:
             h = vae._encode(image_or_video)
-            return {"latents": h}
+        return {"latents": h}
 
 
 def post_latent_preparation(latents: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -212,7 +212,6 @@ def forward_pass(
         if denoiser_config.use_rotary_positional_embeddings
         else None
     )
-    
     denoised_latents = transformer(
         hidden_states=noisy_latents,
         timestep=timesteps,
@@ -263,14 +262,16 @@ def calculate_timesteps(scheduler, latent_conditions, generator):
     )
     return timesteps
 
-def calculate_loss(denoiser, model_config, scheduler, latent_conditions, text_conditions, timesteps):
+def calculate_loss(
+        denoiser, model_config, scheduler, latent_conditions, text_conditions, configs, timesteps
+    ):
     batch_size = latent_conditions["noisy_latents"].shape[0]
     scheduler_alphas_cumprod = (
         scheduler.alphas_cumprod.clone().to(denoiser.device, dtype=torch.float32)
     )
 
     model_pred = model_config["forward_pass"](
-        transformer=denoiser, timesteps=timesteps, **latent_conditions, **text_conditions
+        transformer=denoiser, timesteps=timesteps, **latent_conditions, **text_conditions, **configs
     )["latents"]
     model_pred = scheduler.get_velocity(model_pred, latent_conditions["noisy_latents"], timesteps)
     
