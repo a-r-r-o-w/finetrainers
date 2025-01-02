@@ -4,8 +4,8 @@ import math
 import os
 import random
 from datetime import timedelta
-from typing import Any, Dict
 from pathlib import Path
+from typing import Any, Dict
 
 import diffusers
 import torch
@@ -18,37 +18,37 @@ from accelerate.utils import (
     DistributedDataParallelKwargs,
     InitProcessGroupKwargs,
     ProjectConfiguration,
-    set_seed,
     gather_object,
+    set_seed,
 )
+from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import (
     cast_training_params,
     compute_density_for_timestep_sampling,
     compute_loss_weighting_for_sd3,
 )
-from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
 
-from .args import Args, validate_args, _INVERSE_DTYPE_MAP
+from .args import _INVERSE_DTYPE_MAP, Args, validate_args
 from .constants import (
     FINETRAINERS_LOG_LEVEL,
-    PRECOMPUTED_DIR_NAME,
     PRECOMPUTED_CONDITIONS_DIR_NAME,
+    PRECOMPUTED_DIR_NAME,
     PRECOMPUTED_LATENTS_DIR_NAME,
 )
 from .dataset import BucketSampler, PrecomputedDataset, ImageOrVideoDatasetWithResizing
 from .models import get_config_from_model_name
 from .state import State
+from .utils.checkpointing import get_intermediate_ckpt_path, get_latest_ckpt_path_to_resume_from
 from .utils.data_utils import should_perform_precomputation
 from .utils.file_utils import string_to_filename
+from .utils.memory_utils import free_memory, get_memory_statistics, make_contiguous
 from .utils.optimizer_utils import get_optimizer
-from .utils.memory_utils import get_memory_statistics, free_memory, make_contiguous
-from .utils.torch_utils import unwrap_model, align_device_and_dtype, expand_tensor_to_dims
-from .utils.checkpointing import get_latest_ckpt_path_to_resume_from, get_intermediate_ckpt_path
+from .utils.torch_utils import align_device_and_dtype, expand_tensor_to_dims, unwrap_model
 
 
 logger = get_logger("finetrainers")
@@ -507,6 +507,7 @@ class Trainer:
             beta3=self.args.beta3,
             epsilon=self.args.epsilon,
             weight_decay=self.args.weight_decay,
+            use_8bit=self.args.use_8bit_bnb,
             use_deepspeed=use_deepspeed_opt,
         )
 
@@ -1002,7 +1003,7 @@ class Trainer:
 
             if self.args.push_to_hub:
                 repo_id = self.args.hub_model_id or Path(self.args.output_dir).name
-                self.state.repo_id = create_repo(token=self.args.hub_token, repo_id=repo_id).repo_id
+                self.state.repo_id = create_repo(token=self.args.hub_token, repo_id=repo_id, exist_ok=True).repo_id
 
     def _move_components_to_device(self):
         if self.text_encoder is not None:

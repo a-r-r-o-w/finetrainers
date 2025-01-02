@@ -1,7 +1,8 @@
 import inspect
 
-from accelerate.logging import get_logger
 import torch
+from accelerate.logging import get_logger
+
 
 logger = get_logger("finetrainers")
 
@@ -39,14 +40,14 @@ def get_optimizer(
             weight_decay=weight_decay,
         )
 
+    # TODO: consider moving the validation logic to `args.py` when we have torchao.
     if use_8bit and use_4bit:
         raise ValueError("Cannot set both `use_8bit` and `use_4bit` to True.")
 
     if (use_torchao and (use_8bit or use_4bit)) or use_cpu_offload_optimizer:
         try:
-            import torchao
+            import torchao  # noqa
 
-            torchao.__version__
         except ImportError:
             raise ImportError(
                 "To use optimizers from torchao, please install the torchao library: `USE_CPP=0 pip install torchao`."

@@ -1,5 +1,4 @@
 import gc
-import logging
 from typing import Any, Dict, Union
 
 import torch
