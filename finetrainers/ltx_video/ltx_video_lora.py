@@ -238,7 +238,6 @@ def validation(
         "frame_rate": frame_rate,
         "num_videos_per_prompt": num_videos_per_prompt,
         "generator": generator,
-        "fps": kwargs.get("fps", None),
         "return_dict": True,
         "output_type": "pil",
     }
