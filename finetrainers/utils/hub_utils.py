@@ -11,7 +11,7 @@ from PIL import Image
 def save_model_card(
     args,
     repo_id: str,
-    videos: Union[List[str], Union[List[Image.Image, np.ndarray]]],
+    videos: Union[List[str], Union[List[Image.Image], List[np.ndarray]]],
     validation_prompts: List[str],
     fps: int = 30,
 ) -> None:
