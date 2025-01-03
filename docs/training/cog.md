@@ -9,10 +9,10 @@ export FINETRAINERS_LOG_LEVEL=DEBUG
 
 GPU_IDS="0,1"
 
-DATA_ROOT="/home/sayak/finetrainers/video-dataset-disney"
+DATA_ROOT="/path/to/dataset"
 CAPTION_COLUMN="prompt.txt"
 VIDEO_COLUMN="videos.txt"
-OUTPUT_DIR="/raid/.cache/huggingface/sayak/cog2b/cog2b_disney"
+OUTPUT_DIR="/path/to/models/cog/"
 ID_TOKEN="BW_STYLE"
 
 # Model arguments

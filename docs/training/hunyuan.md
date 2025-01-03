@@ -8,12 +8,12 @@ export NCCL_P2P_DISABLE=1
 export TORCH_NCCL_ENABLE_MONITORING=0
 export FINETRAINERS_LOG_LEVEL=DEBUG
 
-GPU_IDS="0,1,2,3,4,5,6,7"
+GPU_IDS="0,1"
 
 DATA_ROOT="/path/to/dataset"
 CAPTION_COLUMN="prompts.txt"
 VIDEO_COLUMN="videos.txt"
-OUTPUT_DIR="/path/to/models/hunyuan-video/hunyuan-video-loras/hunyuan-video_cakify_500_3e-5_constant_with_warmup"
+OUTPUT_DIR="/path/to/models/hunyuan-video/"
 
 ID_TOKEN="afkx"
 

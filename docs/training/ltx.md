@@ -11,10 +11,10 @@ export FINETRAINERS_LOG_LEVEL=DEBUG
 
 GPU_IDS="0,1"
 
-DATA_ROOT="/raid/aryan/video-dataset-disney"
+DATA_ROOT="/path/to/dataset"
 CAPTION_COLUMN="prompts.txt"
 VIDEO_COLUMN="videos.txt"
-OUTPUT_DIR="/path/to/output/directory/ltx-video/ltxv_disney"
+OUTPUT_DIR="/path/to/models/ltx-video/"
 
 ID_TOKEN="BW_STYLE"
 
