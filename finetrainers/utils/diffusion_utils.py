@@ -121,7 +121,7 @@ def prepare_loss_weights(
     flow_weighting_scheme: str = "none",
 ) -> torch.Tensor:
     if isinstance(scheduler, FlowMatchEulerDiscreteScheduler):
-        return compute_loss_weighting_for_sd3(sigmas, weighting_scheme=flow_weighting_scheme)
+        return compute_loss_weighting_for_sd3(sigmas=sigmas, weighting_scheme=flow_weighting_scheme)
     elif isinstance(scheduler, CogVideoXDDIMScheduler):
         # SNR is computed as (alphas / (1 - alphas)), but for some reason CogVideoX uses 1 / (1 - alphas).
         # TODO(aryan): Experiment if using alphas / (1 - alphas) gives better results.

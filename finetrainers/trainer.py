@@ -11,6 +11,7 @@ import diffusers
 import torch
 import torch.backends
 import transformers
+import wandb
 from accelerate import Accelerator, DistributedType
 from accelerate.logging import get_logger
 from accelerate.utils import (
@@ -28,8 +29,6 @@ from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
-
-import wandb
 
 from .args import _INVERSE_DTYPE_MAP, Args, validate_args
 from .constants import (
@@ -646,7 +645,10 @@ class Trainer:
         self.state.generator = generator
 
         scheduler_sigmas = get_scheduler_sigmas(self.scheduler).to(device=accelerator.device, dtype=torch.float32)
-        scheduler_alphas = get_scheduler_alphas(self.scheduler).to(device=accelerator.device, dtype=torch.float32)
+        scheduler_alphas = get_scheduler_alphas(self.scheduler)
+        scheduler_alphas = (
+            scheduler_alphas.to(device=accelerator.device, dtype=torch.float32) if scheduler_alphas else None
+        )
 
         for epoch in range(first_epoch, self.state.train_epochs):
             logger.debug(f"Starting epoch ({epoch + 1}/{self.state.train_epochs})")
@@ -751,6 +753,7 @@ class Trainer:
                     else:
                         # Default to flow-matching noise addition
                         noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
+                        noisy_latents = noisy_latents.to(latent_conditions["latents"].dtype)
 
                     latent_conditions.update({"noisy_latents": noisy_latents})
 
