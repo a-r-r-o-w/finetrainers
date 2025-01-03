@@ -770,10 +770,7 @@ class Trainer:
                         **text_conditions,
                     )
                     target = prepare_target(
-                        scheduler=self.scheduler,
-                        noise=noise,
-                        latents=latent_conditions["latents"],
-                        prediction=pred["latents"],
+                        scheduler=self.scheduler, noise=noise, latents=latent_conditions["latents"]
                     )
 
                     loss = weights.float() * (pred["latents"].float() - target.float()).pow(2)

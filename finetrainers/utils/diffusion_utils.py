@@ -134,12 +134,11 @@ def prepare_target(
     scheduler: Union[CogVideoXDDIMScheduler, FlowMatchEulerDiscreteScheduler],
     noise: torch.Tensor,
     latents: torch.Tensor,
-    prediction: torch.Tensor,
 ) -> torch.Tensor:
     if isinstance(scheduler, FlowMatchEulerDiscreteScheduler):
         target = noise - latents
     elif isinstance(scheduler, CogVideoXDDIMScheduler):
-        target = prediction
+        target = latents
     else:
         raise ValueError(f"Unsupported scheduler type {type(scheduler)}")
 
