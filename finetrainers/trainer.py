@@ -646,11 +646,15 @@ class Trainer:
 
         scheduler_sigmas = get_scheduler_sigmas(self.scheduler)
         scheduler_sigmas = (
-            scheduler_sigmas.to(device=accelerator.device, dtype=torch.float32) if scheduler_sigmas else None
+            scheduler_sigmas.to(device=accelerator.device, dtype=torch.float32)
+            if scheduler_sigmas is not None
+            else None
         )
         scheduler_alphas = get_scheduler_alphas(self.scheduler)
         scheduler_alphas = (
-            scheduler_alphas.to(device=accelerator.device, dtype=torch.float32) if scheduler_alphas else None
+            scheduler_alphas.to(device=accelerator.device, dtype=torch.float32)
+            if scheduler_alphas is not None
+            else None
         )
 
         for epoch in range(first_epoch, self.state.train_epochs):
