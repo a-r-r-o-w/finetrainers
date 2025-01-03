@@ -140,8 +140,12 @@ def prepare_latents(
         latents = vae.encode(image_or_video).latent_dist.sample(generator=generator)
         if not vae.config.invert_scale_latents:
             latents = latents * vae.config.scaling_factor
-        else:
-            latents = 1 / vae.config.scaling_factor * latents
+        # For training Cog 1.5, we don't need to handle the scaling factor here.
+        # The CogVideoX team forgot to multiply here, so we should not do it too. Invert scale latents
+        # is probably only needed for image-to-video training.
+        # TODO(aryan): investigate this
+        # else:
+        #     latents = 1 / vae.config.scaling_factor * latents
         latents = latents.to(dtype=dtype)
         return {"latents": latents}
     else:
@@ -154,12 +158,18 @@ def prepare_latents(
         return {"latents": h}
 
 
-def post_latent_preparation(vae_config: Dict[str, Any], latents: torch.Tensor, **kwargs) -> torch.Tensor:
+def post_latent_preparation(
+    vae_config: Dict[str, Any], latents: torch.Tensor, patch_size_t: Optional[int] = None, **kwargs
+) -> torch.Tensor:
     if not vae_config.invert_scale_latents:
         latents = latents * vae_config.scaling_factor
-    else:
-        latents = 1 / vae_config.scaling_factor * latents
-    latents = _pad_frames(latents, kwargs.get("denoier_config", None))
+    # For training Cog 1.5, we don't need to handle the scaling factor here.
+    # The CogVideoX team forgot to multiply here, so we should not do it too. Invert scale latents
+    # is probably only needed for image-to-video training.
+    # TODO(aryan): investigate this
+    # else:
+    #     latents = 1 / vae_config.scaling_factor * latents
+    latents = _pad_frames(latents, patch_size_t)
     latents = latents.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
     return {"latents": latents}
 
@@ -174,10 +184,10 @@ def collate_fn_t2v(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torc
 def calculate_noisy_latents(
     scheduler: CogVideoXDDIMScheduler,
     noise: torch.Tensor,
-    latent_conditions: Dict[str, Any],
+    latents: torch.Tensor,
     timesteps: torch.LongTensor,
 ) -> torch.Tensor:
-    noisy_latents = scheduler.add_noise(latent_conditions["latents"], noise, timesteps)
+    noisy_latents = scheduler.add_noise(latents, noise, timesteps)
     return noisy_latents
 
 
@@ -194,7 +204,7 @@ def forward_pass(
     # Just hardcode for now. In Diffusers, we will refactor such that RoPE would be handled within the model itself.
     VAE_SPATIAL_SCALE_FACTOR = 8
     transformer_config = transformer.module.config if hasattr(transformer, "module") else transformer.config
-    batch_size, num_channels, num_frames, height, width = noisy_latents.shape
+    batch_size, num_frames, num_channels, height, width = noisy_latents.shape
     rope_base_height = transformer_config.sample_height * VAE_SPATIAL_SCALE_FACTOR
     rope_base_width = transformer_config.sample_width * VAE_SPATIAL_SCALE_FACTOR
 

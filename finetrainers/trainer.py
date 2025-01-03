@@ -693,13 +693,14 @@ class Trainer:
                             latent_conditions["latents"]
                         ).sample(self.state.generator)
 
-                        if "post_latent_preparation" in self.model_config.keys():
-                            latent_conditions = self.model_config["post_latent_preparation"](
-                                vae_config=self.vae_config,
-                                patch_size=self.transformer_config.patch_size,
-                                patch_size_t=self.transformer_config.patch_size_t,
-                                **latent_conditions,
-                            )
+                        # This method should only be called for precomputed latents.
+                        # TODO(aryan): rename this in separate PR
+                        latent_conditions = self.model_config["post_latent_preparation"](
+                            vae_config=self.vae_config,
+                            patch_size=self.transformer_config.patch_size,
+                            patch_size_t=self.transformer_config.patch_size_t,
+                            **latent_conditions,
+                        )
                         align_device_and_dtype(latent_conditions, accelerator.device, weight_dtype)
                         align_device_and_dtype(text_conditions, accelerator.device, weight_dtype)
                         batch_size = latent_conditions["latents"].shape[0]
@@ -733,21 +734,22 @@ class Trainer:
                     noise = torch.randn(
                         latent_conditions["latents"].shape,
                         generator=self.state.generator,
-                        device=self.state.accelerator.device,
+                        device=accelerator.device,
                         dtype=weight_dtype,
                     )
+                    sigmas = expand_tensor_dims(sigmas, ndim=noise.ndim)
 
                     # TODO(aryan): We probably don't need calculate_noisy_latents because we can determine the type of
                     # scheduler and calculate the noisy latents accordingly. Look into this later.
                     if "calculate_noisy_latents" in self.model_config.keys():
                         noisy_latents = self.model_config["calculate_noisy_latents"](
                             scheduler=self.scheduler,
-                            latent_conditions=latent_conditions,
+                            noise=noise,
+                            latents=latent_conditions["latents"],
                             timesteps=timesteps,
                         )
                     else:
                         # Default to flow-matching noise addition
-                        sigmas = expand_tensor_dims(sigmas, ndim=noise.ndim)
                         noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
 
                     latent_conditions.update({"noisy_latents": noisy_latents})
@@ -1037,8 +1039,10 @@ class Trainer:
             accelerator.native_amp = False
 
         self.state.accelerator = accelerator
-        self.state.seed = self.args.seed
-        set_seed(self.args.seed)
+
+        if self.args.seed is not None:
+            self.state.seed = self.args.seed
+            set_seed(self.args.seed)
 
     def _init_logging(self) -> None:
         logging.basicConfig(
