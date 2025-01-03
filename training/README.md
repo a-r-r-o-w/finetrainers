@@ -183,8 +183,8 @@ Note: Training scripts are untested on MPS, so performance and memory requiremen
   <td align="center"><a href="https://huggingface.co/THUDM/CogVideoX-5b">THUDM/CogVideoX-5b</a></td>
 </tr>
 <tr>
-  <td align="center"><img src="assets/lora_2b.png" /></td>
-  <td align="center"><img src="assets/lora_5b.png" /></td>
+  <td align="center"><img src="../assets/lora_2b.png" /></td>
+  <td align="center"><img src="../assets/lora_5b.png" /></td>
 </tr>
 
 <tr>
@@ -195,8 +195,8 @@ Note: Training scripts are untested on MPS, so performance and memory requiremen
   <td align="center"><a href="https://huggingface.co/THUDM/CogVideoX-5b">THUDM/CogVideoX-5b</a></td>
 </tr>
 <tr>
-  <td align="center"><img src="assets/sft_2b.png" /></td>
-  <td align="center"><img src="assets/sft_5b.png" /></td>
+  <td align="center"><img src="../assets/sft_2b.png" /></td>
+  <td align="center"><img src="../assets/sft_5b.png" /></td>
 </tr>
 </table>
 
