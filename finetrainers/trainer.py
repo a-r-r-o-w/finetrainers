@@ -6,6 +6,7 @@ import random
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict
+import inspect
 
 import diffusers
 import torch
@@ -934,18 +935,23 @@ class Trainer:
                 f"Validating sample {i + 1}/{num_validation_samples} on process {accelerator.process_index}. Prompt: {prompt}",
                 main_process_only=False,
             )
-            validation_artifacts = self.model_config["validation"](
-                pipeline=pipeline,
-                prompt=prompt,
-                image=image,
-                video=video,
-                height=height,
-                width=width,
-                num_frames=num_frames,
-                num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
-                generator=self.state.generator,
-                # todo support passing `fps` for supported pipelines.
+            has_fps_in_call =  any(
+                "fps" in p for p in inspect.signature(self.model_config["pipeline_cls"].__call__).parameters
             )
+            validation_kwargs = {
+                "pipeline": pipeline,
+                "prompt": prompt,
+                "image": image,
+                "video": video,
+                "height": height,
+                "width": width,
+                "num_frames": num_frames,
+                "num_videos_per_prompt": self.args.num_validation_videos_per_prompt,
+                "generator": self.state.generator,
+            }
+            if has_fps_in_call:
+                validation_kwargs.update({"fps": self.args.fps})
+            validation_artifacts = self.model_config["validation"](**validation_kwargs)
 
             prompt_filename = string_to_filename(prompt)[:25]
             artifacts = {
@@ -975,8 +981,7 @@ class Trainer:
                     artifact_value = wandb.Image(filename)
                 elif artifact_type == "video":
                     logger.debug(f"Saving video to {filename}")
-                    # TODO: this should be configurable here as well as in validation runs where we call the pipeline that has `fps`.
-                    export_to_video(artifact_value, filename, fps=15)
+                    export_to_video(artifact_value, filename, fps=self.args.fps)
                     artifact_value = wandb.Video(filename, caption=prompt)
 
                 all_processes_artifacts.append(artifact_value)

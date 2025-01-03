@@ -105,6 +105,7 @@ class Args:
     validation_every_n_epochs: Optional[int] = None
     validation_every_n_steps: Optional[int] = None
     enable_model_cpu_offload: bool = False
+    fps: int = None
 
     # Miscellaneous arguments
     tracker_name: str = "finetrainers"
@@ -190,6 +191,7 @@ class Args:
                 "validation_every_n_epochs": self.validation_every_n_epochs,
                 "validation_every_n_steps": self.validation_every_n_steps,
                 "enable_model_cpu_offload": self.enable_model_cpu_offload,
+                "fps": self.fps,
             },
             "miscellaneous_arguments": {
                 "tracker_name": self.tracker_name,
@@ -625,6 +627,12 @@ def _add_validation_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         default=False,
         help="Whether or not to enable model-wise CPU offloading when performing validation/testing to save memory.",
+    )
+    parser.add_argument(
+        "--fps",
+        type=int,
+        default=8,
+        help="FPS to use to run inference and serialize the videos with.",
     )
 
 
