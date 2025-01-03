@@ -254,7 +254,7 @@ def validation(
         "generator": generator,
         "return_dict": True,
         "output_type": "pil",
-        "fps": kwargs.get("fps", None)
+        "fps": kwargs.get("fps", None),
     }
     generation_kwargs = {k: v for k, v in generation_kwargs.items() if v is not None}
     output = pipeline(**generation_kwargs).frames[0]

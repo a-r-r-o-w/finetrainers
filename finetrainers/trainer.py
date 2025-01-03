@@ -1,12 +1,10 @@
 import json
 import logging
 import math
-import os
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict
-import inspect
 
 import diffusers
 import torch
@@ -25,12 +23,9 @@ from diffusers.configuration_utils import FrozenDict
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import cast_training_params
-from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
-
-import wandb
 
 from .args import _INVERSE_DTYPE_MAP, Args, validate_args
 from .constants import (
@@ -42,6 +37,7 @@ from .constants import (
 from .dataset import BucketSampler, PrecomputedDataset, VideoDatasetWithResizing
 from .models import get_config_from_model_name
 from .state import State
+from .utils.artifact_utils import generate_artifacts, log_artifacts
 from .utils.checkpointing import get_intermediate_ckpt_path, get_latest_ckpt_path_to_resume_from
 from .utils.data_utils import should_perform_precomputation
 from .utils.diffusion_utils import (
@@ -51,7 +47,7 @@ from .utils.diffusion_utils import (
     prepare_sigmas,
     prepare_target,
 )
-from .utils.file_utils import string_to_filename
+from .utils.hub_utils import save_model_card
 from .utils.memory_utils import free_memory, get_memory_statistics, make_contiguous
 from .utils.model_utils import resolve_vae_cls_from_ckpt_path
 from .utils.optimizer_utils import get_optimizer
@@ -913,94 +909,32 @@ class Trainer:
             )
             pipeline.load_lora_weights(self.args.output_dir)
 
-        all_processes_artifacts = []
-        for i in range(num_validation_samples):
-            # Skip current validation on all processes but one
-            if i % accelerator.num_processes != accelerator.process_index:
-                continue
-
-            prompt = self.args.validation_prompts[i]
-            image = self.args.validation_images[i]
-            video = self.args.validation_videos[i]
-            height = self.args.validation_heights[i]
-            width = self.args.validation_widths[i]
-            num_frames = self.args.validation_num_frames[i]
-
-            if image is not None:
-                image = load_image(image)
-            if video is not None:
-                video = load_video(video)
-
-            logger.debug(
-                f"Validating sample {i + 1}/{num_validation_samples} on process {accelerator.process_index}. Prompt: {prompt}",
-                main_process_only=False,
-            )
-            has_fps_in_call =  any(
-                "fps" in p for p in inspect.signature(self.model_config["pipeline_cls"].__call__).parameters
-            )
-            validation_kwargs = {
-                "pipeline": pipeline,
-                "prompt": prompt,
-                "image": image,
-                "video": video,
-                "height": height,
-                "width": width,
-                "num_frames": num_frames,
-                "num_videos_per_prompt": self.args.num_validation_videos_per_prompt,
-                "generator": self.state.generator,
-            }
-            if has_fps_in_call:
-                validation_kwargs.update({"fps": self.args.fps})
-            validation_artifacts = self.model_config["validation"](**validation_kwargs)
-
-            prompt_filename = string_to_filename(prompt)[:25]
-            artifacts = {
-                "image": {"type": "image", "value": image},
-                "video": {"type": "video", "value": video},
-            }
-            for i, (artifact_type, artifact_value) in enumerate(validation_artifacts):
-                artifacts.update({f"artifact_{i}": {"type": artifact_type, "value": artifact_value}})
-            logger.debug(
-                f"Validation artifacts on process {accelerator.process_index}: {list(artifacts.keys())}",
-                main_process_only=False,
-            )
-
-            for key, value in list(artifacts.items()):
-                artifact_type = value["type"]
-                artifact_value = value["value"]
-                if artifact_type not in ["image", "video"] or artifact_value is None:
-                    continue
-
-                extension = "png" if artifact_type == "image" else "mp4"
-                filename = f"validation-{step}-{accelerator.process_index}-{prompt_filename}.{extension}"
-                filename = os.path.join(self.args.output_dir, filename)
-
-                if artifact_type == "image":
-                    logger.debug(f"Saving image to {filename}")
-                    artifact_value.save(filename)
-                    artifact_value = wandb.Image(filename)
-                elif artifact_type == "video":
-                    logger.debug(f"Saving video to {filename}")
-                    export_to_video(artifact_value, filename, fps=self.args.fps)
-                    artifact_value = wandb.Video(filename, caption=prompt)
-
-                all_processes_artifacts.append(artifact_value)
+        all_processes_artifacts, prompts_to_filenames = generate_artifacts(
+            model_config=self.model_config,
+            pipeline=pipeline,
+            args=self.args,
+            generator=self.state.generator,
+            step=step,
+            num_processes=accelerator.num_processes,
+            process_index=accelerator.process_index,
+            trackers=accelerator.trackers,
+        )
 
         all_artifacts = gather_object(all_processes_artifacts)
 
         if accelerator.is_main_process:
             tracker_key = "final" if final_validation else "validation"
-            for tracker in accelerator.trackers:
-                if tracker.name == "wandb":
-                    image_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Image)]
-                    video_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Video)]
-                    tracker.log(
-                        {
-                            tracker_key: {"images": image_artifacts, "videos": video_artifacts},
-                        },
-                        step=step,
-                    )
-
+            log_artifacts(artifacts=all_artifacts, trackers=accelerator.trackers, tracker_key=tracker_key, step=step)
+            if final_validation:
+                video_filenames = list(prompts_to_filenames.values())
+                prompts = list(prompts_to_filenames.keys())
+                save_model_card(
+                    args=self.args,
+                    repo_id=self.state.repo_id,
+                    videos=video_filenames,
+                    validation_prompts=prompts,
+                    fps=self.args.fps,
+                )
         # Remove all hooks that might have been added during pipeline initialization to the models
         pipeline.remove_all_hooks()
         del pipeline

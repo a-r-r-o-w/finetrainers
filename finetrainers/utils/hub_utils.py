@@ -1,24 +1,30 @@
+import os
+from typing import List, Union
+
+import numpy as np
+import wandb
 from diffusers.utils import export_to_video
 from diffusers.utils.hub_utils import load_or_create_model_card, populate_model_card
-import os
-import wandb
+from PIL import Image
+
 
 def save_model_card(
     args,
-    repo_id,
-    videos,
-    validation_prompts,
-    fps=30,
-):
+    repo_id: str,
+    videos: Union[List[str], Union[List[Image.Image, np.ndarray]]],
+    validation_prompts: List[str],
+    fps: int = 30,
+) -> None:
     widget_dict = []
     output_dir = str(args.output_dir)
     if videos is not None and len(videos) > 0:
         for i, (video, validation_prompt) in enumerate(zip(videos, validation_prompts)):
-            export_to_video(video, os.path.join(output_dir, f"final_video_{i}.mp4"), fps=fps)
+            if not isinstance(video, str):
+                export_to_video(video, os.path.join(output_dir, f"final_video_{i}.mp4"), fps=fps)
             widget_dict.append(
                 {
                     "text": validation_prompt if validation_prompt else " ",
-                    "output": {"url": f"final_video_{i}.mp4"},
+                    "output": {"url": video if isinstance(video, str) else f"final_video_{i}.mp4"},
                 }
             )
 
