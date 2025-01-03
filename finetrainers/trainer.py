@@ -644,7 +644,10 @@ class Trainer:
             generator = generator.manual_seed(self.args.seed)
         self.state.generator = generator
 
-        scheduler_sigmas = get_scheduler_sigmas(self.scheduler).to(device=accelerator.device, dtype=torch.float32)
+        scheduler_sigmas = get_scheduler_sigmas(self.scheduler)
+        scheduler_sigmas = (
+            scheduler_sigmas.to(device=accelerator.device, dtype=torch.float32) if scheduler_sigmas else None
+        )
         scheduler_alphas = get_scheduler_alphas(self.scheduler)
         scheduler_alphas = (
             scheduler_alphas.to(device=accelerator.device, dtype=torch.float32) if scheduler_alphas else None
