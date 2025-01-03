@@ -1,17 +1,16 @@
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
-from diffusers import AutoencoderKLCogVideoX, CogVideoXDPMScheduler, CogVideoXPipeline, CogVideoXTransformer3DModel
+from diffusers import AutoencoderKLCogVideoX, CogVideoXDDIMScheduler, CogVideoXPipeline, CogVideoXTransformer3DModel
 from PIL import Image
 from transformers import T5EncoderModel, T5Tokenizer
 
-from ..utils.torch_utils import expand_tensor_to_dims
 from .utils import prepare_rotary_positional_embeddings
 
 
 def load_condition_models(
-    model_id: str = "THUDM/CogVideoX-2b",
-    text_encoder_dtype: torch.dtype = torch.float16,
+    model_id: str = "THUDM/CogVideoX-5b",
+    text_encoder_dtype: torch.dtype = torch.bfloat16,
     revision: Optional[str] = None,
     cache_dir: Optional[str] = None,
     **kwargs,
@@ -24,8 +23,8 @@ def load_condition_models(
 
 
 def load_latent_models(
-    model_id: str = "THUDM/CogVideoX-2b",
-    vae_dtype: torch.dtype = torch.float16,
+    model_id: str = "THUDM/CogVideoX-5b",
+    vae_dtype: torch.dtype = torch.bfloat16,
     revision: Optional[str] = None,
     cache_dir: Optional[str] = None,
     **kwargs,
@@ -37,8 +36,8 @@ def load_latent_models(
 
 
 def load_diffusion_models(
-    model_id: str = "THUDM/CogVideoX-2b",
-    transformer_dtype: torch.dtype = torch.float16,
+    model_id: str = "THUDM/CogVideoX-5b",
+    transformer_dtype: torch.dtype = torch.bfloat16,
     revision: Optional[str] = None,
     cache_dir: Optional[str] = None,
     **kwargs,
@@ -46,20 +45,20 @@ def load_diffusion_models(
     transformer = CogVideoXTransformer3DModel.from_pretrained(
         model_id, subfolder="transformer", torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
     )
-    scheduler = CogVideoXDPMScheduler.from_pretrained(model_id, subfolder="scheduler")
+    scheduler = CogVideoXDDIMScheduler.from_pretrained(model_id, subfolder="scheduler")
     return {"transformer": transformer, "scheduler": scheduler}
 
 
 def initialize_pipeline(
-    model_id: str = "THUDM/CogVideoX-2b",
-    text_encoder_dtype: torch.dtype = torch.float16,
-    transformer_dtype: torch.dtype = torch.float16,
-    vae_dtype: torch.dtype = torch.float16,
+    model_id: str = "THUDM/CogVideoX-5b",
+    text_encoder_dtype: torch.dtype = torch.bfloat16,
+    transformer_dtype: torch.dtype = torch.bfloat16,
+    vae_dtype: torch.dtype = torch.bfloat16,
     tokenizer: Optional[T5Tokenizer] = None,
     text_encoder: Optional[T5EncoderModel] = None,
     transformer: Optional[CogVideoXTransformer3DModel] = None,
     vae: Optional[AutoencoderKLCogVideoX] = None,
-    scheduler: Optional[CogVideoXDPMScheduler] = None,
+    scheduler: Optional[CogVideoXDDIMScheduler] = None,
     device: Optional[torch.device] = None,
     revision: Optional[str] = None,
     cache_dir: Optional[str] = None,
@@ -155,9 +154,11 @@ def prepare_latents(
         return {"latents": h}
 
 
-def post_latent_preparation(latents: torch.Tensor, **kwargs) -> torch.Tensor:
-    if kwargs.get("precompute_conditions", False) and kwargs.get("vae_config", None) is not None:
-        latents = _scale_latents(latents, kwargs.get("vae_config"))
+def post_latent_preparation(vae_config: Dict[str, Any], latents: torch.Tensor, **kwargs) -> torch.Tensor:
+    if not vae_config.invert_scale_latents:
+        latents = latents * vae_config.scaling_factor
+    else:
+        latents = 1 / vae_config.scaling_factor * latents
     latents = _pad_frames(latents, kwargs.get("denoier_config", None))
     latents = latents.permute(0, 2, 1, 3, 4)  # [B, F, C, H, W]
     return {"latents": latents}
@@ -170,50 +171,52 @@ def collate_fn_t2v(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torc
     }
 
 
-def calculate_noisy_latents(scheduler, latent_conditions, timesteps, state):
-    noise = torch.randn(
-        latent_conditions["latents"].shape,
-        generator=state.generator,
-        device=state.accelerator.device,
-        dtype=state.weight_dtype,
-    )
+def calculate_noisy_latents(
+    scheduler: CogVideoXDDIMScheduler,
+    noise: torch.Tensor,
+    latent_conditions: Dict[str, Any],
+    timesteps: torch.LongTensor,
+) -> torch.Tensor:
     noisy_latents = scheduler.add_noise(latent_conditions["latents"], noise, timesteps)
-    return noise, noisy_latents
+    return noisy_latents
 
 
 def forward_pass(
     transformer: CogVideoXTransformer3DModel,
+    scheduler: CogVideoXDDIMScheduler,
     prompt_embeds: torch.Tensor,
+    latents: torch.Tensor,
     noisy_latents: torch.Tensor,
     timesteps: torch.LongTensor,
     ofs_emb: Optional[torch.Tensor] = None,
-    latents: torch.Tensor = None,
     **kwargs,
 ) -> torch.Tensor:
-    denoiser_config = transformer.module.config if hasattr(transformer, "module") else transformer.config
-    _, num_channels, num_frames, height, width = noisy_latents.shape
-    vae_config = kwargs.get("vae_config")
-    cog_vae_scale_factor_spatial = 2 ** (len(vae_config["block_out_channels"]) - 1)
-    cog_rope_base_height = denoiser_config.sample_height * cog_vae_scale_factor_spatial
-    cog_rope_base_width = denoiser_config.sample_width * cog_vae_scale_factor_spatial
+    # Just hardcode for now. In Diffusers, we will refactor such that RoPE would be handled within the model itself.
+    VAE_SPATIAL_SCALE_FACTOR = 8
+    transformer_config = transformer.module.config if hasattr(transformer, "module") else transformer.config
+    batch_size, num_channels, num_frames, height, width = noisy_latents.shape
+    rope_base_height = transformer_config.sample_height * VAE_SPATIAL_SCALE_FACTOR
+    rope_base_width = transformer_config.sample_width * VAE_SPATIAL_SCALE_FACTOR
 
     image_rotary_emb = (
         prepare_rotary_positional_embeddings(
-            height=height * cog_vae_scale_factor_spatial,
-            width=width * cog_vae_scale_factor_spatial,
+            height=height * VAE_SPATIAL_SCALE_FACTOR,
+            width=width * VAE_SPATIAL_SCALE_FACTOR,
             num_frames=num_frames,
-            vae_scale_factor_spatial=cog_vae_scale_factor_spatial,
-            patch_size=denoiser_config.patch_size,
-            patch_size_t=denoiser_config.patch_size_t if hasattr(denoiser_config, "patch_size_t") else None,
-            attention_head_dim=denoiser_config.attention_head_dim,
+            vae_scale_factor_spatial=VAE_SPATIAL_SCALE_FACTOR,
+            patch_size=transformer_config.patch_size,
+            patch_size_t=transformer_config.patch_size_t if hasattr(transformer_config, "patch_size_t") else None,
+            attention_head_dim=transformer_config.attention_head_dim,
             device=transformer.device,
-            base_height=cog_rope_base_height,
-            base_width=cog_rope_base_width,
+            base_height=rope_base_height,
+            base_width=rope_base_width,
         )
-        if denoiser_config.use_rotary_positional_embeddings
+        if transformer_config.use_rotary_positional_embeddings
         else None
     )
-    denoised_latents = transformer(
+    ofs_emb = None if transformer_config.ofs_embed_dim is None else latents.new_full((batch_size,), fill_value=2.0)
+
+    velocity = transformer(
         hidden_states=noisy_latents,
         timestep=timesteps,
         encoder_hidden_states=prompt_embeds,
@@ -221,6 +224,9 @@ def forward_pass(
         image_rotary_emb=image_rotary_emb,
         return_dict=False,
     )[0]
+    # For CogVideoX, the transformer predicts the velocity. The denoised output is calculated by applying the same
+    # code paths as scheduler.get_velocity(), which can be confusing to understand.
+    denoised_latents = scheduler.get_velocity(velocity, noisy_latents, timesteps)
 
     return {"latents": denoised_latents}
 
@@ -252,40 +258,6 @@ def validation(
     return [("video", output)]
 
 
-def calculate_timesteps(scheduler, latent_conditions, generator):
-    batch_size = latent_conditions["latents"].shape[0]
-    timesteps = torch.randint(
-        0,
-        scheduler.config.num_train_timesteps,
-        (batch_size,),
-        dtype=torch.int64,
-        device=latent_conditions["latents"].device,
-        generator=generator,
-    )
-    return timesteps
-
-
-def calculate_loss(denoiser, model_config, scheduler, latent_conditions, text_conditions, configs, timesteps):
-    batch_size = latent_conditions["noisy_latents"].shape[0]
-    scheduler_alphas_cumprod = scheduler.alphas_cumprod.clone().to(denoiser.device, dtype=torch.float32)
-
-    model_pred = model_config["forward_pass"](
-        transformer=denoiser, timesteps=timesteps, **latent_conditions, **text_conditions, **configs
-    )["latents"]
-    model_pred = scheduler.get_velocity(model_pred, latent_conditions["noisy_latents"], timesteps)
-
-    weights = 1 / (1 - scheduler_alphas_cumprod[timesteps])
-    weights = expand_tensor_to_dims(weights, latent_conditions["noisy_latents"].ndim)
-    target = latent_conditions["latents"].view_as(model_pred)
-
-    loss = torch.mean(
-        (weights * (model_pred - target) ** 2).reshape(batch_size, -1),
-        dim=1,
-    )
-    loss = loss.mean()
-    return loss
-
-
 def _get_t5_prompt_embeds(
     tokenizer: T5Tokenizer,
     text_encoder: T5EncoderModel,
@@ -312,29 +284,20 @@ def _get_t5_prompt_embeds(
     return {"prompt_embeds": prompt_embeds}
 
 
-def _pad_frames(latents, denoiser_config=None):
-    if denoiser_config:
-        # `latents` should be of the following format: [B, C, F, H, W].
-        # For CogVideoX 1.5, the latent frames should be padded to make it divisible by patch_size_t
-        latent_num_frames = latents.shape[2]
-        additional_frames = 0
-        patch_size_t = denoiser_config.patch_size_t
-        if patch_size_t is not None and latent_num_frames % patch_size_t != 0:
-            additional_frames = patch_size_t - latent_num_frames % patch_size_t
+def _pad_frames(latents: torch.Tensor, patch_size_t: int):
+    if patch_size_t is None or patch_size_t == 1:
+        return latents
 
-        if additional_frames:
-            last_frame = latents[:, :, -1:, :, :]
-            padding_frames = last_frame.repeat(1, 1, additional_frames, 1, 1)
-            latents = torch.cat([latents, padding_frames], dim=2)
+    # `latents` should be of the following format: [B, C, F, H, W].
+    # For CogVideoX 1.5, the latent frames should be padded to make it divisible by patch_size_t
+    latent_num_frames = latents.shape[2]
+    additional_frames = patch_size_t - latent_num_frames % patch_size_t
 
-    return latents
+    if additional_frames > 0:
+        last_frame = latents[:, :, -1:, :, :]
+        padding_frames = last_frame.repeat(1, 1, additional_frames, 1, 1)
+        latents = torch.cat([latents, padding_frames], dim=2)
 
-
-def _scale_latents(latents, vae_config):
-    if not vae_config["invert_scale_latents"]:
-        latents = latents * vae_config["scaling_factor"]
-    else:
-        latents = 1 / vae_config["scaling_factor"] * latents
     return latents
 
 
@@ -350,7 +313,5 @@ COGVIDEOX_T2V_LORA_CONFIG = {
     "collate_fn": collate_fn_t2v,
     "calculate_noisy_latents": calculate_noisy_latents,
     "forward_pass": forward_pass,
-    "calculate_timesteps": calculate_timesteps,
-    "calculate_loss": calculate_loss,
     "validation": validation,
 }

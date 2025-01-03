@@ -5,7 +5,7 @@ import os
 from huggingface_hub import hf_hub_download
 
 
-def _resolve_vae_cls_from_ckpt_path(ckpt_path, **kwargs):
+def resolve_vae_cls_from_ckpt_path(ckpt_path, **kwargs):
     ckpt_path = str(ckpt_path)
     if os.path.exists(str(ckpt_path)) and os.path.isdir(ckpt_path):
         index_path = os.path.join(ckpt_path, "model_index.json")

@@ -12,7 +12,9 @@ SUPPORTED_MODEL_CONFIGS = {
     "ltx_video": {
         "lora": LTX_VIDEO_T2V_LORA_CONFIG,
     },
-    "cogvideox": {"lora": COGVIDEOX_T2V_LORA_CONFIG},
+    "cogvideox": {
+        "lora": COGVIDEOX_T2V_LORA_CONFIG,
+    },
 }
 
 

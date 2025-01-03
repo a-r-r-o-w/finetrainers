@@ -170,5 +170,6 @@ wandb/
 dump*
 outputs*
 *.slurm
+.vscode/
 
 !requirements.txt

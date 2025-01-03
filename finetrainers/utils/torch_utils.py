@@ -29,7 +29,7 @@ def align_device_and_dtype(
     return x
 
 
-def expand_tensor_to_dims(tensor, ndim):
+def expand_tensor_dims(tensor, ndim):
     while len(tensor.shape) < ndim:
         tensor = tensor.unsqueeze(-1)
     return tensor
