@@ -25,9 +25,9 @@ def generate_artifacts(
     num_processes: int,
     process_index: int,
     trackers: list,
-    final_validation: bool = False
+    final_validation: bool = False,
 ) -> list:
-    wandb_tracking = "wandb" in trackers
+    wandb_tracking = any("wandb" in tracker.name for tracker in trackers)
     if wandb_tracking:
         import wandb
 
@@ -90,7 +90,8 @@ def generate_artifacts(
                 continue
 
             extension = "png" if artifact_type == "image" else "mp4"
-            filename = f"validation-{step}-{process_index}-{prompt_filename}.{extension}"
+            filename = "validation-" if not final_validation else "final-"
+            filename += f"{step}-{process_index}-{prompt_filename}.{extension}"
             filename = os.path.join(args.output_dir, filename)
 
             if artifact_type == "image":
@@ -113,7 +114,7 @@ def generate_artifacts(
 
 
 def log_artifacts(artifacts: list, trackers: list, tracker_key: str, step: int) -> None:
-    wandb_tracking = "wandb" in trackers
+    wandb_tracking = any("wandb" in tracker.name for tracker in trackers)
     if wandb_tracking:
         import wandb
 
@@ -127,6 +128,10 @@ def log_artifacts(artifacts: list, trackers: list, tracker_key: str, step: int) 
                 },
                 step=step,
             )
+        else:
+            logger.warning("No supported tracker found for which logging is available.")
+
+    return
 
 
 def get_latest_step_files(files):

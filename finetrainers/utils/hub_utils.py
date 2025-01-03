@@ -41,7 +41,7 @@ The model was trained using [`finetrainers`](https://github.com/a-r-r-o-w/finetr
 
 ## Download model
 
-[Download LoRA]({args.repo_id}/tree/main) in the Files & Versions tab.
+[Download LoRA]({repo_id}/tree/main) in the Files & Versions tab.
 
 ## Usage
 
@@ -61,7 +61,6 @@ Find out the wandb run URL and training configurations [here]({wandb.run.url}).
     model_card = load_or_create_model_card(
         repo_id_or_path=repo_id,
         from_training=True,
-        license="apache-2.0",
         base_model=args.pretrained_model_name_or_path,
         model_description=model_description,
         widget=widget_dict,
