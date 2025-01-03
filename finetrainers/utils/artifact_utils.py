@@ -25,6 +25,7 @@ def generate_artifacts(
     num_processes: int,
     process_index: int,
     trackers: list,
+    final_validation: bool = False
 ) -> list:
     wandb_tracking = "wandb" in trackers
     if wandb_tracking:
@@ -105,7 +106,7 @@ def generate_artifacts(
 
             all_processes_artifacts.append(artifact_value)
             # limit to first process only as this will go into the model card.
-            if process_index == 0:
+            if process_index == 0 and final_validation:
                 prompts_to_filenames[prompt] = filename
 
     return all_processes_artifacts, prompts_to_filenames

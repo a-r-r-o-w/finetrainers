@@ -918,6 +918,7 @@ class Trainer:
             num_processes=accelerator.num_processes,
             process_index=accelerator.process_index,
             trackers=accelerator.trackers,
+            final_validation=final_validation,
         )
 
         all_artifacts = gather_object(all_processes_artifacts)
