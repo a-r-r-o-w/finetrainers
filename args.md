@@ -18,7 +18,7 @@
 | **caption_column** | Column in dataset containing instance prompts for each video, or name of file in `--data_root` folder containing newline-separated instance prompts. | str | None |
 | **id_token** | If specified, identifier token to be prepended to each prompt. | Optional[str] | None |
 | **image_resolution_buckets** | Image resolution buckets. | List[Tuple[int, int]] | None |
-| **video_resolution_buckets** | Video resolution buckets. | List[Tuple[int, int, int]] | None |
+| **video_resolution_buckets** | The `video_resolution_buckets` in `finetrainers/constants.py` are defined by iterating through `DEFAULT_FRAME_BUCKETS`, `DEFAULT_HEIGHT_BUCKETS`, and `DEFAULT_WIDTH_BUCKETS`. Since `DEFAULT_FRAME_BUCKETS` only contains `[49]`, the resulting `video_resolution_buckets` is a list of tuples where the first element is always 49, and the other elements are combinations of heights and widths from the other two buckets. These buckets define possible video resolutions (frames x height x width) used during training, likely to group or process videos of similar resolutions for efficiency or handling varying input sizes. To fully understand their purpose, it's important to check their usage in `finetrainers/trainer.py`. | List[Tuple[int, int, int]] | None |
 | **video_reshape_mode** | All input videos will be reshaped to this mode. Choose from ['center', 'random', 'none']. | Optional[str] | None |
 | **caption_dropout_p** | Probability of caption token dropout. | float | 0.00 |
 | **caption_dropout_technique** | Technique to use for caption dropout. | str | "empty" |
