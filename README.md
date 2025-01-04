@@ -2,7 +2,7 @@
 
 `cogvideox-factory` was renamed to `finetrainers`. If you're looking to train CogVideoX or Mochi with the legacy training scripts, please refer to [this](./training/README.md) README instead. Everything in the `training/` directory will be eventually moved and supported under `finetrainers`.
 
-FineTrainers is a work-in-progress library to support (accessible) training of video models. Our first priority is to support lora training for all popular video models in [Diffusers](https://github.com/huggingface/diffusers), and eventually other methods like controlnets, control-loras, distillation, etc.
+FineTrainers is a work-in-progress library to support (accessible) training of video models. Our first priority is to support LoRA training for all popular video models in [Diffusers](https://github.com/huggingface/diffusers), and eventually other methods like controlnets, control-loras, distillation, etc.
 
 <table align="center">
 <tr>
@@ -46,7 +46,7 @@ export FINETRAINERS_LOG_LEVEL=DEBUG
 
 GPU_IDS="0,1"
 
-DATA_ROOT="/raid/aryan/video-dataset-disney"
+DATA_ROOT="/path/to/video-dataset-disney"
 CAPTION_COLUMN="prompts.txt"
 VIDEO_COLUMN="videos.txt"
 OUTPUT_DIR="/path/to/output/directory/ltx-video/ltxv_disney"
@@ -99,11 +99,6 @@ optimizer_cmd="--optimizer adamw \
   --epsilon 1e-8 \
   --max_grad_norm 1.0"
 
-# Validation arguments
-validation_cmd="--validation_prompts \"$ID_TOKEN A black and white animated scene unfolds with an anthropomorphic goat surrounded by musical notes and symbols, suggesting a playful environment. Mickey Mouse appears, leaning forward in curiosity as the goat remains still. The goat then engages with Mickey, who bends down to converse or react. The dynamics shift as Mickey grabs the goat, potentially in surprise or playfulness, amidst a minimalistic background. The scene captures the evolving relationship between the two characters in a whimsical, animated setting, emphasizing their interactions and emotions.@@@49x512x768:::$ID_TOKEN A woman with long brown hair and light skin smiles at another woman with long blonde hair. The woman with brown hair wears a black jacket and has a small, barely noticeable mole on her right cheek. The camera angle is a close-up, focused on the woman with brown hair's face. The lighting is warm and natural, likely from the setting sun, casting a soft glow on the scene. The scene appears to be real-life footage@@@49x512x768\" \
-  --num_validation_videos 1 \
-  --validation_steps 100"
-
 # Miscellaneous arguments
 miscellaneous_cmd="--tracker_name finetrainers-ltxv \
   --output_dir $OUTPUT_DIR \
@@ -117,7 +112,6 @@ cmd="accelerate launch --config_file accelerate_configs/uncompiled_2.yaml --gpu_
   $diffusion_cmd \
   $training_cmd \
   $optimizer_cmd \
-  $validation_cmd \
   $miscellaneous_cmd"
 
 echo "Running command: $cmd"
@@ -127,7 +121,7 @@ echo -ne "-------------------- Finished executing script --------------------\n\
 
 </details>
 
-Here we are using two GPUs. But one can do single-GPU training by setting `GPU_IDS=0`. By default, we are NOT using any memory optimizations. Please refer to [docs/training/optimizations](./docs/training/optimization.md) to learn about the memory optimizations currently supported.
+Here we are using two GPUs. But one can do single-GPU training by setting `GPU_IDS=0`. By default, we are using some simple optimizations to reduce memory consumption (such as gradient checkpointing). Please refer to [docs/training/optimizations](./docs/training/optimization.md) to learn about the memory optimizations currently supported.
 
 For inference, refer [here](./docs/training/ltx.md#inference). For docs related to the other supported model, refer [here](./docs/training/).
 
@@ -143,6 +137,18 @@ For inference, refer [here](./docs/training/ltx.md#inference). For docs related 
 
 </div>
 
-Note that the memory consumption in the table is reported with the memory optimizations (as discussed in [docs/training/optimizations](./docs/training/optimization.md)) enabled.
+Note that the memory consumption in the table is reported with most of the options, discussed in [docs/training/optimizations](./docs/training/optimization.md), enabled.
 
 If you would like to use a custom dataset, refer to the dataset preparation guide [here](./docs/dataset/README.md).
+
+## Notes
+
+* The example training commands have the below thoughts in mind to prioritize memory-optimized runs:
+  * don't contain any arguments to enable validation inference.
+  * gradient checkpointing and gradient accumulation enabled.
+  * precompuation enabled.
+
+## Acknowledgements
+
+* `finetrainers` builds on top of a body of great open-source libraries: `transformers`, `accelerate`, `peft`, `diffusers`, `bitsandbytes`, `torchao`, `deepspeed` -- to name a few.
+* Some of design choices were inspired by [`SimpleTuner`](https://github.com/bghira/SimpleTuner).
