@@ -1,3 +1,5 @@
+# LTX-Video
+
 ## Training
 
 Provided you have a dataset:

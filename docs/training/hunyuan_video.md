@@ -1,4 +1,6 @@
-# Training
+# HunyuanVideo
+
+## Training
 
 ```bash
 #!/bin/bash
