@@ -974,7 +974,7 @@ class Trainer:
                 main_process_only=False,
             )
 
-            for key, value in list(artifacts.items()):
+            for index, (key, value) in enumerate(list(artifacts.items())):
                 artifact_type = value["type"]
                 artifact_value = value["value"]
                 if artifact_type not in ["image", "video"] or artifact_value is None:
@@ -982,7 +982,7 @@ class Trainer:
 
                 extension = "png" if artifact_type == "image" else "mp4"
                 filename = "validation-" if not final_validation else "final-"
-                filename += f"{step}-{accelerator.process_index}-{prompt_filename}.{extension}"
+                filename += f"{step}-{accelerator.process_index}-{index}-{prompt_filename}.{extension}"
                 if accelerator.is_main_process and extension == "mp4":
                     prompts_to_filenames[prompt] = filename
                 filename = os.path.join(self.args.output_dir, filename)
