@@ -953,7 +953,9 @@ class Trainer:
                 width=width,
                 num_frames=num_frames,
                 num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
-                generator=self.state.generator,
+                generator=torch.Generator(device=accelerator.device).manual_seed(
+                    self.args.seed if self.args.seed is not None else 0
+                ),
                 # todo support passing `fps` for supported pipelines.
             )
 
