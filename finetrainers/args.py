@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 
 from .constants import DEFAULT_IMAGE_RESOLUTION_BUCKETS, DEFAULT_VIDEO_RESOLUTION_BUCKETS
+from .models import SUPPORTED_MODEL_CONFIGS
 
 
 class Args:
@@ -238,7 +239,11 @@ def validate_args(args: Args):
 
 def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--model_name", type=str, required=True, choices=["hunyuan_video", "ltx_video"], help="Name of model to train."
+        "--model_name",
+        type=str,
+        required=True,
+        choices=list(SUPPORTED_MODEL_CONFIGS.keys()),
+        help="Name of model to train.",
     )
     parser.add_argument(
         "--pretrained_model_name_or_path",

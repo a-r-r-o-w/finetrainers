@@ -3,7 +3,7 @@ import logging
 import math
 import os
 import random
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict
 
@@ -21,13 +21,10 @@ from accelerate.utils import (
     gather_object,
     set_seed,
 )
+from diffusers.configuration_utils import FrozenDict
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.optimization import get_scheduler
-from diffusers.training_utils import (
-    cast_training_params,
-    compute_density_for_timestep_sampling,
-    compute_loss_weighting_for_sd3,
-)
+from diffusers.training_utils import cast_training_params
 from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
@@ -45,10 +42,18 @@ from .models import get_config_from_model_name
 from .state import State
 from .utils.checkpointing import get_intermediate_ckpt_path, get_latest_ckpt_path_to_resume_from
 from .utils.data_utils import should_perform_precomputation
+from .utils.diffusion_utils import (
+    get_scheduler_alphas,
+    get_scheduler_sigmas,
+    prepare_loss_weights,
+    prepare_sigmas,
+    prepare_target,
+)
 from .utils.file_utils import string_to_filename
 from .utils.memory_utils import free_memory, get_memory_statistics, make_contiguous
+from .utils.model_utils import resolve_vae_cls_from_ckpt_path
 from .utils.optimizer_utils import get_optimizer
-from .utils.torch_utils import align_device_and_dtype, expand_tensor_to_dims, unwrap_model
+from .utils.torch_utils import align_device_and_dtype, expand_tensor_dims, unwrap_model
 
 
 logger = get_logger("finetrainers")
@@ -60,6 +65,7 @@ class Trainer:
         validate_args(args)
 
         self.args = args
+        self.args.seed = self.args.seed or datetime.now().year
         self.state = State()
 
         # Tokenizers
@@ -81,6 +87,9 @@ class Trainer:
 
         # Scheduler
         self.scheduler = None
+
+        self.transformer_config = None
+        self.vae_config = None
 
         self._init_distributed()
         self._init_logging()
@@ -126,6 +135,7 @@ class Trainer:
         return load_component_kwargs
 
     def _set_components(self, components: Dict[str, Any]) -> None:
+        # Set models
         self.tokenizer = components.get("tokenizer", self.tokenizer)
         self.tokenizer_2 = components.get("tokenizer_2", self.tokenizer_2)
         self.tokenizer_3 = components.get("tokenizer_3", self.tokenizer_3)
@@ -136,6 +146,10 @@ class Trainer:
         self.unet = components.get("unet", self.unet)
         self.vae = components.get("vae", self.vae)
         self.scheduler = components.get("scheduler", self.scheduler)
+
+        # Set configs
+        self.transformer_config = self.transformer.config if self.transformer is not None else self.transformer_config
+        self.vae_config = self.vae.config if self.vae is not None else self.vae_config
 
     def _delete_components(self) -> None:
         self.tokenizer = None
@@ -172,8 +186,6 @@ class Trainer:
                 self.vae.enable_slicing()
             if self.args.enable_tiling:
                 self.vae.enable_tiling()
-
-        self.transformer_config = self.transformer.config if self.transformer is not None else None
 
     def prepare_precomputations(self) -> None:
         if not self.args.precompute_conditions:
@@ -243,19 +255,21 @@ class Trainer:
         conditions_dir.mkdir(parents=True, exist_ok=True)
         latents_dir.mkdir(parents=True, exist_ok=True)
 
+        accelerator = self.state.accelerator
+
         # Precompute conditions
         progress_bar = tqdm(
-            range(0, len(self.dataset)),
+            range(0, (len(self.dataset) + accelerator.num_processes - 1) // accelerator.num_processes),
             desc="Precomputing conditions",
-            disable=not self.state.accelerator.is_local_main_process,
+            disable=not accelerator.is_local_main_process,
         )
         index = 0
         for i, data in enumerate(self.dataset):
-            if i % self.state.accelerator.num_processes != self.state.accelerator.process_index:
+            if i % accelerator.num_processes != accelerator.process_index:
                 continue
 
             logger.debug(
-                f"Precomputing conditions and latents for batch {i + 1}/{len(self.dataset)} on process {self.state.accelerator.process_index}"
+                f"Precomputing conditions for batch {i + 1}/{len(self.dataset)} on process {accelerator.process_index}"
             )
 
             text_conditions = self.model_config["prepare_conditions"](
@@ -266,10 +280,10 @@ class Trainer:
                 text_encoder_2=self.text_encoder_2,
                 text_encoder_3=self.text_encoder_3,
                 prompt=data["prompt"],
-                device=self.state.accelerator.device,
+                device=accelerator.device,
                 dtype=self.state.weight_dtype,
             )
-            filename = conditions_dir / f"conditions-{self.state.accelerator.process_index}-{index}.pt"
+            filename = conditions_dir / f"conditions-{accelerator.process_index}-{index}.pt"
             torch.save(text_conditions, filename.as_posix())
             index += 1
             progress_bar.update(1)
@@ -277,7 +291,7 @@ class Trainer:
 
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory after precomputing conditions: {json.dumps(memory_statistics, indent=4)}")
-        torch.cuda.reset_peak_memory_stats(self.state.accelerator.device)
+        torch.cuda.reset_peak_memory_stats(accelerator.device)
 
         # Precompute latents
         latent_components = self.model_config["load_latent_models"](**self._get_load_components_kwargs())
@@ -297,39 +311,39 @@ class Trainer:
                 self.vae.enable_tiling()
 
         progress_bar = tqdm(
-            range(0, len(self.dataset)),
+            range(0, (len(self.dataset) + accelerator.num_processes - 1) // accelerator.num_processes),
             desc="Precomputing latents",
-            disable=not self.state.accelerator.is_local_main_process,
+            disable=not accelerator.is_local_main_process,
         )
         index = 0
         for i, data in enumerate(self.dataset):
-            if i % self.state.accelerator.num_processes != self.state.accelerator.process_index:
+            if i % accelerator.num_processes != accelerator.process_index:
                 continue
 
             logger.debug(
-                f"Precomputing latents for batch {i + 1}/{len(self.dataset)} on process {self.state.accelerator.process_index}"
+                f"Precomputing latents for batch {i + 1}/{len(self.dataset)} on process {accelerator.process_index}"
             )
 
             latent_conditions = self.model_config["prepare_latents"](
                 vae=self.vae,
                 image_or_video=data["video"].unsqueeze(0),
-                device=self.state.accelerator.device,
+                device=accelerator.device,
                 dtype=self.state.weight_dtype,
                 generator=self.state.generator,
                 precompute=True,
             )
-            filename = latents_dir / f"latents-{self.state.accelerator.process_index}-{index}.pt"
+            filename = latents_dir / f"latents-{accelerator.process_index}-{index}.pt"
             torch.save(latent_conditions, filename.as_posix())
             index += 1
             progress_bar.update(1)
         self._delete_components()
 
-        self.state.accelerator.wait_for_everyone()
+        accelerator.wait_for_everyone()
         logger.info("Precomputation complete")
 
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory after precomputing latents: {json.dumps(memory_statistics, indent=4)}")
-        torch.cuda.reset_peak_memory_stats(self.state.accelerator.device)
+        torch.cuda.reset_peak_memory_stats(accelerator.device)
 
         # Update dataloader to use precomputed conditions and latents
         self.dataloader = torch.utils.data.DataLoader(
@@ -570,6 +584,20 @@ class Trainer:
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory before training start: {json.dumps(memory_statistics, indent=4)}")
 
+        if self.vae_config is None:
+            # If we've precomputed conditions and latents already, and are now re-using it, we will never load
+            # the VAE so self.vae_config will not be set. So, we need to load it here.
+            vae_cls_name = resolve_vae_cls_from_ckpt_path(
+                self.args.pretrained_model_name_or_path, revision=self.args.revision, cache_dir=self.args.cache_dir
+            )
+            vae_config = vae_cls_name.load_config(
+                self.args.pretrained_model_name_or_path,
+                subfolder="vae",
+                revision=self.args.revision,
+                cache_dir=self.args.cache_dir,
+            )
+            self.vae_config = FrozenDict(**vae_config)
+
         self.state.train_batch_size = (
             self.args.batch_size * self.state.accelerator.num_processes * self.args.gradient_accumulation_steps
         )
@@ -612,11 +640,23 @@ class Trainer:
 
         accelerator = self.state.accelerator
         weight_dtype = self.state.weight_dtype
-        scheduler_sigmas = self.scheduler.sigmas.clone().to(device=accelerator.device, dtype=weight_dtype)
         generator = torch.Generator(device=accelerator.device)
         if self.args.seed is not None:
             generator = generator.manual_seed(self.args.seed)
         self.state.generator = generator
+
+        scheduler_sigmas = get_scheduler_sigmas(self.scheduler)
+        scheduler_sigmas = (
+            scheduler_sigmas.to(device=accelerator.device, dtype=torch.float32)
+            if scheduler_sigmas is not None
+            else None
+        )
+        scheduler_alphas = get_scheduler_alphas(self.scheduler)
+        scheduler_alphas = (
+            scheduler_alphas.to(device=accelerator.device, dtype=torch.float32)
+            if scheduler_alphas is not None
+            else None
+        )
 
         for epoch in range(first_epoch, self.state.train_epochs):
             logger.debug(f"Starting epoch ({epoch + 1}/{self.state.train_epochs})")
@@ -645,7 +685,7 @@ class Trainer:
                             patch_size_t=self.transformer_config.patch_size_t,
                             device=accelerator.device,
                             dtype=weight_dtype,
-                            generator=generator,
+                            generator=self.state.generator,
                         )
                         text_conditions = self.model_config["prepare_conditions"](
                             tokenizer=self.tokenizer,
@@ -661,9 +701,16 @@ class Trainer:
                         text_conditions = batch["text_conditions"]
                         latent_conditions["latents"] = DiagonalGaussianDistribution(
                             latent_conditions["latents"]
-                        ).sample(generator)
-                        if "post_latent_preparation" in self.model_config.keys():
-                            latent_conditions = self.model_config["post_latent_preparation"](**latent_conditions)
+                        ).sample(self.state.generator)
+
+                        # This method should only be called for precomputed latents.
+                        # TODO(aryan): rename this in separate PR
+                        latent_conditions = self.model_config["post_latent_preparation"](
+                            vae_config=self.vae_config,
+                            patch_size=self.transformer_config.patch_size,
+                            patch_size_t=self.transformer_config.patch_size_t,
+                            **latent_conditions,
+                        )
                         align_device_and_dtype(latent_conditions, accelerator.device, weight_dtype)
                         align_device_and_dtype(text_conditions, accelerator.device, weight_dtype)
                         batch_size = latent_conditions["latents"].shape[0]
@@ -680,40 +727,65 @@ class Trainer:
                             if "pooled_prompt_embeds" in text_conditions:
                                 text_conditions["pooled_prompt_embeds"].fill_(0)
 
-                    # These weighting schemes use a uniform timestep sampling and instead post-weight the loss
-                    weights = compute_density_for_timestep_sampling(
-                        weighting_scheme=self.args.flow_weighting_scheme,
+                    sigmas = prepare_sigmas(
+                        scheduler=self.scheduler,
+                        sigmas=scheduler_sigmas,
                         batch_size=batch_size,
-                        logit_mean=self.args.flow_logit_mean,
-                        logit_std=self.args.flow_logit_std,
-                        mode_scale=self.args.flow_mode_scale,
+                        num_train_timesteps=self.scheduler.config.num_train_timesteps,
+                        flow_weighting_scheme=self.args.flow_weighting_scheme,
+                        flow_logit_mean=self.args.flow_logit_mean,
+                        flow_logit_std=self.args.flow_logit_std,
+                        flow_mode_scale=self.args.flow_mode_scale,
+                        device=accelerator.device,
+                        generator=self.state.generator,
                     )
-                    indices = (weights * self.scheduler.config.num_train_timesteps).long()
-                    sigmas = scheduler_sigmas[indices]
                     timesteps = (sigmas * 1000.0).long()
 
                     noise = torch.randn(
                         latent_conditions["latents"].shape,
-                        generator=generator,
+                        generator=self.state.generator,
                         device=accelerator.device,
                         dtype=weight_dtype,
                     )
-                    sigmas = expand_tensor_to_dims(sigmas, ndim=latent_conditions["latents"].ndim)
-                    noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
+                    sigmas = expand_tensor_dims(sigmas, ndim=noise.ndim)
+
+                    # TODO(aryan): We probably don't need calculate_noisy_latents because we can determine the type of
+                    # scheduler and calculate the noisy latents accordingly. Look into this later.
+                    if "calculate_noisy_latents" in self.model_config.keys():
+                        noisy_latents = self.model_config["calculate_noisy_latents"](
+                            scheduler=self.scheduler,
+                            noise=noise,
+                            latents=latent_conditions["latents"],
+                            timesteps=timesteps,
+                        )
+                    else:
+                        # Default to flow-matching noise addition
+                        noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
+                        noisy_latents = noisy_latents.to(latent_conditions["latents"].dtype)
 
                     latent_conditions.update({"noisy_latents": noisy_latents})
 
-                    # These weighting schemes use a uniform timestep sampling and instead post-weight the loss
-                    weights = compute_loss_weighting_for_sd3(
-                        weighting_scheme=self.args.flow_weighting_scheme, sigmas=sigmas
+                    weights = prepare_loss_weights(
+                        scheduler=self.scheduler,
+                        alphas=scheduler_alphas[timesteps] if scheduler_alphas is not None else None,
+                        sigmas=sigmas,
+                        flow_weighting_scheme=self.args.flow_weighting_scheme,
                     )
+                    weights = expand_tensor_dims(weights, noise.ndim)
+
                     pred = self.model_config["forward_pass"](
-                        transformer=self.transformer, timesteps=timesteps, **latent_conditions, **text_conditions
+                        transformer=self.transformer,
+                        scheduler=self.scheduler,
+                        timesteps=timesteps,
+                        **latent_conditions,
+                        **text_conditions,
                     )
-                    target = noise - latent_conditions["latents"]
+                    target = prepare_target(
+                        scheduler=self.scheduler, noise=noise, latents=latent_conditions["latents"]
+                    )
 
                     loss = weights.float() * (pred["latents"].float() - target.float()).pow(2)
-                    # Average loss across channel dimension
+                    # Average loss across all but batch dimension
                     loss = loss.mean(list(range(1, loss.ndim)))
                     # Average loss across batch dimension
                     loss = loss.mean()
@@ -949,7 +1021,7 @@ class Trainer:
             self.transformer.train()
 
     def evaluate(self) -> None:
-        raise NotImplementedError
+        raise NotImplementedError("Evaluation has not been implemented yet.")
 
     def _init_distributed(self) -> None:
         logging_dir = Path(self.args.output_dir, self.args.logging_dir)

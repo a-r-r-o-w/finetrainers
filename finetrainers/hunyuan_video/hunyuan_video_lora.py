@@ -224,6 +224,7 @@ def forward_pass(
     latents: torch.Tensor,
     noisy_latents: torch.Tensor,
     timesteps: torch.LongTensor,
+    **kwargs,
 ) -> torch.Tensor:
     denoised_latents = transformer(
         hidden_states=noisy_latents,

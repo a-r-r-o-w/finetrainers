@@ -173,6 +173,7 @@ def post_latent_preparation(
     width: int,
     patch_size: int = 1,
     patch_size_t: int = 1,
+    **kwargs,
 ) -> torch.Tensor:
     latents = _normalize_latents(latents, latents_mean, latents_std)
     latents = _pack_latents(latents, patch_size, patch_size_t)
@@ -196,6 +197,7 @@ def forward_pass(
     num_frames: int,
     height: int,
     width: int,
+    **kwargs,
 ) -> torch.Tensor:
     # TODO(aryan): make configurable
     rope_interpolation_scale = [1 / 25, 32, 32]
