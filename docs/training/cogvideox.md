@@ -118,10 +118,10 @@ Assuming your LoRA is saved and pushed to the HF Hub, and named `my-awesome-name
 
 ```diff
 import torch
-from diffusers import DiffusionPipeline
+from diffusers import CogVideoXPipeline
 from diffusers.utils import export_to_video
 
-pipe = DiffusionPipeline.from_pretrained(
+pipe = CogVideoXPipeline.from_pretrained(
     "THUDM/CogVideoX-5b", torch_dtype=torch.float16
 ).to("cuda")
 + pipe.load_lora_weights("my-awesome-name/my-awesome-lora", adapter_name="cogvideox-lora")
