@@ -83,6 +83,33 @@ eval $cmd
 echo -ne "-------------------- Finished executing script --------------------\n\n"
 ```
 
+## Memory Usage
+
+LoRA with rank 128, batch size 1, gradient checkpointing, optimizer adamw, `49x480x720` resolutions, **with precomputation**:
+
+```
+Training configuration: {
+    "trainable parameters": 132120576,
+    "total samples": 69,
+    "train epochs": 1,
+    "train steps": 10,
+    "batches per device": 1,
+    "total batches observed per epoch": 69,
+    "train batch size": 1,
+    "gradient accumulation steps": 1
+}
+```
+
+| stage                         | memory_allocated  | max_memory_reserved |
+|:-----------------------------:|:-----------------:|:-------------------:|
+| after precomputing conditions |  8.880            | 8.941               |
+| after precomputing latents    |  9.300            | 12.441              |
+| before training start         | 10.622            | 20.701              |
+| after epoch 1                 | 11.145            | 20.701              |
+| before validation start       | 11.145            | 20.702              |
+| after validation end          | 11.145            | 28.324              |
+| after training end            | 11.144            | 11.592              |
+
 ## Inference
 
 Assuming your LoRA is saved and pushed to the HF Hub, and named `my-awesome-name/my-awesome-lora`, we can now use the finetuned model for inference:
