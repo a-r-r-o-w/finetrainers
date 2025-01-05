@@ -110,6 +110,7 @@ class Trainer:
             resolution_buckets=self.args.video_resolution_buckets,
             dataset_file=self.args.dataset_file,
             id_token=self.args.id_token,
+            remove_llm_prefixes=self.args.remove_common_llm_caption_prefixes,
         )
         self.dataloader = torch.utils.data.DataLoader(
             self.dataset,

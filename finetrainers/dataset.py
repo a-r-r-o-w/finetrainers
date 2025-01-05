@@ -49,6 +49,7 @@ class ImageOrVideoDataset(Dataset):
         resolution_buckets: List[Tuple[int, int, int]],
         dataset_file: Optional[str] = None,
         id_token: Optional[str] = None,
+        remove_llm_prefixes: bool = False,
     ) -> None:
         super().__init__()
 
@@ -98,11 +99,12 @@ class ImageOrVideoDataset(Dataset):
             )
 
         # Clean LLM start phrases
-        for i in range(len(self.prompts)):
-            self.prompts[i] = self.prompts[i].strip()
-            for phrase in COMMON_LLM_START_PHRASES:
-                if self.prompts[i].startswith(phrase):
-                    self.prompts[i] = self.prompts[i].removeprefix(phrase).strip()
+        if remove_llm_prefixes:
+            for i in range(len(self.prompts)):
+                self.prompts[i] = self.prompts[i].strip()
+                for phrase in COMMON_LLM_START_PHRASES:
+                    if self.prompts[i].startswith(phrase):
+                        self.prompts[i] = self.prompts[i].removeprefix(phrase).strip()
 
         self.video_transforms = transforms.Compose(
             [
