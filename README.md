@@ -16,6 +16,12 @@ FineTrainers is a work-in-progress library to support (accessible) training of v
 - 🔥 **2024-12-20**: Support for T2V LoRA finetuning of [Hunyuan Video](https://huggingface.co/docs/diffusers/main/api/pipelines/hunyuan_video) added! We would like to thank @SHYuanBest for his work on a training script [here](https://github.com/huggingface/diffusers/pull/10254).
 - 🔥 **2024-12-18**: Support for T2V LoRA finetuning of [LTX Video](https://huggingface.co/docs/diffusers/main/api/pipelines/ltx_video) added!
 
+## Table of Contents
+
+* [Quickstart](#quickstart)
+* [Support Matrix](#support-matrix)
+* [Acknowledgements](#acknowledgements)
+
 ## Quickstart
 
 Clone the repository and make sure the requirements are installed: `pip install -r requirements.txt` and install `diffusers` from source by `pip install git+https://github.com/huggingface/diffusers`.
