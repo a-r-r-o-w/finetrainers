@@ -141,13 +141,6 @@ Note that the memory consumption in the table is reported with most of the optio
 
 If you would like to use a custom dataset, refer to the dataset preparation guide [here](./docs/dataset/README.md).
 
-## Notes
-
-* The example training commands have the below thoughts in mind to prioritize memory-optimized runs:
-  * don't contain any arguments to enable validation inference.
-  * gradient checkpointing and gradient accumulation enabled.
-  * precompuation enabled.
-
 ## Acknowledgements
 
 * `finetrainers` builds on top of a body of great open-source libraries: `transformers`, `accelerate`, `peft`, `diffusers`, `bitsandbytes`, `torchao`, `deepspeed` -- to name a few.
