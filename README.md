@@ -28,7 +28,7 @@ huggingface-cli download \
   --local-dir video-dataset-disney
 ```
 
-Then launch LoRA fine-tuning. For CogVideoX and Mochi, refer to [this](./training/README.md) and [this](./training/mochi-1/README.md).
+Then launch LoRA fine-tuning. For CogVideoX and Mochi, refer to [this](./training/README.md) and [this](./training/mochi-1/README.md). For details on the available arguments for the training scripts, see [args.md](args.md).
 
 Note: It is recommended to use Pytorch 2.5.1 or above for training. Previous versions can lead to completely black videos, OOM errors, or other issues and are not tested.
 
