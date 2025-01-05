@@ -980,6 +980,8 @@ class Trainer:
                 extension = "png" if artifact_type == "image" else "mp4"
                 filename = "validation-" if not final_validation else "final-"
                 filename += f"{step}-{accelerator.process_index}-{prompt_filename}.{extension}"
+                if accelerator.is_main_process and extension == "mp4":
+                    prompts_to_filenames[prompt] = filename
                 filename = os.path.join(self.args.output_dir, filename)
 
                 if artifact_type == "image":
@@ -991,8 +993,6 @@ class Trainer:
                     # TODO: this should be configurable here as well as in validation runs where we call the pipeline that has `fps`.
                     export_to_video(artifact_value, filename, fps=15)
                     artifact_value = wandb.Video(filename, caption=prompt)
-                    if accelerator.is_main_process:
-                        prompts_to_filenames[prompt] = filename
 
                 all_processes_artifacts.append(artifact_value)
 
