@@ -15,5 +15,5 @@ By default, we don't include any validation-related arguments in the example tra
 ## Model-specific docs
 
 * [CogVideoX](./cogvideox.md)
-* [LTX-Video](./ltx.md)
-* [HunyuanVideo](./hunyuan.md)
+* [LTX-Video](./ltx_video.md)
+* [HunyuanVideo](./hunyuan_video.md)
