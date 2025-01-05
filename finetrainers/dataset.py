@@ -224,7 +224,7 @@ class ImageOrVideoDataset(Dataset):
         # TODO(aryan): Support alpha channel in future by whitening background
         image = TTF.Image.open(path.as_posix()).convert("RGB")
         image = TTF.to_tensor(image)
-        image = self.video_transforms(image)
+        image = image * 2.0 - 1.0
         image = image.unsqueeze(0).contiguous()  # [C, H, W] -> [1, C, H, W] (1-frame video)
         return image
 
@@ -259,7 +259,7 @@ class ImageOrVideoDatasetWithResizing(ImageOrVideoDataset):
         nearest_res = self._find_nearest_resolution(image.shape[1], image.shape[2])
         image = resize(image, nearest_res)
 
-        image = self.video_transforms(image)
+        image = image * 2.0 - 1.0
         image = image.unsqueeze(0).contiguous()
         return image
 
