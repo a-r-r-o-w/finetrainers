@@ -50,6 +50,7 @@ from .utils.diffusion_utils import (
     prepare_target,
 )
 from .utils.file_utils import string_to_filename
+from .utils.hub_utils import save_model_card
 from .utils.memory_utils import free_memory, get_memory_statistics, make_contiguous
 from .utils.model_utils import resolve_vae_cls_from_ckpt_path
 from .utils.optimizer_utils import get_optimizer
@@ -923,6 +924,7 @@ class Trainer:
             pipeline.load_lora_weights(self.args.output_dir)
 
         all_processes_artifacts = []
+        prompts_to_filenames = {}
         for i in range(num_validation_samples):
             # Skip current validation on all processes but one
             if i % accelerator.num_processes != accelerator.process_index:
@@ -976,7 +978,10 @@ class Trainer:
                     continue
 
                 extension = "png" if artifact_type == "image" else "mp4"
-                filename = f"validation-{step}-{accelerator.process_index}-{prompt_filename}.{extension}"
+                filename = "validation-" if not final_validation else "final-"
+                filename += f"{step}-{accelerator.process_index}-{prompt_filename}.{extension}"
+                if accelerator.is_main_process and extension == "mp4":
+                    prompts_to_filenames[prompt] = filename
                 filename = os.path.join(self.args.output_dir, filename)
 
                 if artifact_type == "image":
@@ -1005,6 +1010,15 @@ class Trainer:
                         },
                         step=step,
                     )
+            if self.args.push_to_hub and final_validation:
+                video_filenames = list(prompts_to_filenames.values())
+                prompts = list(prompts_to_filenames.keys())
+                save_model_card(
+                    args=self.args,
+                    repo_id=self.state.repo_id,
+                    videos=video_filenames,
+                    validation_prompts=prompts,
+                )
 
         # Remove all hooks that might have been added during pipeline initialization to the models
         pipeline.remove_all_hooks()
