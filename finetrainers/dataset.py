@@ -59,12 +59,13 @@ class ImageOrVideoDataset(Dataset):
         self.id_token = f"{id_token.strip()} " if id_token else ""
         self.resolution_buckets = resolution_buckets
 
-        # Three methods of loading data are supported.
+        # Four methods of loading data are supported.
         #   - Using a CSV: caption_column and video_column must be some column in the CSV. One could
         #     make use of other columns too, such as a motion score or aesthetic score, by modifying the
         #     logic in CSV processing.
         #   - Using two files containing line-separate captions and relative paths to videos.
         #   - Using a JSON file containing a list of dictionaries, where each dictionary has a `caption_column` and `video_column` key.
+        #   - Using a JSONL file containing a list of line-separated dictionaries, where each dictionary has a `caption_column` and `video_column` key.
         # For a more detailed explanation about preparing dataset format, checkout the README.
         if dataset_file is None:
             (

@@ -196,15 +196,15 @@ def prepare_latents(
             h = torch.cat(encoded_slices)
         else:
             h = vae._encode(image_or_video)
-        return {"latents": h, "scaling_factor": vae.config.scaling_factor}
+        return {"latents": h}
 
 
 def post_latent_preparation(
+    vae_config: Dict[str, Any],
     latents: torch.Tensor,
-    scaling_factor: float,
     **kwargs,
 ) -> torch.Tensor:
-    latents = latents * scaling_factor
+    latents = latents * vae_config.scaling_factor
     return {"latents": latents}
 
 

@@ -215,7 +215,7 @@ Note: requires about `17.5` GB of VRAM with precomputation. If validation is not
 > - `--rank`: `32` or above. `128` works well with a large number of images and videos.
 > - `--train_steps 1000`
 > - `--gradient_accumulation_steps 2`
-> - `--lr 5e-5`
+> - `--lr 3e-5`
 > - `--weight_decay 0.01`
 
 ### Training:
@@ -255,7 +255,7 @@ dataset_cmd="--data_root $DATA_ROOT \
 dataloader_cmd="--dataloader_num_workers 0"
 
 # Diffusion arguments
-diffusion_cmd=""
+diffusion_cmd="--flow_shift 7.0"
 
 # Training arguments
 training_cmd="--training_type lora \
