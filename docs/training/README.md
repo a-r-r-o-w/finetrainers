@@ -11,3 +11,9 @@ By default, we don't include any validation-related arguments in the example tra
 + --num_validation_videos 1 \
 + --validation_steps 100
 ```
+
+## Model-specific docs
+
+* [CogVideoX](./cogvideox.md)
+* [LTX-Video](./ltx.md)
+* [HunyuanVideo](./hunyuan.md)
