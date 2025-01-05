@@ -11,7 +11,6 @@ import diffusers
 import torch
 import torch.backends
 import transformers
-import wandb
 from accelerate import Accelerator, DistributedType
 from accelerate.logging import get_logger
 from accelerate.utils import (
@@ -30,6 +29,8 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
 
+import wandb
+
 from .args import Args, validate_args
 from .constants import (
     FINETRAINERS_LOG_LEVEL,
@@ -38,7 +39,9 @@ from .constants import (
     PRECOMPUTED_LATENTS_DIR_NAME,
 )
 from .dataset import BucketSampler, PrecomputedDataset, VideoDatasetWithResizing
+from .hooks import apply_layerwise_upcasting
 from .models import get_config_from_model_name
+from .patches import perform_peft_patches
 from .state import State
 from .utils.checkpointing import get_intermediate_ckpt_path, get_latest_ckpt_path_to_resume_from
 from .utils.data_utils import should_perform_precomputation
@@ -55,8 +58,6 @@ from .utils.memory_utils import free_memory, get_memory_statistics, make_contigu
 from .utils.model_utils import resolve_vae_cls_from_ckpt_path
 from .utils.optimizer_utils import get_optimizer
 from .utils.torch_utils import align_device_and_dtype, expand_tensor_dims, unwrap_model
-from .hooks import apply_layerwise_upcasting
-from .patches import perform_peft_patches
 
 
 logger = get_logger("finetrainers")
@@ -388,7 +389,7 @@ class Trainer:
 
         if self.args.gradient_checkpointing:
             self.transformer.enable_gradient_checkpointing()
-        
+
         # Layerwise upcasting must be applied before adding the LoRA adapter
         if "transformer" in self.args.layerwise_upcasting_modules:
             apply_layerwise_upcasting(
@@ -1083,7 +1084,7 @@ class Trainer:
             if self.args.push_to_hub:
                 repo_id = self.args.hub_model_id or Path(self.args.output_dir).name
                 self.state.repo_id = create_repo(token=self.args.hub_token, repo_id=repo_id, exist_ok=True).repo_id
-    
+
     def _init_config_options(self) -> None:
         # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
         if self.args.allow_tf32 and torch.cuda.is_available():
