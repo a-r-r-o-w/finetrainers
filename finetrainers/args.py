@@ -28,6 +28,9 @@ class Args:
     text_encoder_3_dtype: torch.dtype = torch.bfloat16
     transformer_dtype: torch.dtype = torch.bfloat16
     vae_dtype: torch.dtype = torch.bfloat16
+    layerwise_upcasting_modules: List[str] = []
+    layerwise_upcasting_storage_dtype: torch.dtype = torch.float8_e4m3fn
+    layerwise_upcasting_granularity: str = "pytorch_layer"
 
     # Dataset arguments
     data_root: str = None
@@ -127,6 +130,9 @@ class Args:
                 "text_encoder_3_dtype": self.text_encoder_3_dtype,
                 "transformer_dtype": self.transformer_dtype,
                 "vae_dtype": self.vae_dtype,
+                "layerwise_upcasting_modules": self.layerwise_upcasting_modules,
+                "layerwise_upcasting_storage_dtype": self.layerwise_upcasting_storage_dtype,
+                "layerwise_upcasting_granularity": self.layerwise_upcasting_granularity,
             },
             "dataset_arguments": {
                 "data_root": self.data_root,
@@ -259,6 +265,28 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--text_encoder_3_dtype", type=str, default="bf16", help="Data type for the text encoder 3.")
     parser.add_argument("--transformer_dtype", type=str, default="bf16", help="Data type for the transformer model.")
     parser.add_argument("--vae_dtype", type=str, default="bf16", help="Data type for the VAE model.")
+    parser.add_argument(
+        "--layerwise_upcasting_modules",
+        type=str,
+        default=[],
+        nargs="+",
+        choices=["transformer"],
+        help="Modules that should have fp8 storage weights but higher precision computation.",
+    )
+    parser.add_argument(
+        "--layerwise_upcasting_storage_dtype",
+        type=str,
+        default="float8_e4m3fn",
+        choices=["float8_e4m3fn", "float8_e5m2"],
+        help="Data type for the layerwise upcasting storage.",
+    )
+    parser.add_argument(
+        "--layerwise_upcasting_granularity",
+        type=str,
+        default="pytorch_layer",
+        choices=["pytorch_layer", "diffusers_layer"],
+        help="Granularity of layerwise upcasting.",
+    )
 
 
 def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
@@ -675,8 +703,9 @@ _DTYPE_MAP = {
     "bf16": torch.bfloat16,
     "fp16": torch.float16,
     "fp32": torch.float32,
+    "float8_e4m3fn": torch.float8_e4m3fn,
+    "float8_e5m2": torch.float8_e5m2,
 }
-_INVERSE_DTYPE_MAP = {v: k for k, v in _DTYPE_MAP.items()}
 
 
 def _map_to_args_type(args: Dict[str, Any]) -> Args:
@@ -693,6 +722,9 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.text_encoder_3_dtype = _DTYPE_MAP[args.text_encoder_3_dtype]
     result_args.transformer_dtype = _DTYPE_MAP[args.transformer_dtype]
     result_args.vae_dtype = _DTYPE_MAP[args.vae_dtype]
+    result_args.layerwise_upcasting_modules = args.layerwise_upcasting_modules
+    result_args.layerwise_upcasting_storage_dtype = _DTYPE_MAP[args.layerwise_upcasting_storage_dtype]
+    result_args.layerwise_upcasting_granularity = args.layerwise_upcasting_granularity
 
     # Dataset arguments
     if args.data_root is None and args.dataset_file is None:

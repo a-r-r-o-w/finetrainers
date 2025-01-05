@@ -30,7 +30,7 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
 
-from .args import _INVERSE_DTYPE_MAP, Args, validate_args
+from .args import Args, validate_args
 from .constants import (
     FINETRAINERS_LOG_LEVEL,
     PRECOMPUTED_CONDITIONS_DIR_NAME,
@@ -55,6 +55,8 @@ from .utils.memory_utils import free_memory, get_memory_statistics, make_contigu
 from .utils.model_utils import resolve_vae_cls_from_ckpt_path
 from .utils.optimizer_utils import get_optimizer
 from .utils.torch_utils import align_device_and_dtype, expand_tensor_dims, unwrap_model
+from .hooks import apply_layerwise_upcasting
+from .patches import perform_peft_patches
 
 
 logger = get_logger("finetrainers")
@@ -95,6 +97,10 @@ class Trainer:
         self._init_distributed()
         self._init_logging()
         self._init_directories_and_repositories()
+        self._init_config_options()
+
+        # Peform any patches needed for training
+        perform_peft_patches()
 
         self.state.model_name = self.args.model_name
         self.model_config = get_config_from_model_name(self.args.model_name, self.args.training_type)
@@ -382,6 +388,16 @@ class Trainer:
 
         if self.args.gradient_checkpointing:
             self.transformer.enable_gradient_checkpointing()
+        
+        # Layerwise upcasting must be applied before adding the LoRA adapter
+        if "transformer" in self.args.layerwise_upcasting_modules:
+            apply_layerwise_upcasting(
+                self.transformer,
+                storage_dtype=self.args.layerwise_upcasting_storage_dtype,
+                compute_dtype=self.args.transformer_dtype,
+                granularity=self.args.layerwise_upcasting_granularity,
+                skip_modules_pattern=["pos_embed", "patch_embed", "norm"],
+            )
 
         transformer_lora_config = LoraConfig(
             r=self.args.rank,
@@ -391,9 +407,8 @@ class Trainer:
         )
         self.transformer.add_adapter(transformer_lora_config)
 
-        # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
-        if self.args.allow_tf32 and torch.cuda.is_available():
-            torch.backends.cuda.matmul.allow_tf32 = True
+        # TODO(aryan): it might be nice to add some assertions here to make sure that lora parameters are still in fp32
+        # even if layerwise upcasting. Would be nice to have a test as well
 
         self.register_saving_loading_hooks(transformer_lora_config)
 
@@ -1068,6 +1083,11 @@ class Trainer:
             if self.args.push_to_hub:
                 repo_id = self.args.hub_model_id or Path(self.args.output_dir).name
                 self.state.repo_id = create_repo(token=self.args.hub_token, repo_id=repo_id, exist_ok=True).repo_id
+    
+    def _init_config_options(self) -> None:
+        # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
+        if self.args.allow_tf32 and torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = True
 
     def _move_components_to_device(self):
         if self.text_encoder is not None:

@@ -40,7 +40,6 @@ diffusion_cmd=""
 # Training arguments
 training_cmd="--training_type lora \
   --seed 42 \
-  --mixed_precision bf16 \
   --batch_size 1 \
   --train_steps 500 \
   --rank 128 \
