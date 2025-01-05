@@ -129,7 +129,7 @@ echo -ne "-------------------- Finished executing script --------------------\n\
 
 Here we are using two GPUs. But one can do single-GPU training by setting `GPU_IDS=0`. By default, we are using some simple optimizations to reduce memory consumption (such as gradient checkpointing). Please refer to [docs/training/optimizations](./docs/training/optimization.md) to learn about the memory optimizations currently supported.
 
-For inference, refer [here](./docs/training/ltx.md#inference). For docs related to the other supported model, refer [here](./docs/training/).
+For inference, refer [here](./docs/training/ltx_video.md#inference). For docs related to the other supported model, refer [here](./docs/training/).
 
 ## Support Matrix
 
