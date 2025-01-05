@@ -35,10 +35,7 @@ dataloader_cmd="--dataloader_num_workers 4"
 # Training arguments
 training_cmd="--training_type lora \
   --seed 42 \
-  --mixed_precision fp16 \
-  --transformer_dtype fp16 \
-  --text_encoder_dtype fp16 \
-  --vae_dtype fp16 \
+  --mixed_precision bf16 \
   --batch_size 1 \
   --precompute_conditions \
   --train_steps 1000 \
@@ -122,7 +119,7 @@ from diffusers import CogVideoXPipeline
 from diffusers.utils import export_to_video
 
 pipe = CogVideoXPipeline.from_pretrained(
-    "THUDM/CogVideoX-5b", torch_dtype=torch.float16
+    "THUDM/CogVideoX-5b", torch_dtype=torch.bfloat16
 ).to("cuda")
 + pipe.load_lora_weights("my-awesome-name/my-awesome-lora", adapter_name="cogvideox-lora")
 + pipe.set_adapters(["cogvideox-lora"], [0.75])
