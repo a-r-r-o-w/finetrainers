@@ -17,7 +17,7 @@ ID_TOKEN="BW_STYLE"
 
 # Model arguments
 model_cmd="--model_name cogvideox \
-  --pretrained_model_name_or_path THUDM/CogVideoX-2b"
+  --pretrained_model_name_or_path THUDM/CogVideoX-5b"
 
 # Dataset arguments
 dataset_cmd="--data_root $DATA_ROOT \
@@ -120,10 +120,10 @@ from diffusers import DiffusionPipeline
 from diffusers.utils import export_to_video
 
 pipe = DiffusionPipeline.from_pretrained(
-    "THUDM/CogVideoX-2b", torch_dtype=torch.float16
+    "THUDM/CogVideoX-5b", torch_dtype=torch.float16
 ).to("cuda")
-+ pipe.load_lora_weights("my-awesome-name/my-awesome-lora", adapter_name="ltxv-lora")
-+ pipe.set_adapters(["ltxv-lora"], [0.75])
++ pipe.load_lora_weights("my-awesome-name/my-awesome-lora", adapter_name="cogvideox-lora")
++ pipe.set_adapters(["cogvideox"], [0.75])
 
 video = pipe("<my-awesome-prompt>").frames[0]
 export_to_video(video, "output.mp4")
