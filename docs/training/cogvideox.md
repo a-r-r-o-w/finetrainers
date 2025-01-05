@@ -125,7 +125,7 @@ pipe = DiffusionPipeline.from_pretrained(
     "THUDM/CogVideoX-5b", torch_dtype=torch.float16
 ).to("cuda")
 + pipe.load_lora_weights("my-awesome-name/my-awesome-lora", adapter_name="cogvideox-lora")
-+ pipe.set_adapters(["cogvideox"], [0.75])
++ pipe.set_adapters(["cogvideox-lora"], [0.75])
 
 video = pipe("<my-awesome-prompt>").frames[0]
 export_to_video(video, "output.mp4")
