@@ -61,9 +61,6 @@ class Args:
     # Training arguments
     training_type: str = None
     seed: int = 42
-    mixed_precision: str = (
-        None  # TODO: consider removing later https://github.com/a-r-r-o-w/finetrainers/pull/139#discussion_r1897438414
-    )
     batch_size: int = 1
     train_epochs: int = 1
     train_steps: int = None
@@ -151,7 +148,6 @@ class Args:
             "training_arguments": {
                 "training_type": self.training_type,
                 "seed": self.seed,
-                "mixed_precision": self.mixed_precision,
                 "batch_size": self.batch_size,
                 "train_epochs": self.train_epochs,
                 "train_steps": self.train_steps,
@@ -405,20 +401,11 @@ def _add_training_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--training_type",
         type=str,
-        default=None,
-        help="Type of training to perform. Choose between ['lora']",
+        default="lora",
+        choices=["lora"],
+        help="Type of training to perform.",
     )
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
-    parser.add_argument(
-        "--mixed_precision",
-        type=str,
-        default="no",
-        choices=["no", "fp8", "fp16", "bf16"],
-        help=(
-            "Whether to use mixed precision. Defaults to the value of accelerate config of the current system or the "
-            "flag passed with the `accelerate.launch` command. Use this argument to override the accelerate config."
-        ),
-    )
     parser.add_argument(
         "--batch_size",
         type=int,
@@ -737,7 +724,6 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     # Training arguments
     result_args.training_type = args.training_type
     result_args.seed = args.seed
-    result_args.mixed_precision = args.mixed_precision
     result_args.batch_size = args.batch_size
     result_args.train_epochs = args.train_epochs
     result_args.train_steps = args.train_steps
