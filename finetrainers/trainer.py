@@ -37,7 +37,7 @@ from .constants import (
     PRECOMPUTED_DIR_NAME,
     PRECOMPUTED_LATENTS_DIR_NAME,
 )
-from .dataset import BucketSampler, PrecomputedDataset, ImageOrVideoDatasetWithResizing
+from .dataset import BucketSampler, ImageOrVideoDatasetWithResizing, PrecomputedDataset
 from .models import get_config_from_model_name
 from .state import State
 from .utils.checkpointing import get_intermediate_ckpt_path, get_latest_ckpt_path_to_resume_from
