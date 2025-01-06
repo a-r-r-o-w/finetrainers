@@ -103,3 +103,5 @@ For this format, you would specify arguments as follows:
 > Using images for finetuning is also supported. The dataset format remains the same as above. Find an example [here](https://huggingface.co/datasets/a-r-r-o-w/flux-retrostyle-dataset-mini).
 >
 > For example, to finetune with `512x512` resolution images, one must specify `--video_resolution_buckets 1x512x512` and point to the image files correctly.
+
+If you are using LLM-captioned videos, it is common to see many unwanted starting phrases like "In this video, ...", "This video features ...", etc. To remove a simple subset of these phrases, you can specify `--remove_common_llm_caption_prefixes` when starting training.
