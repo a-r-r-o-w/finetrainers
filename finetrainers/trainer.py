@@ -38,7 +38,7 @@ from .constants import (
     PRECOMPUTED_DIR_NAME,
     PRECOMPUTED_LATENTS_DIR_NAME,
 )
-from .dataset import BucketSampler, PrecomputedDataset, VideoDatasetWithResizing
+from .dataset import BucketSampler, ImageOrVideoDatasetWithResizing, PrecomputedDataset
 from .hooks import apply_layerwise_upcasting
 from .models import get_config_from_model_name
 from .patches import perform_peft_patches
@@ -114,13 +114,14 @@ class Trainer:
         # TODO(aryan): Make a background process for fetching
         logger.info("Initializing dataset and dataloader")
 
-        self.dataset = VideoDatasetWithResizing(
+        self.dataset = ImageOrVideoDatasetWithResizing(
             data_root=self.args.data_root,
             caption_column=self.args.caption_column,
             video_column=self.args.video_column,
             resolution_buckets=self.args.video_resolution_buckets,
             dataset_file=self.args.dataset_file,
             id_token=self.args.id_token,
+            remove_llm_prefixes=self.args.remove_common_llm_caption_prefixes,
         )
         self.dataloader = torch.utils.data.DataLoader(
             self.dataset,
@@ -138,6 +139,7 @@ class Trainer:
             "text_encoder_3_dtype": self.args.text_encoder_3_dtype,
             "transformer_dtype": self.args.transformer_dtype,
             "vae_dtype": self.args.vae_dtype,
+            "shift": self.args.flow_shift,
             "revision": self.args.revision,
             "cache_dir": self.args.cache_dir,
         }
@@ -827,13 +829,13 @@ class Trainer:
                             )
                             accelerator.save_state(save_path)
 
-                # Maybe run validation
-                should_run_validation = (
-                    self.args.validation_every_n_steps is not None
-                    and global_step % self.args.validation_every_n_steps == 0
-                )
-                if should_run_validation:
-                    self.validate(global_step)
+                    # Maybe run validation
+                    should_run_validation = (
+                        self.args.validation_every_n_steps is not None
+                        and global_step % self.args.validation_every_n_steps == 0
+                    )
+                    if should_run_validation:
+                        self.validate(global_step)
 
                 logs["loss"] = loss.detach().item()
                 logs["lr"] = self.lr_scheduler.get_last_lr()[0]
@@ -873,8 +875,7 @@ class Trainer:
                     repo_id=self.state.repo_id, folder_path=self.args.output_dir, ignore_patterns=["checkpoint-*"]
                 )
 
-        del self.tokenizer, self.text_encoder, self.transformer, self.vae, self.scheduler
-        free_memory()
+        self._delete_components()
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory after training end: {json.dumps(memory_statistics, indent=4)}")
 
@@ -957,7 +958,9 @@ class Trainer:
                 width=width,
                 num_frames=num_frames,
                 num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
-                generator=self.state.generator,
+                generator=torch.Generator(device=accelerator.device).manual_seed(
+                    self.args.seed if self.args.seed is not None else 0
+                ),
                 # todo support passing `fps` for supported pipelines.
             )
 
@@ -973,7 +976,7 @@ class Trainer:
                 main_process_only=False,
             )
 
-            for key, value in list(artifacts.items()):
+            for index, (key, value) in enumerate(list(artifacts.items())):
                 artifact_type = value["type"]
                 artifact_value = value["value"]
                 if artifact_type not in ["image", "video"] or artifact_value is None:
@@ -981,7 +984,7 @@ class Trainer:
 
                 extension = "png" if artifact_type == "image" else "mp4"
                 filename = "validation-" if not final_validation else "final-"
-                filename += f"{step}-{accelerator.process_index}-{prompt_filename}.{extension}"
+                filename += f"{step}-{accelerator.process_index}-{index}-{prompt_filename}.{extension}"
                 if accelerator.is_main_process and extension == "mp4":
                     prompts_to_filenames[prompt] = filename
                 filename = os.path.join(self.args.output_dir, filename)

@@ -1,3 +1,4 @@
+import json
 import os
 import random
 from pathlib import Path
@@ -7,6 +8,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torchvision.transforms as TT
+import torchvision.transforms.functional as TTF
 from accelerate.logging import get_logger
 from torch.utils.data import Dataset, Sampler
 from torchvision import transforms
@@ -20,13 +22,25 @@ import decord  # isort:skip
 
 decord.bridge.set_bridge("torch")
 
-from .constants import PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME  # noqa
+from .constants import (  # noqa
+    COMMON_LLM_START_PHRASES,
+    PRECOMPUTED_CONDITIONS_DIR_NAME,
+    PRECOMPUTED_DIR_NAME,
+    PRECOMPUTED_LATENTS_DIR_NAME,
+)
 
 
 logger = get_logger(__name__)
 
 
-class VideoDataset(Dataset):
+# TODO(aryan): This needs a refactor with separation of concerns.
+# Images should be handled separately. Videos should be handled separately.
+# Loading should be handled separately.
+# Preprocessing (aspect ratio, resizing) should be handled separately.
+# URL loading should be handled.
+# Parquet format should be handled.
+# Loading from ZIP should be handled.
+class ImageOrVideoDataset(Dataset):
     def __init__(
         self,
         data_root: str,
@@ -35,6 +49,7 @@ class VideoDataset(Dataset):
         resolution_buckets: List[Tuple[int, int, int]],
         dataset_file: Optional[str] = None,
         id_token: Optional[str] = None,
+        remove_llm_prefixes: bool = False,
     ) -> None:
         super().__init__()
 
@@ -45,27 +60,51 @@ class VideoDataset(Dataset):
         self.id_token = f"{id_token.strip()} " if id_token else ""
         self.resolution_buckets = resolution_buckets
 
-        # Two methods of loading data are supported.
+        # Four methods of loading data are supported.
         #   - Using a CSV: caption_column and video_column must be some column in the CSV. One could
         #     make use of other columns too, such as a motion score or aesthetic score, by modifying the
         #     logic in CSV processing.
         #   - Using two files containing line-separate captions and relative paths to videos.
+        #   - Using a JSON file containing a list of dictionaries, where each dictionary has a `caption_column` and `video_column` key.
+        #   - Using a JSONL file containing a list of line-separated dictionaries, where each dictionary has a `caption_column` and `video_column` key.
         # For a more detailed explanation about preparing dataset format, checkout the README.
         if dataset_file is None:
             (
                 self.prompts,
                 self.video_paths,
             ) = self._load_dataset_from_local_path()
-        else:
+        elif dataset_file.endswith(".csv"):
             (
                 self.prompts,
                 self.video_paths,
             ) = self._load_dataset_from_csv()
+        elif dataset_file.endswith(".json"):
+            (
+                self.prompts,
+                self.video_paths,
+            ) = self._load_dataset_from_json()
+        elif dataset_file.endswith(".jsonl"):
+            (
+                self.prompts,
+                self.video_paths,
+            ) = self._load_dataset_from_jsonl()
+        else:
+            raise ValueError(
+                "Expected `--dataset_file` to be a path to a CSV file or a directory containing line-separated text prompts and video paths."
+            )
 
         if len(self.video_paths) != len(self.prompts):
             raise ValueError(
                 f"Expected length of prompts and videos to be the same but found {len(self.prompts)=} and {len(self.video_paths)=}. Please ensure that the number of caption prompts and videos match in your dataset."
             )
+
+        # Clean LLM start phrases
+        if remove_llm_prefixes:
+            for i in range(len(self.prompts)):
+                self.prompts[i] = self.prompts[i].strip()
+                for phrase in COMMON_LLM_START_PHRASES:
+                    if self.prompts[i].startswith(phrase):
+                        self.prompts[i] = self.prompts[i].removeprefix(phrase).strip()
 
         self.video_transforms = transforms.Compose(
             [
@@ -95,7 +134,12 @@ class VideoDataset(Dataset):
             return index
 
         prompt = self.id_token + self.prompts[index]
-        video = self._preprocess_video(self.video_paths[index])
+
+        video_path: Path = self.video_paths[index]
+        if video_path.suffix.lower() in [".png", ".jpg", ".jpeg"]:
+            video = self._preprocess_image(video_path)
+        else:
+            video = self._preprocess_video(video_path)
 
         return {
             "prompt": prompt,
@@ -148,12 +192,47 @@ class VideoDataset(Dataset):
 
         return prompts, video_paths
 
+    def _load_dataset_from_json(self) -> Tuple[List[str], List[str]]:
+        with open(self.dataset_file, "r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        prompts = [entry[self.caption_column] for entry in data]
+        video_paths = [self.data_root.joinpath(entry[self.video_column].strip()) for entry in data]
+
+        if any(not path.is_file() for path in video_paths):
+            raise ValueError(
+                f"Expected `{self.video_column=}` to be a path to a file in `{self.data_root=}` containing line-separated paths to video data but found atleast one path that is not a valid file."
+            )
+
+        return prompts, video_paths
+
+    def _load_dataset_from_jsonl(self) -> Tuple[List[str], List[str]]:
+        with open(self.dataset_file, "r", encoding="utf-8") as file:
+            data = [json.loads(line) for line in file]
+
+        prompts = [entry[self.caption_column] for entry in data]
+        video_paths = [self.data_root.joinpath(entry[self.video_column].strip()) for entry in data]
+
+        if any(not path.is_file() for path in video_paths):
+            raise ValueError(
+                f"Expected `{self.video_column=}` to be a path to a file in `{self.data_root=}` containing line-separated paths to video data but found atleast one path that is not a valid file."
+            )
+
+        return prompts, video_paths
+
+    def _preprocess_image(self, path: Path) -> torch.Tensor:
+        # TODO(aryan): Support alpha channel in future by whitening background
+        image = TTF.Image.open(path.as_posix()).convert("RGB")
+        image = TTF.to_tensor(image)
+        image = image * 2.0 - 1.0
+        image = image.unsqueeze(0).contiguous()  # [C, H, W] -> [1, C, H, W] (1-frame video)
+        return image
+
     def _preprocess_video(self, path: Path) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         r"""
         Loads a single video, or latent and prompt embedding, based on initialization parameters.
 
-        If returning a video, returns a [F, C, H, W] video tensor, and None for the prompt embedding. Here,
-        F, C, H and W are the frames, channels, height and width of the input video.
+        Returns a [F, C, H, W] video tensor.
         """
         video_reader = decord.VideoReader(uri=path.as_posix())
         video_num_frames = len(video_reader)
@@ -166,11 +245,23 @@ class VideoDataset(Dataset):
         return frames
 
 
-class VideoDatasetWithResizing(VideoDataset):
+class ImageOrVideoDatasetWithResizing(ImageOrVideoDataset):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
         self.max_num_frames = max(self.resolution_buckets, key=lambda x: x[0])[0]
+
+    def _preprocess_image(self, path: Path) -> torch.Tensor:
+        # TODO(aryan): Support alpha channel in future by whitening background
+        image = TTF.Image.open(path.as_posix()).convert("RGB")
+        image = TTF.to_tensor(image)
+
+        nearest_res = self._find_nearest_resolution(image.shape[1], image.shape[2])
+        image = resize(image, nearest_res)
+
+        image = image * 2.0 - 1.0
+        image = image.unsqueeze(0).contiguous()
+        return image
 
     def _preprocess_video(self, path: Path) -> torch.Tensor:
         video_reader = decord.VideoReader(uri=path.as_posix())
@@ -198,7 +289,7 @@ class VideoDatasetWithResizing(VideoDataset):
         return nearest_res[1], nearest_res[2]
 
 
-class VideoDatasetWithResizeAndRectangleCrop(VideoDataset):
+class ImageOrVideoDatasetWithResizeAndRectangleCrop(ImageOrVideoDataset):
     def __init__(self, video_reshape_mode: str = "center", *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
@@ -292,8 +383,8 @@ class BucketSampler(Sampler):
     PyTorch Sampler that groups 3D data by height, width and frames.
 
     Args:
-        data_source (`VideoDataset`):
-            A PyTorch dataset object that is an instance of `VideoDataset`.
+        data_source (`ImageOrVideoDataset`):
+            A PyTorch dataset object that is an instance of `ImageOrVideoDataset`.
         batch_size (`int`, defaults to `8`):
             The batch size to use for training.
         shuffle (`bool`, defaults to `True`):
@@ -306,7 +397,7 @@ class BucketSampler(Sampler):
     """
 
     def __init__(
-        self, data_source: VideoDataset, batch_size: int = 8, shuffle: bool = True, drop_last: bool = False
+        self, data_source: ImageOrVideoDataset, batch_size: int = 8, shuffle: bool = True, drop_last: bool = False
     ) -> None:
         self.data_source = data_source
         self.batch_size = batch_size
