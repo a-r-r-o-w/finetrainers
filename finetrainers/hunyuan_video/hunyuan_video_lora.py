@@ -250,6 +250,7 @@ def validation(
         "height": height,
         "width": width,
         "num_frames": num_frames,
+        "num_inference_steps": 2,
         "num_videos_per_prompt": num_videos_per_prompt,
         "generator": generator,
         "return_dict": True,

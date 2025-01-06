@@ -101,7 +101,11 @@ class Trainer:
         self._init_config_options()
 
         # Peform any patches needed for training
-        perform_peft_patches()
+        if len(self.args.layerwise_upcasting_modules) > 0:
+            perform_peft_patches()
+        # TODO(aryan): handle text encoders
+        # if any(["text_encoder" in component_name for component_name in self.args.layerwise_upcasting_modules]):
+        #     perform_text_encoder_patches()
 
         self.state.model_name = self.args.model_name
         self.model_config = get_config_from_model_name(self.args.model_name, self.args.training_type)
@@ -385,12 +389,9 @@ class Trainer:
                         "Mixed precision training with bfloat16 is not supported on MPS. Please use fp16 (recommended) or fp32 instead."
                     )
 
-        self._move_components_to_device()
-
-        if self.args.gradient_checkpointing:
-            self.transformer.enable_gradient_checkpointing()
-
-        # Layerwise upcasting must be applied before adding the LoRA adapter
+        # Layerwise upcasting must be applied before adding the LoRA adapter.
+        # If we don't perform this before moving to device, we might OOM on the GPU. So, best to do it on
+        # CPU for now, before support is added in Diffusers for loading and enabling layerwise upcasting directly.
         if "transformer" in self.args.layerwise_upcasting_modules:
             apply_layerwise_upcasting(
                 self.transformer,
@@ -399,6 +400,11 @@ class Trainer:
                 granularity=self.args.layerwise_upcasting_granularity,
                 skip_modules_pattern=["pos_embed", "patch_embed", "norm"],
             )
+
+        self._move_components_to_device()
+
+        if self.args.gradient_checkpointing:
+            self.transformer.enable_gradient_checkpointing()
 
         transformer_lora_config = LoraConfig(
             r=self.args.rank,

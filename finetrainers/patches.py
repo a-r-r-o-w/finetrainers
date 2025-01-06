@@ -38,7 +38,6 @@ def _patched_move_adapter_to_device_of_base_layer(func) -> None:
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
         with DisableTensorToDtype():
-            print("called")
             return func(self, *args, **kwargs)
 
     return wrapper
