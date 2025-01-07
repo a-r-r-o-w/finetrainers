@@ -109,6 +109,14 @@ Training configuration: {
 | after validation end          | 11.145            | 28.324              |
 | after training end            | 11.144            | 11.592              |
 
+## Supported checkpoints
+
+CogVideoX has multiple checkpoints as one can note [here](https://huggingface.co/collections/THUDM/cogvideo-66c08e62f1685a3ade464cce). The following checkpoints were tested with `finetrainers` and are known to be working:
+
+* [THUDM/CogVideoX-2b](https://huggingface.co/THUDM/CogVideoX-2b)
+* [THUDM/CogVideoX1.5-5B](https://huggingface.co/THUDM/CogVideoX1.5-5B)
+* [THUDM/CogVideoX1.5-5B](https://huggingface.co/THUDM/CogVideoX1.5-5B)
+
 ## Inference
 
 Assuming your LoRA is saved and pushed to the HF Hub, and named `my-awesome-name/my-awesome-lora`, we can now use the finetuned model for inference:
