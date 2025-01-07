@@ -109,6 +109,14 @@ Training configuration: {
 | after validation end          | 11.145            | 28.324              |
 | after training end            | 11.144            | 11.592              |
 
+## Supported checkpoints
+
+CogVideoX has multiple checkpoints as one can note [here](https://huggingface.co/collections/THUDM/cogvideo-66c08e62f1685a3ade464cce). The following checkpoints were tested with `finetrainers` and are known to be working:
+
+* [THUDM/CogVideoX-2b](https://huggingface.co/THUDM/CogVideoX-2b)
+* [THUDM/CogVideoX-5B](https://huggingface.co/THUDM/CogVideoX-5B)
+* [THUDM/CogVideoX1.5-5B](https://huggingface.co/THUDM/CogVideoX1.5-5B)
+
 ## Inference
 
 Assuming your LoRA is saved and pushed to the HF Hub, and named `my-awesome-name/my-awesome-lora`, we can now use the finetuned model for inference:
@@ -128,7 +136,8 @@ video = pipe("<my-awesome-prompt>").frames[0]
 export_to_video(video, "output.mp4")
 ```
 
-You can refer to the following guides to know more about performing LoRA inference in `diffusers`:
+You can refer to the following guides to know more about the model pipeline and performing LoRA inference in `diffusers`:
 
+* [CogVideoX in Diffusers](https://huggingface.co/docs/diffusers/main/en/api/pipelines/cogvideox)
 * [Load LoRAs for inference](https://huggingface.co/docs/diffusers/main/en/tutorials/using_peft_for_inference)
 * [Merge LoRAs](https://huggingface.co/docs/diffusers/main/en/using-diffusers/merge_loras)

@@ -135,13 +135,15 @@ For inference, refer [here](./docs/training/ltx_video.md#inference). For docs re
 
 <div align="center">
 
-| Model Name | Tasks                | Ckpts Tested                                                                                                                                         | Min. GPU<br>VRAM | Comments                                                     |
-|:------------:|:---------------------:|:------------------------------------------------------------------------------------------------------------------------------------------------------:|:----------------------:|:--------------------------------------------------------------:|
-| [LTX-Video](https://huggingface.co/docs/diffusers/main/api/pipelines/ltx_video) | <ul><li>T2V ✅</li><li> I2V ❌</li></ul> | [Lightricks/LTX-Video](https://huggingface.co/Lightricks/LTX-Video)                                                                                 | 11 GB                | Fast to train                                                 |
-| [HunyuanVideo](https://huggingface.co/docs/diffusers/main/api/pipelines/hunyuan_video) | <ul><li>T2V ✅</li><li> I2V ❌</li></ul> | [tencent/HunyuanVideo](https://huggingface.co/tencent/HunyuanVideo)                                                                                 | 42 GB                 | -                                                            |
-| [CogVideoX](https://huggingface.co/docs/diffusers/main/api/pipelines/cogvideox) | <ul><li>T2V ✅</li><li> I2V ❌</li></ul> | <ul><li>[THUDM/CogVideoX1.5-5B](https://huggingface.co/THUDM/CogVideoX1.5-5B)</li><li>[THUDM/CogVideoX-5b](https://huggingface.co/THUDM/CogVideoX-5b)</li><li>[THUDM/CogVideoX-2b](https://huggingface.co/THUDM/CogVideoX-2b)</li> | - GB                 | Training with multi-bucket, multi-resolution frames is supported. |
+| **Model Name** | **Tasks** | **Min. GPU VRAM** |
+|:---:|:---:|:---:|
+| [LTX-Video](./docs/training/ltx_video.md) | Text-to-Video | 11 GB |
+| [HunyuanVideo](./docs/training/hunyuan_video.md) | Text-to-Video | 42 GB |
+| [CogVideoX](./docs/training/cogvideox.md) | Text-to-Video | 12GB<sup>*</sup> |
 
 </div>
+
+<sub><sup>*</sup>Noted for the 5B variant.</sub>
 
 Note that the memory consumption in the table is reported with most of the options, discussed in [docs/training/optimizations](./docs/training/optimization.md), enabled.
 

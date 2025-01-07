@@ -159,7 +159,8 @@ video = pipe("<my-awesome-prompt>").frames[0]
 export_to_video(video, "output.mp4", fps=8)
 ```
 
-You can refer to the following guides to know more about performing LoRA inference in `diffusers`:
+You can refer to the following guides to know more about the model pipeline and performing LoRA inference in `diffusers`:
 
+* [LTX-Video in Diffusers](https://huggingface.co/docs/diffusers/main/en/api/pipelines/ltx_video)
 * [Load LoRAs for inference](https://huggingface.co/docs/diffusers/main/en/tutorials/using_peft_for_inference)
 * [Merge LoRAs](https://huggingface.co/docs/diffusers/main/en/using-diffusers/merge_loras)
