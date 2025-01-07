@@ -114,7 +114,7 @@ Training configuration: {
 CogVideoX has multiple checkpoints as one can note [here](https://huggingface.co/collections/THUDM/cogvideo-66c08e62f1685a3ade464cce). The following checkpoints were tested with `finetrainers` and are known to be working:
 
 * [THUDM/CogVideoX-2b](https://huggingface.co/THUDM/CogVideoX-2b)
-* [THUDM/CogVideoX1.5-5B](https://huggingface.co/THUDM/CogVideoX1.5-5B)
+* [THUDM/CogVideoX-5B](https://huggingface.co/THUDM/CogVideoX-5B)
 * [THUDM/CogVideoX1.5-5B](https://huggingface.co/THUDM/CogVideoX1.5-5B)
 
 ## Inference
