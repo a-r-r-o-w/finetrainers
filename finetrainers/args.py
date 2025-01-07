@@ -31,6 +31,15 @@ class Args:
     layerwise_upcasting_modules: List[str] = []
     layerwise_upcasting_storage_dtype: torch.dtype = torch.float8_e4m3fn
     layerwise_upcasting_granularity: str = "pytorch_layer"
+    layerwise_upcasting_skip_modules_pattern: List[str] = [
+        "patch_embed",
+        "pos_embed",
+        "x_embedder",
+        "context_embedder",
+        "time_embed",
+        "proj_out",
+        "norm",
+    ]
 
     # Dataset arguments
     data_root: str = None
@@ -134,6 +143,7 @@ class Args:
                 "layerwise_upcasting_modules": self.layerwise_upcasting_modules,
                 "layerwise_upcasting_storage_dtype": self.layerwise_upcasting_storage_dtype,
                 "layerwise_upcasting_granularity": self.layerwise_upcasting_granularity,
+                "layerwise_upcasting_skip_modules_pattern": self.layerwise_upcasting_skip_modules_pattern,
             },
             "dataset_arguments": {
                 "data_root": self.data_root,
@@ -300,6 +310,13 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
         default="pytorch_layer",
         choices=["pytorch_layer", "diffusers_layer"],
         help="Granularity of layerwise upcasting.",
+    )
+    parser.add_argument(
+        "--layerwise_upcasting_skip_modules_pattern",
+        type=str,
+        default=["patch_embed", "pos_embed", "x_embedder", "context_embedder", "^proj_out$", "norm"],
+        nargs="+",
+        help="Modules to skip for layerwise upcasting.",
     )
 
 
@@ -774,6 +791,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.layerwise_upcasting_modules = args.layerwise_upcasting_modules
     result_args.layerwise_upcasting_storage_dtype = _DTYPE_MAP[args.layerwise_upcasting_storage_dtype]
     result_args.layerwise_upcasting_granularity = args.layerwise_upcasting_granularity
+    result_args.layerwise_upcasting_skip_modules_pattern = args.layerwise_upcasting_skip_modules_pattern
 
     # Dataset arguments
     if args.data_root is None and args.dataset_file is None:

@@ -11,6 +11,7 @@ import diffusers
 import torch
 import torch.backends
 import transformers
+import wandb
 from accelerate import Accelerator, DistributedType
 from accelerate.logging import get_logger
 from accelerate.utils import (
@@ -28,8 +29,6 @@ from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
-
-import wandb
 
 from .args import Args, validate_args
 from .constants import (
@@ -294,7 +293,7 @@ class Trainer:
                 text_encoder_3=self.text_encoder_3,
                 prompt=data["prompt"],
                 device=accelerator.device,
-                dtype=self.state.weight_dtype,
+                dtype=self.args.transformer_dtype,
             )
             filename = conditions_dir / f"conditions-{accelerator.process_index}-{index}.pt"
             torch.save(text_conditions, filename.as_posix())
@@ -341,7 +340,7 @@ class Trainer:
                 vae=self.vae,
                 image_or_video=data["video"].unsqueeze(0),
                 device=accelerator.device,
-                dtype=self.state.weight_dtype,
+                dtype=self.args.transformer_dtype,
                 generator=self.state.generator,
                 precompute=True,
             )
@@ -400,7 +399,7 @@ class Trainer:
                 storage_dtype=self.args.layerwise_upcasting_storage_dtype,
                 compute_dtype=self.args.transformer_dtype,
                 granularity=self.args.layerwise_upcasting_granularity,
-                skip_modules_pattern=["pos_embed", "patch_embed", "norm"],
+                skip_modules_pattern=self.args.layerwise_upcasting_skip_modules_pattern,
             )
 
         self._move_components_to_device()
@@ -643,7 +642,6 @@ class Trainer:
         )
 
         accelerator = self.state.accelerator
-        weight_dtype = self.state.weight_dtype
         generator = torch.Generator(device=accelerator.device)
         if self.args.seed is not None:
             generator = generator.manual_seed(self.args.seed)
@@ -667,6 +665,8 @@ class Trainer:
 
             self.transformer.train()
             models_to_accumulate = [self.transformer]
+            epoch_loss = 0.0
+            num_loss_updates = 0
 
             for step, batch in enumerate(self.dataloader):
                 logger.debug(f"Starting step {step + 1}")
@@ -688,7 +688,7 @@ class Trainer:
                             patch_size=self.transformer_config.patch_size,
                             patch_size_t=self.transformer_config.patch_size_t,
                             device=accelerator.device,
-                            dtype=weight_dtype,
+                            dtype=self.args.transformer_dtype,
                             generator=self.state.generator,
                         )
                         text_conditions = self.model_config["prepare_conditions"](
@@ -698,7 +698,7 @@ class Trainer:
                             text_encoder_2=self.text_encoder_2,
                             prompt=prompts,
                             device=accelerator.device,
-                            dtype=weight_dtype,
+                            dtype=self.args.transformer_dtype,
                         )
                     else:
                         latent_conditions = batch["latent_conditions"]
@@ -715,8 +715,8 @@ class Trainer:
                             patch_size_t=self.transformer_config.patch_size_t,
                             **latent_conditions,
                         )
-                        align_device_and_dtype(latent_conditions, accelerator.device, weight_dtype)
-                        align_device_and_dtype(text_conditions, accelerator.device, weight_dtype)
+                        align_device_and_dtype(latent_conditions, accelerator.device, self.args.transformer_dtype)
+                        align_device_and_dtype(text_conditions, accelerator.device, self.args.transformer_dtype)
                         batch_size = latent_conditions["latents"].shape[0]
 
                     latent_conditions = make_contiguous(latent_conditions)
@@ -749,7 +749,7 @@ class Trainer:
                         latent_conditions["latents"].shape,
                         generator=self.state.generator,
                         device=accelerator.device,
-                        dtype=weight_dtype,
+                        dtype=self.args.transformer_dtype,
                     )
                     sigmas = expand_tensor_dims(sigmas, ndim=noise.ndim)
 
@@ -837,7 +837,10 @@ class Trainer:
                     if should_run_validation:
                         self.validate(global_step)
 
-                logs["loss"] = loss.detach().item()
+                loss_item = loss.detach().item()
+                epoch_loss += loss_item
+                num_loss_updates += 1
+                logs["step_loss"] = loss_item
                 logs["lr"] = self.lr_scheduler.get_last_lr()[0]
                 progress_bar.set_postfix(logs)
                 accelerator.log(logs, step=global_step)
@@ -845,6 +848,9 @@ class Trainer:
                 if global_step >= self.state.train_steps:
                     break
 
+            if num_loss_updates > 0:
+                epoch_loss /= num_loss_updates
+            accelerator.log({"epoch_loss": epoch_loss}, step=global_step)
             memory_statistics = get_memory_statistics()
             logger.info(f"Memory after epoch {epoch + 1}: {json.dumps(memory_statistics, indent=4)}")
 
