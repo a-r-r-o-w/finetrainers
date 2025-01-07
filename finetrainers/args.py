@@ -455,7 +455,7 @@ def _add_training_arguments(parser: argparse.ArgumentParser) -> None:
         "--training_type",
         type=str,
         default=None,
-        help="Type of training to perform. Choose between ['lora','finetune']",
+        help="Type of training to perform. Choose between ['lora','full_finetune']",
     )
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument(
