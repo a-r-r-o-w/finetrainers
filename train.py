@@ -4,10 +4,8 @@ import traceback
 from finetrainers import Trainer, parse_arguments
 from finetrainers.constants import FINETRAINERS_LOG_LEVEL
 
-
 logger = logging.getLogger("finetrainers")
 logger.setLevel(FINETRAINERS_LOG_LEVEL)
-
 
 def main():
     try:

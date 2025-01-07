@@ -101,6 +101,7 @@ class Trainer:
 
         # Components list
         self.components = []
+
     def prepare_dataset(self) -> None:
         # TODO(aryan): Make a background process for fetching
         logger.info("Initializing dataset and dataloader")
@@ -155,16 +156,17 @@ class Trainer:
         self.transformer_config = self.transformer.config if self.transformer is not None else self.transformer_config
         self.vae_config = self.vae.config if self.vae is not None else self.vae_config
 
-        self.components = [self.tokenizer, 
-                           self.tokenizer_2, 
-                           self.tokenizer_3, 
-                           self.text_encoder, 
-                           self.text_encoder_2, 
-                           self.text_encoder_3, 
-                           self.transformer, 
-                           self.unet, 
-                           self.vae]
-
+        self.components = [
+            self.tokenizer,
+            self.tokenizer_2,
+            self.tokenizer_3,
+            self.text_encoder,
+            self.text_encoder_2,
+            self.text_encoder_3,
+            self.transformer,
+            self.unet,
+            self.vae,
+        ]
 
     def _delete_components(self) -> None:
         self.tokenizer = None
@@ -204,12 +206,12 @@ class Trainer:
             if self.args.enable_tiling:
                 self.vae.enable_tiling()
 
-    def _disable_grad_for_components(self, components:list):
+    def _disable_grad_for_components(self, components: list):
         for component in components:
             if component is not None:
                 component.requires_grad_(False)
 
-    def _enable_grad_for_components(self, components:list):
+    def _enable_grad_for_components(self, components: list):
         for component in components:
             if component is not None:
                 component.requires_grad_(True)
@@ -262,11 +264,13 @@ class Trainer:
         self._set_components(condition_components)
         self._move_components_to_device()
 
-        self._disable_grad_for_components(components=[
-            self.text_encoder,
-            self.text_encoder_2,
-            self.text_encoder_3,
-        ])
+        self._disable_grad_for_components(
+            components=[
+                self.text_encoder,
+                self.text_encoder_2,
+                self.text_encoder_3,
+            ]
+        )
         if self.args.caption_dropout_p > 0 and self.args.caption_dropout_technique == "empty":
             logger.warning(
                 "Caption dropout is not supported with precomputation yet. This will be supported in the future."
@@ -378,20 +382,22 @@ class Trainer:
         diffusion_components = self.model_config["load_diffusion_models"](**self._get_load_components_kwargs())
         self._set_components(diffusion_components)
 
-        self._disable_grad_for_components(components=[
-            self.text_encoder,
-            self.text_encoder_2,
-            self.text_encoder_3,
-            self.vae,
-        ])
-        
-        if self.args.training_type == "full_finetune":
+        self._disable_grad_for_components(
+            components=[
+                self.text_encoder,
+                self.text_encoder_2,
+                self.text_encoder_3,
+                self.vae,
+            ]
+        )
+
+        if self.args.training_type == "sft":
             logger.info("Full Fine Tuning Enabled")
             self._enable_grad_for_components(components=[self.transformer])
         else:
             logger.info("Lora Fine Tuning Enabled")
             self._disable_grad_for_components(components=[self.transformer])
-            
+
         # For mixed precision training we cast all non-trainable weights (vae, text_encoder and transformer) to half-precision
         # as these weights are only used for inference, keeping weights in full precision is not required.
         weight_dtype = self._get_training_dtype(accelerator=self.state.accelerator)

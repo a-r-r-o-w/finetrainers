@@ -322,7 +322,7 @@ LTX_VIDEO_T2V_LORA_CONFIG = {
     "validation": validation,
 }
 
-LTX_VIDEO_T2V_FT_CONFIG = {
+LTX_VIDEO_T2V_SFT_CONFIG = {
     "pipeline_cls": LTXPipeline,
     "load_condition_models": load_condition_models,
     "load_latent_models": load_latent_models,
@@ -335,4 +335,3 @@ LTX_VIDEO_T2V_FT_CONFIG = {
     "forward_pass": forward_pass,
     "validation": validation,
 }
-
