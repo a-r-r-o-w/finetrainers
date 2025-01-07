@@ -390,7 +390,8 @@ class Trainer:
             self._enable_grad_for_components(components=[self.transformer])
         else:
             logger.info("Lora Fine Tuning Enabled")
-
+            self._disable_grad_for_components(components=[self.transformer])
+            
         # For mixed precision training we cast all non-trainable weights (vae, text_encoder and transformer) to half-precision
         # as these weights are only used for inference, keeping weights in full precision is not required.
         weight_dtype = self._get_training_dtype(accelerator=self.state.accelerator)
