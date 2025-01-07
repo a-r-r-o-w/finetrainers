@@ -143,7 +143,7 @@ For inference, refer [here](./docs/training/ltx_video.md#inference). For docs re
 
 </div>
 
-<small><sup>*</sup>Noted for the 5B variant.</small>
+<sub><sup>*</sup>Noted for the 5B variant.</sub>
 
 Note that the memory consumption in the table is reported with most of the options, discussed in [docs/training/optimizations](./docs/training/optimization.md), enabled.
 
