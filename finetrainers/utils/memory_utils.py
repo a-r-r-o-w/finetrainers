@@ -21,7 +21,7 @@ def get_memory_statistics(precision: int = 3) -> Dict[str, Any]:
         max_memory_allocated = torch.cuda.max_memory_allocated(device)
         max_memory_reserved = torch.cuda.max_memory_reserved(device)
 
-    elif torch.mps.is_available():
+    elif torch.backends.mps.is_available():
         memory_allocated = torch.mps.current_allocated_memory()
 
     else:
