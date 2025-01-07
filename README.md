@@ -141,9 +141,9 @@ For inference, refer [here](./docs/training/ltx_video.md#inference). For docs re
 | [HunyuanVideo](./docs/training/hunyuan_video.md) | Text-to-Video | 42 GB |
 | [CogVideoX](./docs/training/cogvideox.md) | Text-to-Video | 12GB<sup>*</sup> |
 
-<sup>*</sup>Noted for the 5B variant.
-
 </div>
+
+<small><sup>*</sup>Noted for the 5B variant.</small>
 
 Note that the memory consumption in the table is reported with most of the options, discussed in [docs/training/optimizations](./docs/training/optimization.md), enabled.
 
