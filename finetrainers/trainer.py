@@ -99,6 +99,8 @@ class Trainer:
         self.state.model_name = self.args.model_name
         self.model_config = get_config_from_model_name(self.args.model_name, self.args.training_type)
 
+        # Components list
+        self.components = []
     def prepare_dataset(self) -> None:
         # TODO(aryan): Make a background process for fetching
         logger.info("Initializing dataset and dataloader")
@@ -153,6 +155,17 @@ class Trainer:
         self.transformer_config = self.transformer.config if self.transformer is not None else self.transformer_config
         self.vae_config = self.vae.config if self.vae is not None else self.vae_config
 
+        self.components = [self.tokenizer, 
+                           self.tokenizer_2, 
+                           self.tokenizer_3, 
+                           self.text_encoder, 
+                           self.text_encoder_2, 
+                           self.text_encoder_3, 
+                           self.transformer, 
+                           self.unet, 
+                           self.vae]
+
+
     def _delete_components(self) -> None:
         self.tokenizer = None
         self.tokenizer_2 = None
@@ -166,6 +179,8 @@ class Trainer:
         self.scheduler = None
         free_memory()
         torch.cuda.synchronize(self.state.accelerator.device)
+
+        self.components = None
 
     def prepare_models(self) -> None:
         logger.info("Initializing models")
@@ -188,6 +203,16 @@ class Trainer:
                 self.vae.enable_slicing()
             if self.args.enable_tiling:
                 self.vae.enable_tiling()
+
+    def _disable_grad_for_components(self, components:list):
+        for component in components:
+            if component is not None:
+                component.requires_grad_(False)
+
+    def _enable_grad_for_components(self, components:list):
+        for component in components:
+            if component is not None:
+                component.requires_grad_(True)
 
     def prepare_precomputations(self) -> None:
         if not self.args.precompute_conditions:
@@ -237,16 +262,11 @@ class Trainer:
         self._set_components(condition_components)
         self._move_components_to_device()
 
-        # TODO(aryan): refactor later. for now only lora is supported
-        components_to_disable_grads = [
+        self._disable_grad_for_components(components=[
             self.text_encoder,
             self.text_encoder_2,
             self.text_encoder_3,
-        ]
-        for component in components_to_disable_grads:
-            if component is not None:
-                component.requires_grad_(False)
-
+        ])
         if self.args.caption_dropout_p > 0 and self.args.caption_dropout_technique == "empty":
             logger.warning(
                 "Caption dropout is not supported with precomputation yet. This will be supported in the future."
@@ -300,12 +320,7 @@ class Trainer:
         self._set_components(latent_components)
         self._move_components_to_device()
 
-        # TODO(aryan): refactor later
-        components_to_disable_grads = [self.vae]
-        for component in components_to_disable_grads:
-            if component is not None:
-                component.requires_grad_(False)
-
+        self._disable_grad_for_components(components=[self.vae])
         if self.vae is not None:
             if self.args.enable_slicing:
                 self.vae.enable_slicing()
@@ -363,17 +378,18 @@ class Trainer:
         diffusion_components = self.model_config["load_diffusion_models"](**self._get_load_components_kwargs())
         self._set_components(diffusion_components)
 
-        # TODO(aryan): refactor later. for now only lora is supported
-        components_to_disable_grads = [
+        self._disable_grad_for_components(components=[
             self.text_encoder,
             self.text_encoder_2,
             self.text_encoder_3,
-            self.transformer,
             self.vae,
-        ]
-        for component in components_to_disable_grads:
-            if component is not None:
-                component.requires_grad_(False)
+        ])
+        
+        if self.args.training_type == "full_finetune":
+            logger.info("Full Fine Tuning Enabled")
+            self._enable_grad_for_components(components=[self.transformer])
+        else:
+            logger.info("Lora Fine Tuning Enabled")
 
         # For mixed precision training we cast all non-trainable weights (vae, text_encoder and transformer) to half-precision
         # as these weights are only used for inference, keeping weights in full precision is not required.
@@ -398,13 +414,14 @@ class Trainer:
         if self.args.gradient_checkpointing:
             self.transformer.enable_gradient_checkpointing()
 
-        transformer_lora_config = LoraConfig(
-            r=self.args.rank,
-            lora_alpha=self.args.lora_alpha,
-            init_lora_weights=True,
-            target_modules=self.args.target_modules,
-        )
-        self.transformer.add_adapter(transformer_lora_config)
+        if self.args.training_type == "lora":
+            transformer_lora_config = LoraConfig(
+                r=self.args.rank,
+                lora_alpha=self.args.lora_alpha,
+                init_lora_weights=True,
+                target_modules=self.args.target_modules,
+            )
+            self.transformer.add_adapter(transformer_lora_config)
 
         # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
         if self.args.allow_tf32 and torch.cuda.is_available():

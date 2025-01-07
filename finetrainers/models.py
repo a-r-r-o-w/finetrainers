@@ -2,7 +2,7 @@ from typing import Any, Dict
 
 from .cogvideox import COGVIDEOX_T2V_LORA_CONFIG
 from .hunyuan_video import HUNYUAN_VIDEO_T2V_LORA_CONFIG
-from .ltx_video import LTX_VIDEO_T2V_LORA_CONFIG
+from .ltx_video import LTX_VIDEO_T2V_LORA_CONFIG, LTX_VIDEO_T2V_FT_CONFIG
 
 
 SUPPORTED_MODEL_CONFIGS = {
@@ -11,6 +11,7 @@ SUPPORTED_MODEL_CONFIGS = {
     },
     "ltx_video": {
         "lora": LTX_VIDEO_T2V_LORA_CONFIG,
+        "finetune": LTX_VIDEO_T2V_FT_CONFIG,
     },
     "cogvideox": {
         "lora": COGVIDEOX_T2V_LORA_CONFIG,
