@@ -24,7 +24,7 @@ FineTrainers is a work-in-progress library to support (accessible) training of v
 
 ## Quickstart
 
-Clone the repository and make sure the requirements are installed: `pip install -r requirements.txt` and install `diffusers` from source by `pip install git+https://github.com/huggingface/diffusers`.
+Clone the repository and make sure the requirements are installed: `pip install -r requirements.txt` and install `diffusers` from source by `pip install git+https://github.com/huggingface/diffusers`. The requirements specify `diffusers>=0.32.1`, but it is always recommended to use the `main` branch for the latest features and bugfixes.
 
 Then download a dataset:
 
