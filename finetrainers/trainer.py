@@ -218,7 +218,7 @@ class Trainer:
                     batched_text_conditions[key] = [x[key] for x in text_conditions][0]
             return {"latent_conditions": batched_latent_conditions, "text_conditions": batched_text_conditions}
 
-        should_precompute = should_perform_precomputation(self.args.data_root)
+        should_precompute = should_perform_precomputation(self.args.data_root, self.args.model_name)
         if not should_precompute:
             logger.info("Precomputed conditions and latents found. Loading precomputed data.")
             self.dataloader = torch.utils.data.DataLoader(

@@ -9,11 +9,11 @@ from ..constants import PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_DIR_NAME, P
 logger = get_logger("finetrainers")
 
 
-def should_perform_precomputation(data_root: Union[str, Path]) -> bool:
+def should_perform_precomputation(data_root: Union[str, Path], model_name: str) -> bool:
     if isinstance(data_root, str):
         data_root = Path(data_root)
-    conditions_dir = data_root / PRECOMPUTED_DIR_NAME / PRECOMPUTED_CONDITIONS_DIR_NAME
-    latents_dir = data_root / PRECOMPUTED_DIR_NAME / PRECOMPUTED_LATENTS_DIR_NAME
+    conditions_dir = data_root / f"{model_name}_{PRECOMPUTED_DIR_NAME}" / PRECOMPUTED_CONDITIONS_DIR_NAME
+    latents_dir = data_root / f"{model_name}_{PRECOMPUTED_DIR_NAME}" / PRECOMPUTED_LATENTS_DIR_NAME
     if conditions_dir.exists() and latents_dir.exists():
         num_files_conditions = len(list(conditions_dir.glob("*.pt")))
         num_files_latents = len(list(latents_dir.glob("*.pt")))
