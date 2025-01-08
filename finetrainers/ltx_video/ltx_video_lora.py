@@ -68,6 +68,7 @@ def initialize_pipeline(
     enable_slicing: bool = False,
     enable_tiling: bool = False,
     enable_model_cpu_offload: bool = False,
+    is_training: bool = False,
     **kwargs,
 ) -> LTXPipeline:
     component_name_pairs = [
@@ -84,8 +85,12 @@ def initialize_pipeline(
 
     pipe = LTXPipeline.from_pretrained(model_id, **components, revision=revision, cache_dir=cache_dir)
     pipe.text_encoder = pipe.text_encoder.to(dtype=text_encoder_dtype)
-    pipe.transformer = pipe.transformer.to(dtype=transformer_dtype)
     pipe.vae = pipe.vae.to(dtype=vae_dtype)
+    # The transformer should already be in the correct dtype when training, so we don't need to cast it here.
+    # If we cast, whilst using fp8 layerwise upcasting hooks, it will lead to an error in the training during
+    # DDP optimizer step.
+    if not is_training:
+        pipe.transformer = pipe.transformer.to(dtype=transformer_dtype)
 
     if enable_slicing:
         pipe.vae.enable_slicing()

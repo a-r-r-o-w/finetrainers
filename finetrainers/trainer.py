@@ -917,6 +917,7 @@ class Trainer:
                 enable_slicing=self.args.enable_slicing,
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+                is_training=True,
             )
         else:
             # `torch_dtype` is manually set within `initialize_pipeline()`.
@@ -929,6 +930,7 @@ class Trainer:
                 enable_slicing=self.args.enable_slicing,
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+                is_training=False,
             )
             pipeline.load_lora_weights(self.args.output_dir)
 

@@ -314,7 +314,7 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--layerwise_upcasting_skip_modules_pattern",
         type=str,
-        default=["patch_embed", "pos_embed", "x_embedder", "context_embedder", "^proj_out$", "norm"],
+        default=["patch_embed", "pos_embed", "x_embedder", "context_embedder", "^proj_in$", "^proj_out$", "norm"],
         nargs="+",
         help="Modules to skip for layerwise upcasting.",
     )
