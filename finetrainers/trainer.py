@@ -406,13 +406,16 @@ class Trainer:
         if self.args.gradient_checkpointing:
             self.transformer.enable_gradient_checkpointing()
 
-        transformer_lora_config = LoraConfig(
-            r=self.args.rank,
-            lora_alpha=self.args.lora_alpha,
-            init_lora_weights=True,
-            target_modules=self.args.target_modules,
-        )
-        self.transformer.add_adapter(transformer_lora_config)
+        if self.args.training_type == "lora":
+            transformer_lora_config = LoraConfig(
+                r=self.args.rank,
+                lora_alpha=self.args.lora_alpha,
+                init_lora_weights=True,
+                target_modules=self.args.target_modules,
+            )
+            self.transformer.add_adapter(transformer_lora_config)
+        else:
+            transformer_lora_config = None
 
         # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
         if self.args.allow_tf32 and torch.cuda.is_available():
@@ -432,7 +435,8 @@ class Trainer:
                         type(unwrap_model(self.state.accelerator, self.transformer)),
                     ):
                         model = unwrap_model(self.state.accelerator, model)
-                        transformer_lora_layers_to_save = get_peft_model_state_dict(model)
+                        if self.args.training_type == "lora":
+                            transformer_lora_layers_to_save = get_peft_model_state_dict(model)
                     else:
                         raise ValueError(f"Unexpected save model: {model.__class__}")
 
@@ -440,10 +444,14 @@ class Trainer:
                     if weights:
                         weights.pop()
 
-                self.model_config["pipeline_cls"].save_lora_weights(
-                    output_dir,
-                    transformer_lora_layers=transformer_lora_layers_to_save,
-                )
+                # TODO: refactor later if needed. But for now, this is just a few LoC.
+                if self.args.training_type == "lora":
+                    self.model_config["pipeline_cls"].save_lora_weights(
+                        output_dir,
+                        transformer_lora_layers=transformer_lora_layers_to_save,
+                    )
+                else:
+                    model.save_pretrained(os.path.join(output_dir, "transformer"))
 
         def load_model_hook(models, input_dir):
             if not self.state.accelerator.distributed_type == DistributedType.DEEPSPEED:
@@ -459,33 +467,39 @@ class Trainer:
                             f"Unexpected save model: {unwrap_model(self.state.accelerator, model).__class__}"
                         )
             else:
-                transformer_ = unwrap_model(self.state.accelerator, self.transformer).__class__.from_pretrained(
-                    self.args.pretrained_model_name_or_path, subfolder="transformer"
-                )
-                transformer_.add_adapter(transformer_lora_config)
+                transformer_cls_ = unwrap_model(self.state.accelerator, self.transformer).__class__
 
-            lora_state_dict = self.model_config["pipeline_cls"].lora_state_dict(input_dir)
-            transformer_state_dict = {
-                f'{k.replace("transformer.", "")}': v
-                for k, v in lora_state_dict.items()
-                if k.startswith("transformer.")
-            }
-            incompatible_keys = set_peft_model_state_dict(transformer_, transformer_state_dict, adapter_name="default")
-            if incompatible_keys is not None:
-                # check only for unexpected keys
-                unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
-                if unexpected_keys:
-                    logger.warning(
-                        f"Loading adapter weights from state_dict led to unexpected keys not found in the model: "
-                        f" {unexpected_keys}. "
+                if self.args.training_type == "lora":
+                    transformer_ = transformer_cls_.__class__.from_pretrained(
+                        self.args.pretrained_model_name_or_path, subfolder="transformer"
                     )
+                    transformer_.add_adapter(transformer_lora_config)
+                    lora_state_dict = self.model_config["pipeline_cls"].lora_state_dict(input_dir)
+                    transformer_state_dict = {
+                        f'{k.replace("transformer.", "")}': v
+                        for k, v in lora_state_dict.items()
+                        if k.startswith("transformer.")
+                    }
+                    incompatible_keys = set_peft_model_state_dict(
+                        transformer_, transformer_state_dict, adapter_name="default"
+                    )
+                    if incompatible_keys is not None:
+                        # check only for unexpected keys
+                        unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
+                        if unexpected_keys:
+                            logger.warning(
+                                f"Loading adapter weights from state_dict led to unexpected keys not found in the model: "
+                                f" {unexpected_keys}. "
+                            )
 
-            # Make sure the trainable params are in float32. This is again needed since the base models
-            # are in `weight_dtype`. More details:
-            # https://github.com/huggingface/diffusers/pull/6514#discussion_r1449796804
-            if self.args.mixed_precision == "fp16":
-                # only upcast trainable parameters (LoRA) into fp32
-                cast_training_params([transformer_])
+                    # Make sure the trainable params are in float32. This is again needed since the base models
+                    # are in `weight_dtype`. More details:
+                    # https://github.com/huggingface/diffusers/pull/6514#discussion_r1449796804
+                    if self.args.mixed_precision == "fp16":
+                        # only upcast trainable parameters (LoRA) into fp32
+                        cast_training_params([transformer_])
+                else:
+                    transformer_ = transformer_cls_.from_pretrained(os.path.join(input_dir, "transformer"))
 
         self.state.accelerator.register_save_state_pre_hook(save_model_hook)
         self.state.accelerator.register_load_state_pre_hook(load_model_hook)
@@ -497,7 +511,7 @@ class Trainer:
         self.state.train_steps = self.args.train_steps
 
         # Make sure the trainable params are in float32
-        if self.args.mixed_precision == "fp16":
+        if self.args.mixed_precision == "fp16" and self.args.training_type == "lora":
             # only upcast trainable parameters (LoRA) into fp32
             cast_training_params([self.transformer], dtype=torch.float32)
 
@@ -510,13 +524,13 @@ class Trainer:
                 * self.state.accelerator.num_processes
             )
 
-        transformer_lora_parameters = list(filter(lambda p: p.requires_grad, self.transformer.parameters()))
+        transformer_trainable_parameters = list(filter(lambda p: p.requires_grad, self.transformer.parameters()))
         transformer_parameters_with_lr = {
-            "params": transformer_lora_parameters,
+            "params": transformer_trainable_parameters,
             "lr": self.state.learning_rate,
         }
         params_to_optimize = [transformer_parameters_with_lr]
-        self.state.num_trainable_parameters = sum(p.numel() for p in transformer_lora_parameters)
+        self.state.num_trainable_parameters = sum(p.numel() for p in transformer_trainable_parameters)
 
         use_deepspeed_opt = (
             self.state.accelerator.state.deepspeed_plugin is not None
