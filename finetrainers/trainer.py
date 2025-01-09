@@ -11,6 +11,7 @@ import diffusers
 import torch
 import torch.backends
 import transformers
+import wandb
 from accelerate import Accelerator, DistributedType
 from accelerate.logging import get_logger
 from accelerate.utils import (
@@ -28,8 +29,6 @@ from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
-
-import wandb
 
 from .args import _INVERSE_DTYPE_MAP, Args, validate_args
 from .constants import (
