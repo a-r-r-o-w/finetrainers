@@ -42,7 +42,7 @@ def load_diffusion_models(
     cache_dir: Optional[str] = None,
     **kwargs,
 ):
-    subfolder = kwargs.get("subfolder", None)
+    subfolder = kwargs.get("subfolder", "transformer")
     transformer = CogVideoXTransformer3DModel.from_pretrained(
         model_id, subfolder=subfolder, torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
     )
