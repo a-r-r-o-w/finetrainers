@@ -353,13 +353,18 @@ class ImageOrVideoDatasetWithResizeAndRectangleCrop(ImageOrVideoDataset):
 
 
 class PrecomputedDataset(Dataset):
-    def __init__(self, data_root: str) -> None:
+    def __init__(self, data_root: str, model_name: str = None, cleaned_model_id: str = None) -> None:
         super().__init__()
 
         self.data_root = Path(data_root)
 
-        self.latents_path = self.data_root / PRECOMPUTED_DIR_NAME / PRECOMPUTED_LATENTS_DIR_NAME
-        self.conditions_path = self.data_root / PRECOMPUTED_DIR_NAME / PRECOMPUTED_CONDITIONS_DIR_NAME
+        if model_name and cleaned_model_id:
+            precomputation_dir = self.data_root / f"{model_name}_{cleaned_model_id}_{PRECOMPUTED_DIR_NAME}"
+            self.latents_path = precomputation_dir / PRECOMPUTED_LATENTS_DIR_NAME
+            self.conditions_path = precomputation_dir / PRECOMPUTED_CONDITIONS_DIR_NAME
+        else:
+            self.latents_path = self.data_root / PRECOMPUTED_DIR_NAME / PRECOMPUTED_LATENTS_DIR_NAME
+            self.conditions_path = self.data_root / PRECOMPUTED_DIR_NAME / PRECOMPUTED_CONDITIONS_DIR_NAME
 
         self.latent_conditions = sorted(os.listdir(self.latents_path))
         self.text_conditions = sorted(os.listdir(self.conditions_path))
