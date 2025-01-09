@@ -21,6 +21,7 @@ from accelerate.utils import (
     gather_object,
     set_seed,
 )
+from diffusers import DiffusionPipeline
 from diffusers.configuration_utils import FrozenDict
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.optimization import get_scheduler
@@ -916,35 +917,7 @@ class Trainer:
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory before validation start: {json.dumps(memory_statistics, indent=4)}")
 
-        if not final_validation:
-            pipeline = self.model_config["initialize_pipeline"](
-                model_id=self.args.pretrained_model_name_or_path,
-                tokenizer=self.tokenizer,
-                text_encoder=self.text_encoder,
-                tokenizer_2=self.tokenizer_2,
-                text_encoder_2=self.text_encoder_2,
-                transformer=unwrap_model(accelerator, self.transformer),
-                vae=self.vae,
-                device=accelerator.device,
-                revision=self.args.revision,
-                cache_dir=self.args.cache_dir,
-                enable_slicing=self.args.enable_slicing,
-                enable_tiling=self.args.enable_tiling,
-                enable_model_cpu_offload=self.args.enable_model_cpu_offload,
-            )
-        else:
-            # `torch_dtype` is manually set within `initialize_pipeline()`.
-            self._delete_components()
-            pipeline = self.model_config["initialize_pipeline"](
-                model_id=self.args.pretrained_model_name_or_path,
-                device=accelerator.device,
-                revision=self.args.revision,
-                cache_dir=self.args.cache_dir,
-                enable_slicing=self.args.enable_slicing,
-                enable_tiling=self.args.enable_tiling,
-                enable_model_cpu_offload=self.args.enable_model_cpu_offload,
-            )
-            pipeline.load_lora_weights(self.args.output_dir)
+        pipeline = self._get_and_prepare_pipeline_for_validation(final_validation=final_validation)
 
         all_processes_artifacts = []
         prompts_to_filenames = {}
@@ -1150,3 +1123,45 @@ class Trainer:
             elif self.state.accelerator.mixed_precision == "bf16":
                 weight_dtype = torch.bfloat16
         return weight_dtype
+
+    def _get_and_prepare_pipeline_for_validation(self, final_validation: bool = False) -> DiffusionPipeline:
+        accelerator = self.state.accelerator
+        if not final_validation:
+            pipeline = self.model_config["initialize_pipeline"](
+                model_id=self.args.pretrained_model_name_or_path,
+                tokenizer=self.tokenizer,
+                text_encoder=self.text_encoder,
+                tokenizer_2=self.tokenizer_2,
+                text_encoder_2=self.text_encoder_2,
+                transformer=unwrap_model(accelerator, self.transformer),
+                vae=self.vae,
+                device=accelerator.device,
+                revision=self.args.revision,
+                cache_dir=self.args.cache_dir,
+                enable_slicing=self.args.enable_slicing,
+                enable_tiling=self.args.enable_tiling,
+                enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+            )
+        else:
+            # `torch_dtype` is manually set within `initialize_pipeline()`.
+            self._delete_components()
+            if self.args.training_type == "lora":
+                transformer = None
+            else:
+                transformer = self.model_config["load_diffusion_models"](
+                    model_id=self.args.output_dir, subfolder=None
+                )["transformer"]
+            pipeline = self.model_config["initialize_pipeline"](
+                model_id=self.args.pretrained_model_name_or_path,
+                transformer=transformer,
+                device=accelerator.device,
+                revision=self.args.revision,
+                cache_dir=self.args.cache_dir,
+                enable_slicing=self.args.enable_slicing,
+                enable_tiling=self.args.enable_tiling,
+                enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+            )
+            if self.args.training_type == "lora":
+                pipeline.load_lora_weights(self.args.output_dir)
+
+        return pipeline
