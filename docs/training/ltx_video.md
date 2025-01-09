@@ -36,18 +36,18 @@ dataset_cmd="--data_root $DATA_ROOT \
 dataloader_cmd="--dataloader_num_workers 0"
 
 # Diffusion arguments
-diffusion_cmd="--flow_resolution_shifting"
+diffusion_cmd="--flow_weighting_scheme logit_normal"
 
 # Training arguments
 training_cmd="--training_type lora \
   --seed 42 \
   --mixed_precision bf16 \
   --batch_size 1 \
-  --train_steps 1200 \
+  --train_steps 3000 \
   --rank 128 \
   --lora_alpha 128 \
   --target_modules to_q to_k to_v to_out.0 \
-  --gradient_accumulation_steps 1 \
+  --gradient_accumulation_steps 4 \
   --gradient_checkpointing \
   --checkpointing_steps 500 \
   --checkpointing_limit 2 \
