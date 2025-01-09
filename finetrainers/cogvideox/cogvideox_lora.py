@@ -42,8 +42,9 @@ def load_diffusion_models(
     cache_dir: Optional[str] = None,
     **kwargs,
 ):
+    subfolder = kwargs.get("subfolder", None)
     transformer = CogVideoXTransformer3DModel.from_pretrained(
-        model_id, subfolder="transformer", torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
+        model_id, subfolder=subfolder, torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
     )
     scheduler = CogVideoXDDIMScheduler.from_pretrained(model_id, subfolder="scheduler")
     return {"transformer": transformer, "scheduler": scheduler}
