@@ -3,17 +3,17 @@ from typing import Union
 
 from accelerate.logging import get_logger
 
-from ..constants import PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME
+from ..constants import PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME
 
 
 logger = get_logger("finetrainers")
 
 
-def should_perform_precomputation(data_root: Union[str, Path]) -> bool:
-    if isinstance(data_root, str):
-        data_root = Path(data_root)
-    conditions_dir = data_root / PRECOMPUTED_DIR_NAME / PRECOMPUTED_CONDITIONS_DIR_NAME
-    latents_dir = data_root / PRECOMPUTED_DIR_NAME / PRECOMPUTED_LATENTS_DIR_NAME
+def should_perform_precomputation(precomputation_dir: Union[str, Path]) -> bool:
+    if isinstance(precomputation_dir, str):
+        precomputation_dir = Path(precomputation_dir)
+    conditions_dir = precomputation_dir / PRECOMPUTED_CONDITIONS_DIR_NAME
+    latents_dir = precomputation_dir / PRECOMPUTED_LATENTS_DIR_NAME
     if conditions_dir.exists() and latents_dir.exists():
         num_files_conditions = len(list(conditions_dir.glob("*.pt")))
         num_files_latents = len(list(latents_dir.glob("*.pt")))

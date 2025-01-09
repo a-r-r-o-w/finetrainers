@@ -217,7 +217,11 @@ class Trainer:
                     batched_text_conditions[key] = [x[key] for x in text_conditions][0]
             return {"latent_conditions": batched_latent_conditions, "text_conditions": batched_text_conditions}
 
-        should_precompute = should_perform_precomputation(self.args.data_root)
+        cleaned_model_id = string_to_filename(self.args.pretrained_model_name_or_path)
+        precomputation_dir = (
+            Path(self.args.data_root) / f"{self.args.model_name}_{cleaned_model_id}_{PRECOMPUTED_DIR_NAME}"
+        )
+        should_precompute = should_perform_precomputation(precomputation_dir)
         if not should_precompute:
             logger.info("Precomputed conditions and latents found. Loading precomputed data.")
             self.dataloader = torch.utils.data.DataLoader(
@@ -252,8 +256,8 @@ class Trainer:
                 "Caption dropout is not supported with precomputation yet. This will be supported in the future."
             )
 
-        conditions_dir = Path(self.args.data_root) / PRECOMPUTED_DIR_NAME / PRECOMPUTED_CONDITIONS_DIR_NAME
-        latents_dir = Path(self.args.data_root) / PRECOMPUTED_DIR_NAME / PRECOMPUTED_LATENTS_DIR_NAME
+        conditions_dir = precomputation_dir / PRECOMPUTED_CONDITIONS_DIR_NAME
+        latents_dir = precomputation_dir / PRECOMPUTED_LATENTS_DIR_NAME
         conditions_dir.mkdir(parents=True, exist_ok=True)
         latents_dir.mkdir(parents=True, exist_ok=True)
 
