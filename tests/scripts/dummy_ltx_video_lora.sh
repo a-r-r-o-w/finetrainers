@@ -1,36 +1,9 @@
 #!/bin/bash
 
-# Parse arguments passed from the driver script
-for i in "$@"; do
-    case $i in
-        --data_root=*)
-            DATA_ROOT="${i#*=}"
-            shift
-            ;;
-        --caption_column=*)
-            CAPTION_COLUMN="${i#*=}"
-            shift
-            ;;
-        --video_column=*)
-            VIDEO_COLUMN="${i#*=}"
-            shift
-            ;;
-        --gpu_ids=*)
-            GPU_IDS="${i#*=}"
-            shift
-            ;;
-        *)
-            echo "Unknown option $i"
-            exit 1
-            ;;
-    esac
-done
-
-# Resolve absolute paths to avoid issues
-DATA_ROOT="$(realpath "$DATA_ROOT")"
-CAPTION_COLUMN="$(realpath "$CAPTION_COLUMN")"
-VIDEO_COLUMN="$(realpath "$VIDEO_COLUMN")"
-
+GPU_IDS="0,1"
+DATA_ROOT="$ROOT_DIR/video-dataset-disney"
+CAPTION_COLUMN="prompt.txt"
+VIDEO_COLUMN="videos.txt"
 OUTPUT_DIR="ltx-video"
 ID_TOKEN="BW_STYLE"
 
@@ -47,7 +20,7 @@ dataset_cmd="--data_root $DATA_ROOT \
   --caption_dropout_p 0.05"
 
 # Dataloader arguments
-dataloader_cmd="--dataloader_num_workers 0"
+dataloader_cmd="--dataloader_num_workers 0 --precompute_conditions"
 
 # Diffusion arguments
 diffusion_cmd="--flow_resolution_shifting"
@@ -92,7 +65,7 @@ miscellaneous_cmd="--tracker_name finetrainers-ltxv \
   --nccl_timeout 1800 \
   --report_to wandb"
 
-cmd="accelerate launch --config_file accelerate_configs/uncompiled_2.yaml --gpu_ids $GPU_IDS train.py \
+cmd="accelerate launch --config_file $ROOT_DIR/accelerate_configs/uncompiled_2.yaml --gpu_ids $GPU_IDS $ROOT_DIR/train.py \
   $model_cmd \
   $dataset_cmd \
   $dataloader_cmd \

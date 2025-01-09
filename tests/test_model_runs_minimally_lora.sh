@@ -6,7 +6,7 @@
 # much longer training runs but it DOES ensure basic functionalities work in the large training
 # setup.
 
-# It should be run as so from the root of `finetrainers`: `bash tests/test_model_runs_minimally_lora.sh.`
+# It should be run as so from the root of `finetrainers`: `bash tests/test_model_runs_minimally_lora.sh`
 
 ######################################################
 # Set common variables.
@@ -19,10 +19,7 @@ export NCCL_P2P_DISABLE=1
 export TORCH_NCCL_ENABLE_MONITORING=0
 export FINETRAINERS_LOG_LEVEL=DEBUG
 
-GPU_IDS="0,1"
-DATA_ROOT="$ROOT_DIR/video-dataset-disney"
-CAPTION_COLUMN="prompt.txt"
-VIDEO_COLUMN="videos.txt"
+echo "Using $ROOT_DIR as rootdir."
 
 ######################################################
 # Download Disney dataset.
@@ -42,18 +39,16 @@ fi
 # LTX-VIDEO
 ######################################################
 echo "Running LTX-VIDEO test..."
-bash "$ROOT_DIR/scripts/dummy_ltx_video_lora.sh" \
-    --data_root "$DATA_ROOT" \
-    --caption_column "$CAPTION_COLUMN" \
-    --video_column "$VIDEO_COLUMN" \
-    --gpu_ids "$GPU_IDS"
+bash $ROOT_DIR/tests/scripts/dummy_ltx_video_lora.sh
 
 ######################################################
 # CogVideoX
 ######################################################
-bash scripts/dummy_cogvideox_lora.sh
+echo "Running CogVideoX test..."
+bash $ROOT_DIR/tests/scripts/dummy_cogvideox_lora.sh
 
 ######################################################
 # HunyuanVideo
 ######################################################
-bash scripts/dummy_hunyuanvideo_lora.sh
+echo "Running HunyuanVideo test..."
+bash $ROOT_DIR/tests/scripts/dummy_hunyuanvideo_lora.sh
