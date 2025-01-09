@@ -359,7 +359,7 @@ HUNYUAN_VIDEO_T2V_LORA_CONFIG = {
     "validation": validation,
 }
 
-HUNYUAN_VIDEO_T2V_SFT_CONFIG = {
+HUNYUAN_VIDEO_T2V_FULL_FINETUNE_CONFIG = {
     "pipeline_cls": HunyuanVideoPipeline,
     "load_condition_models": load_condition_models,
     "load_latent_models": load_latent_models,

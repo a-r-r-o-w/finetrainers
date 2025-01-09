@@ -1,22 +1,21 @@
 from typing import Any, Dict
 
-from .cogvideox import COGVIDEOX_T2V_LORA_CONFIG, COGVIDEOX_T2V_SFT_CONFIG
-from .hunyuan_video import HUNYUAN_VIDEO_T2V_LORA_CONFIG, HUNYUAN_VIDEO_T2V_SFT_CONFIG
-from .ltx_video import LTX_VIDEO_T2V_LORA_CONFIG, LTX_VIDEO_T2V_SFT_CONFIG
-
+from .cogvideox import COGVIDEOX_T2V_LORA_CONFIG, COGVIDEOX_T2V_FULL_FINETUNE_CONFIG
+from .hunyuan_video import HUNYUAN_VIDEO_T2V_LORA_CONFIG, HUNYUAN_VIDEO_T2V_FULL_FINETUNE_CONFIG
+from .ltx_video import LTX_VIDEO_T2V_LORA_CONFIG, LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG
 
 SUPPORTED_MODEL_CONFIGS = {
     "hunyuan_video": {
         "lora": HUNYUAN_VIDEO_T2V_LORA_CONFIG,
-        "sft": HUNYUAN_VIDEO_T2V_SFT_CONFIG,
+        "full-finetune": HUNYUAN_VIDEO_T2V_FULL_FINETUNE_CONFIG,
     },
     "ltx_video": {
         "lora": LTX_VIDEO_T2V_LORA_CONFIG,
-        "sft": LTX_VIDEO_T2V_SFT_CONFIG,
+        "full-finetune": LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG,
     },
     "cogvideox": {
         "lora": COGVIDEOX_T2V_LORA_CONFIG,
-        "sft": COGVIDEOX_T2V_SFT_CONFIG,
+        "full-finetune": COGVIDEOX_T2V_FULL_FINETUNE_CONFIG,
     },
 }
 

@@ -395,7 +395,7 @@ class Trainer:
             ]
         )
 
-        if self.args.training_type == "sft":
+        if self.args.training_type == "full-finetune":
             logger.info("Full Fine Tuning Enabled")
             self._enable_grad_for_components(components=[self.transformer])
         else:

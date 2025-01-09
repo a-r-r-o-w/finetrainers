@@ -326,7 +326,7 @@ COGVIDEOX_T2V_LORA_CONFIG = {
     "validation": validation,
 }
 
-COGVIDEOX_T2V_SFT_CONFIG = {
+COGVIDEOX_T2V_FULL_FINETUNE_CONFIG = {
     "pipeline_cls": CogVideoXPipeline,
     "load_condition_models": load_condition_models,
     "load_latent_models": load_latent_models,
