@@ -78,4 +78,4 @@ eval $cmd
 echo -ne "-------------------- Finished executing script --------------------\n\n"
 
 rm -rf $OUTPUT_DIR
-rm -rf "$DATA_ROOT/*_precomputed"
+rm -rf $DATA_ROOT/*_precomputed

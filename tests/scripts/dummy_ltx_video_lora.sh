@@ -78,5 +78,7 @@ cmd="accelerate launch --config_file $ROOT_DIR/accelerate_configs/uncompiled_2.y
 echo "Running command: $cmd"
 eval $cmd
 
+echo "Removing $OUTPUT_DIR"
 rm -rf $OUTPUT_DIR
-rm -rf "$DATA_ROOT/*_precomputed"
+echo "Removing precomputed stuff in $DATA_ROOT"
+rm -rf $DATA_ROOT/*_precomputed

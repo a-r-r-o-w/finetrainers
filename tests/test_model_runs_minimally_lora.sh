@@ -26,6 +26,7 @@ echo "Using $ROOT_DIR as rootdir."
 ######################################################
 
 # Ensure dataset is downloaded
+DATA_ROOT="$ROOT_DIR/video-dataset-disney"
 if [ ! -d "$DATA_ROOT" ]; then
     echo "Downloading Disney dataset to $DATA_ROOT..."
     huggingface-cli download \
@@ -36,19 +37,12 @@ else
 fi
 
 ######################################################
-# LTX-VIDEO
+# Run models
 ######################################################
-echo "Running LTX-VIDEO test..."
-bash $ROOT_DIR/tests/scripts/dummy_ltx_video_lora.sh
 
-######################################################
-# CogVideoX
-######################################################
-echo "Running CogVideoX test..."
-bash $ROOT_DIR/tests/scripts/dummy_cogvideox_lora.sh
-
-######################################################
-# HunyuanVideo
-######################################################
-echo "Running HunyuanVideo test..."
-bash $ROOT_DIR/tests/scripts/dummy_hunyuanvideo_lora.sh
+Define models to test
+models=("dummy_ltx_video_lora" "dummy_cogvideox_lora" "dummy_hunyuanvideo_lora")
+for model_script in "${models[@]}"; do
+    echo "Running $model_script test..."
+    bash $ROOT_DIR/tests/scripts/$model_script.sh
+done
