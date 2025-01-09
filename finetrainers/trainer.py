@@ -355,7 +355,9 @@ class Trainer:
 
         # Update dataloader to use precomputed conditions and latents
         self.dataloader = torch.utils.data.DataLoader(
-            PrecomputedDataset(self.args.data_root),
+            PrecomputedDataset(
+                data_root=self.args.data_root, model_name=self.args.model_name, cleaned_model_id=cleaned_model_id
+            ),
             batch_size=self.args.batch_size,
             shuffle=True,
             collate_fn=collate_fn,
