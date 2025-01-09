@@ -1,2 +1,1 @@
-from .cogvideox_lora import COGVIDEOX_T2V_LORA_CONFIG
-from .cogvideox_lora import COGVIDEOX_T2V_FULL_FINETUNE_CONFIG
+from .cogvideox_lora import COGVIDEOX_T2V_FULL_FINETUNE_CONFIG, COGVIDEOX_T2V_LORA_CONFIG
