@@ -11,7 +11,7 @@ class Args:
     r"""
     The arguments for the finetrainers training script.
 
-    MODEL_ARGUMENTS
+    MODEL ARGUMENTS
     ---------------
     model_name (`str`):
         Name of model to train. To get a list of models, run `python train.py --list_models`.
@@ -36,7 +36,7 @@ class Args:
     vae_dtype (`torch.dtype`, defaults to `torch.bfloat16`):
         Data type for the VAE model.
 
-    DATASET_ARGUMENTS
+    DATASET ARGUMENTS
     -----------------
     data_root (`str`):
         A folder containing the training data.
@@ -84,7 +84,7 @@ class Args:
     pin_memory (`bool`, defaults to `False`):
         Whether or not to use the pinned memory setting in PyTorch dataloader. This is useful for faster data loading.
 
-    DIFFUSION_ARGUMENTS
+    DIFFUSION ARGUMENTS
     -------------------
     flow_resolution_shifting (`bool`, defaults to `False`):
         Resolution-dependent shifting of timestep schedules.
@@ -112,7 +112,7 @@ class Args:
     flow_mode_scale (`float`, defaults to `1.29`):
         Scale of mode weighting scheme. Only effective when using the `'mode'` as the `weighting_scheme`.
 
-    TRAINING_ARGUMENTS
+    TRAINING ARGUMENTS
     ------------------
     training_type (`str`, defaults to `None`):
         Type of training to perform. Choose between ['lora'].
@@ -147,7 +147,7 @@ class Args:
         Whether training should be resumed from a previous checkpoint. Use a path saved by `checkpointing_steps`,
         or `"latest"` to automatically select the last available checkpoint.
 
-    OPTIMIZER_ARGUMENTS
+    OPTIMIZER ARGUMENTS
     -------------------
     optimizer (`str`, defaults to `adamw`):
         The optimizer type to use. Choose between ['adam', 'adamw'].
@@ -176,7 +176,7 @@ class Args:
     max_grad_norm (`float`, defaults to `1.0`):
         Maximum gradient norm to clip the gradients.
 
-    VALIDATION_ARGUMENTS
+    VALIDATION ARGUMENTS
     --------------------
     validation_prompts (`List[str]`, defaults to `None`):
         List of prompts to use for validation. If not provided, a random prompt will be selected from the training
@@ -200,7 +200,7 @@ class Args:
     enable_model_cpu_offload (`bool`, defaults to `False`):
         Whether or not to offload different modeling components to CPU during validation.
 
-    MISCELLANEOUS_ARGUMENTS
+    MISCELLANEOUS ARGUMENTS
     -----------------------
     tracker_name (`str`, defaults to `finetrainers`):
         Name of the tracker/project to use for logging training metrics.
