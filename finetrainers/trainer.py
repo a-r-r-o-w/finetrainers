@@ -252,7 +252,9 @@ class Trainer:
         if not should_precompute:
             logger.info("Precomputed conditions and latents found. Loading precomputed data.")
             self.dataloader = torch.utils.data.DataLoader(
-                PrecomputedDataset(self.args.data_root),
+                PrecomputedDataset(
+                    data_root=self.args.data_root, model_name=self.args.model_name, cleaned_model_id=cleaned_model_id
+                ),
                 batch_size=self.args.batch_size,
                 shuffle=True,
                 collate_fn=collate_fn,
@@ -372,7 +374,9 @@ class Trainer:
 
         # Update dataloader to use precomputed conditions and latents
         self.dataloader = torch.utils.data.DataLoader(
-            PrecomputedDataset(self.args.data_root),
+            PrecomputedDataset(
+                data_root=self.args.data_root, model_name=self.args.model_name, cleaned_model_id=cleaned_model_id
+            ),
             batch_size=self.args.batch_size,
             shuffle=True,
             collate_fn=collate_fn,
@@ -693,6 +697,8 @@ class Trainer:
 
             self.transformer.train()
             models_to_accumulate = [self.transformer]
+            epoch_loss = 0.0
+            num_loss_updates = 0
 
             for step, batch in enumerate(self.dataloader):
                 logger.debug(f"Starting step {step + 1}")
@@ -863,7 +869,10 @@ class Trainer:
                     if should_run_validation:
                         self.validate(global_step)
 
-                logs["loss"] = loss.detach().item()
+                loss_item = loss.detach().item()
+                epoch_loss += loss_item
+                num_loss_updates += 1
+                logs["step_loss"] = loss_item
                 logs["lr"] = self.lr_scheduler.get_last_lr()[0]
                 progress_bar.set_postfix(logs)
                 accelerator.log(logs, step=global_step)
@@ -871,6 +880,9 @@ class Trainer:
                 if global_step >= self.state.train_steps:
                     break
 
+            if num_loss_updates > 0:
+                epoch_loss /= num_loss_updates
+            accelerator.log({"epoch_loss": epoch_loss}, step=global_step)
             memory_statistics = get_memory_statistics()
             logger.info(f"Memory after epoch {epoch + 1}: {json.dumps(memory_statistics, indent=4)}")
 

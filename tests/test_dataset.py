@@ -4,7 +4,7 @@ import sys
 
 
 def test_video_dataset():
-    from dataset import VideoDataset
+    from cogvideox.dataset import VideoDataset
 
     dataset_dirs = VideoDataset(
         data_root="assets/tests/",
@@ -33,7 +33,7 @@ def test_video_dataset():
 
 
 def test_video_dataset_with_resizing():
-    from dataset import VideoDatasetWithResizing
+    from cogvideox.dataset import VideoDatasetWithResizing
 
     dataset_dirs = VideoDatasetWithResizing(
         data_root="assets/tests/",
@@ -63,7 +63,7 @@ def test_video_dataset_with_resizing():
 
 def test_video_dataset_with_bucket_sampler():
     import torch
-    from dataset import BucketSampler, VideoDatasetWithResizing
+    from cogvideox.dataset import BucketSampler, VideoDatasetWithResizing
     from torch.utils.data import DataLoader
 
     dataset_dirs = VideoDatasetWithResizing(
