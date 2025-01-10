@@ -45,8 +45,9 @@ def load_diffusion_models(
     cache_dir: Optional[str] = None,
     **kwargs,
 ) -> Dict[str, nn.Module]:
+    subfolder = kwargs.get("subfolder", "transformer")
     transformer = LTXVideoTransformer3DModel.from_pretrained(
-        model_id, subfolder="transformer", torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
+        model_id, subfolder=subfolder, torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
     )
     scheduler = FlowMatchEulerDiscreteScheduler()
     return {"transformer": transformer, "scheduler": scheduler}
