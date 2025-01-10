@@ -7,7 +7,7 @@ from diffusers.training_utils import compute_loss_weighting_for_sd3
 
 
 # Default values copied from https://github.com/huggingface/diffusers/blob/8957324363d8b239d82db4909fbf8c0875683e3d/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py#L47
-def resolution_dependant_timestep_flow_shift(
+def resolution_dependent_timestep_flow_shift(
     latents: torch.Tensor,
     sigmas: torch.Tensor,
     base_image_seq_len: int = 256,

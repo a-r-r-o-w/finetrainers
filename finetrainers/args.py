@@ -12,9 +12,215 @@ class Args:
     The arguments for the finetrainers training script.
 
     Args:
+        MODEL_ARGUMENTS
+        ---------------
+        model_name (`str`):
+            Name of model to train. To get a list of models, run `python train.py --list_models`.
+        pretrained_model_name_or_path (`str`):
+            Path to pretrained model or model identifier from https://huggingface.co/models. The model should be
+            loadable based on specified `model_name`.
+        revision (`str`, defaults to `None`):
+            If provided, the model will be loaded from a specific branch of the model repository.
+        variant (`str`, defaults to `None`):
+            Variant of model weights to use. Some models provide weight variants, such as `fp16`, to reduce disk
+            storage requirements.
+        cache_dir (`str`, defaults to `None`):
+            The directory where the downloaded models and datasets will be stored, or loaded from.
+        text_encoder_dtype (`torch.dtype`, defaults to `torch.bfloat16`):
+            Data type for the text encoder when generating text embeddings.
+        text_encoder_2_dtype (`torch.dtype`, defaults to `torch.bfloat16`):
+            Data type for the text encoder 2 when generating text embeddings.
+        text_encoder_3_dtype (`torch.dtype`, defaults to `torch.bfloat16`):
+            Data type for the text encoder 3 when generating text embeddings.
+        transformer_dtype (`torch.dtype`, defaults to `torch.bfloat16`):
+            Data type for the transformer model.
+        vae_dtype (`torch.dtype`, defaults to `torch.bfloat16`):
+            Data type for the VAE model.
+
+        DATASET_ARGUMENTS
+        -----------------
+        data_root (`str`):
+            A folder containing the training data.
+        dataset_file (`str`, defaults to `None`):
+            Path to a CSV/JSON/JSONL file containing metadata for training. This should be provided if you're not using
+            a directory dataset format containing a simple `prompts.txt` and `videos.txt`/`images.txt` for example.
+        video_column (`str`):
+            The column of the dataset containing videos. Or, the name of the file in `data_root` folder containing the
+            line-separated path to video data.
+        caption_column (`str`):
+            The column of the dataset containing the instance prompt for each video. Or, the name of the file in
+            `data_root` folder containing the line-separated instance prompts.
+        id_token (`str`, defaults to `None`):
+            Identifier token appended to the start of each prompt if provided. This is useful for LoRA-type training.
+        image_resolution_buckets (`List[Tuple[int, int]]`, defaults to `None`):
+            Resolution buckets for images. This should be a list of integer tuples, where each tuple represents the
+            resolution (height, width) of the image. All images will be resized to the nearest bucket resolution.
+        video_resolution_buckets (`List[Tuple[int, int, int]]`, defaults to `None`):
+            Resolution buckets for videos. This should be a list of integer tuples, where each tuple represents the
+            resolution (num_frames, height, width) of the video. All videos will be resized to the nearest bucket
+            resolution.
+        video_reshape_mode (`str`, defaults to `None`):
+            All input videos are reshaped to this mode. Choose between ['center', 'random', 'none'].
+            TODO(aryan): We don't support this.
+        caption_dropout_p (`float`, defaults to `0.00`):
+            Probability of dropout for the caption tokens. This is useful to improve the unconditional generation
+            quality of the model.
+        caption_dropout_technique (`str`, defaults to `empty`):
+            Technique to use for caption dropout. Choose between ['empty', 'zero']. Some models apply caption dropout
+            by setting the prompt condition to an empty string, while others zero-out the text embedding tensors.
+        precompute_conditions (`bool`, defaults to `False`):
+            Whether or not to precompute the conditionings for the model. This is useful for faster training, and
+            reduces the memory requirements.
+        remove_common_llm_caption_prefixes (`bool`, defaults to `False`):
+            Whether or not to remove common LLM caption prefixes. This is useful for improving the quality of the
+            generated text.
+
+        DATALOADER_ARGUMENTS
+        --------------------
+        See https://pytorch.org/docs/stable/data.html for more information.
+
+        dataloader_num_workers (`int`, defaults to `0`):
+            Number of subprocesses to use for data loading. `0` means that the data will be loaded in a blocking manner
+            on the main process.
+        pin_memory (`bool`, defaults to `False`):
+            Whether or not to use the pinned memory setting in PyTorch dataloader. This is useful for faster data loading.
+
+        DIFFUSION_ARGUMENTS
+        -------------------
         flow_resolution_shifting (`bool`, defaults to `False`):
-            Resolution-dependant shifting of timestep schedules.
-            [Scaling Rectified Flow Transformers for High-Resolution Image Synthesis](https://arxiv.org/abs/2403.03206)
+            Resolution-dependent shifting of timestep schedules.
+            [Scaling Rectified Flow Transformers for High-Resolution Image Synthesis](https://arxiv.org/abs/2403.03206).
+            TODO(aryan): We don't support this yet.
+        flow_base_seq_len (`int`, defaults to `256`):
+            Base number of tokens for images/video when applying resolution-dependent shifting.
+        flow_max_seq_len (`int`, defaults to `4096`):
+            Maximum number of tokens for images/video when applying resolution-dependent shifting.
+        flow_base_shift (`float`, defaults to `0.5`):
+            Base shift for timestep schedules when applying resolution-dependent shifting.
+        flow_max_shift (`float`, defaults to `1.15`):
+            Maximum shift for timestep schedules when applying resolution-dependent shifting.
+        flow_shift (`float`, defaults to `1.0`):
+            Instead of training with uniform/logit-normal sigmas, shift them as (shift * sigma) / (1 + (shift - 1) * sigma).
+            Setting it higher is helpful when trying to train models for high-resolution generation or to produce better
+            samples in lower number of inference steps.
+        flow_weighting_scheme (`str`, defaults to `none`):
+            We default to the "none" weighting scheme for uniform sampling and uniform loss.
+            Choose between ['sigma_sqrt', 'logit_normal', 'mode', 'cosmap', 'none'].
+        flow_logit_mean (`float`, defaults to `0.0`):
+            Mean to use when using the `'logit_normal'` weighting scheme.
+        flow_logit_std (`float`, defaults to `1.0`):
+            Standard deviation to use when using the `'logit_normal'` weighting scheme.
+        flow_mode_scale (`float`, defaults to `1.29`):
+            Scale of mode weighting scheme. Only effective when using the `'mode'` as the `weighting_scheme`.
+
+        TRAINING_ARGUMENTS
+        ------------------
+        training_type (`str`, defaults to `None`):
+            Type of training to perform. Choose between ['lora'].
+        seed (`int`, defaults to `42`):
+            A seed for reproducible training.
+        mixed_precision (`str`, defaults to `None`):
+            Whether to use mixed precision. Choose between ['no', 'fp8', 'fp16', 'bf16'].
+        batch_size (`int`, defaults to `1`):
+            Per-device batch size.
+        train_epochs (`int`, defaults to `1`):
+            Number of training epochs.
+        train_steps (`int`, defaults to `None`):
+            Total number of training steps to perform. If provided, overrides `train_epochs`.
+        rank (`int`, defaults to `128`):
+            The rank for LoRA matrices.
+        lora_alpha (`float`, defaults to `64`):
+            The lora_alpha to compute scaling factor (lora_alpha / rank) for LoRA matrices.
+        target_modules (`List[str]`, defaults to `["to_k", "to_q", "to_v", "to_out.0"]`):
+            The target modules for LoRA. Make sure to modify this based on the model.
+        gradient_accumulation_steps (`int`, defaults to `1`):
+            Number of gradients steps to accumulate before performing an optimizer step.
+        gradient_checkpointing (`bool`, defaults to `False`):
+            Whether or not to use gradient/activation checkpointing to save memory at the expense of slower
+            backward pass.
+        checkpointing_steps (`int`, defaults to `500`):
+            Save a checkpoint of the training state every X training steps. These checkpoints can be used both
+            as final checkpoints in case they are better than the last checkpoint, and are also suitable for
+            resuming training using `resume_from_checkpoint`.
+        checkpointing_limit (`int`, defaults to `None`):
+            Max number of checkpoints to store.
+        resume_from_checkpoint (`str`, defaults to `None`):
+            Whether training should be resumed from a previous checkpoint. Use a path saved by `checkpointing_steps`,
+            or `"latest"` to automatically select the last available checkpoint.
+
+        OPTIMIZER_ARGUMENTS
+        -------------------
+        optimizer (`str`, defaults to `adamw`):
+            The optimizer type to use. Choose between ['adam', 'adamw'].
+        use_8bit_bnb (`bool`, defaults to `False`):
+            Whether to use 8bit variant of the `optimizer` using `bitsandbytes`.
+        lr (`float`, defaults to `1e-4`):
+            Initial learning rate (after the potential warmup period) to use.
+        scale_lr (`bool`, defaults to `False`):
+            Scale the learning rate by the number of GPUs, gradient accumulation steps, and batch size.
+        lr_scheduler (`str`, defaults to `cosine_with_restarts`):
+            The scheduler type to use. Choose between ['linear', 'cosine', 'cosine_with_restarts', 'polynomial',
+            'constant', 'constant_with_warmup'].
+        lr_warmup_steps (`int`, defaults to `500`):
+            Number of steps for the warmup in the lr scheduler.
+        lr_num_cycles (`int`, defaults to `1`):
+            Number of hard resets of the lr in cosine_with_restarts scheduler.
+        lr_power (`float`, defaults to `1.0`):
+            Power factor of the polynomial scheduler.
+        beta1 (`float`, defaults to `0.9`):
+        beta2 (`float`, defaults to `0.95`):
+        beta3 (`float`, defaults to `0.999`):
+        weight_decay (`float`, defaults to `0.0001`):
+            Penalty for large weights in the model.
+        epsilon (`float`, defaults to `1e-8`):
+            Small value to avoid division by zero in the optimizer.
+        max_grad_norm (`float`, defaults to `1.0`):
+            Maximum gradient norm to clip the gradients.
+
+        VALIDATION_ARGUMENTS
+        --------------------
+        validation_prompts (`List[str]`, defaults to `None`):
+            List of prompts to use for validation. If not provided, a random prompt will be selected from the training
+            dataset.
+        validation_images (`List[str]`, defaults to `None`):
+            List of image paths to use for validation.
+        validation_videos (`List[str]`, defaults to `None`):
+            List of video paths to use for validation.
+        validation_heights (`List[int]`, defaults to `None`):
+            List of heights for the validation videos.
+        validation_widths (`List[int]`, defaults to `None`):
+            List of widths for the validation videos.
+        validation_num_frames (`List[int]`, defaults to `None`):
+            List of number of frames for the validation videos.
+        num_validation_videos_per_prompt (`int`, defaults to `1`):
+            Number of videos to use for validation per prompt.
+        validation_every_n_epochs (`int`, defaults to `None`):
+            Perform validation every `n` training epochs.
+        validation_every_n_steps (`int`, defaults to `None`):
+            Perform validation every `n` training steps.
+        enable_model_cpu_offload (`bool`, defaults to `False`):
+            Whether or not to offload different modeling components to CPU during validation.
+
+        MISCELLANEOUS_ARGUMENTS
+        -----------------------
+        tracker_name (`str`, defaults to `finetrainers`):
+            Name of the tracker/project to use for logging training metrics.
+        push_to_hub (`bool`, defaults to `False`):
+            Whether or not to push the model to the Hugging Face Hub.
+        hub_token (`str`, defaults to `None`):
+            The API token to use for pushing the model to the Hugging Face Hub.
+        hub_model_id (`str`, defaults to `None`):
+            The model identifier to use for pushing the model to the Hugging Face Hub.
+        output_dir (`str`, defaults to `None`):
+            The directory where the model checkpoints and logs will be stored.
+        logging_dir (`str`, defaults to `logs`):
+            The directory where the logs will be stored.
+        allow_tf32 (`bool`, defaults to `False`):
+            Whether or not to allow the use of TF32 matmul on compatible hardware.
+        nccl_timeout (`int`, defaults to `1800`):
+            Timeout for the NCCL communication.
+        report_to (`str`, defaults to `wandb`):
+            The name of the logger to use for logging training metrics. Choose between ['wandb'].
     """
 
     # Model arguments
@@ -390,7 +596,7 @@ def _add_diffusion_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--flow_resolution_shifting",
         action="store_true",
-        help="Resolution-dependant shifting of timestep schedules.",
+        help="Resolution-dependent shifting of timestep schedules.",
     )
     parser.add_argument(
         "--flow_base_seq_len",
