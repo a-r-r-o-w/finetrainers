@@ -471,7 +471,7 @@ class Trainer:
                 transformer_cls_ = unwrap_model(self.state.accelerator, self.transformer).__class__
 
                 if self.args.training_type == "lora":
-                    transformer_ = transformer_cls_.__class__.from_pretrained(
+                    transformer_ = transformer_cls_.from_pretrained(
                         self.args.pretrained_model_name_or_path, subfolder="transformer"
                     )
                     transformer_.add_adapter(transformer_lora_config)
