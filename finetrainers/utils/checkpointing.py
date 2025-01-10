@@ -55,7 +55,7 @@ def get_intermediate_ckpt_path(checkpointing_limit: int, step: int, output_dir: 
         # before we save the new checkpoint, we need to have at_most `checkpoints_total_limit - 1` checkpoints
         if len(checkpoints) >= checkpointing_limit:
             num_to_remove = len(checkpoints) - checkpointing_limit + 1
-            checkpoints_to_remove = checkpoints[0:num_to_remove]
+            checkpoints_to_remove = [os.path.join(output_dir, x) for x in checkpoints[0:num_to_remove]]
             delete_files(checkpoints_to_remove)
 
     logger.info(f"Checkpointing at step {step}")
