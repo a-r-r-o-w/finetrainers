@@ -236,6 +236,7 @@ def parse_arguments() -> Args:
 
 
 def validate_args(args: Args):
+    _validate_training_args(args)
     _validate_validation_args(args)
 
 
@@ -455,7 +456,8 @@ def _add_training_arguments(parser: argparse.ArgumentParser) -> None:
         "--training_type",
         type=str,
         default=None,
-        help="Type of training to perform. Choose between ['lora','sft']",
+        choices=["lora", "full-finetune"],
+        help="Type of training to perform. Choose between ['lora', 'full-finetune']",
     )
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument(
@@ -872,6 +874,15 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.report_to = args.report_to
 
     return result_args
+
+
+def _validate_training_args(args: Args):
+    if args.training_type == "lora":
+        assert args.rank is not None, "Rank is required for LoRA training"
+        assert args.lora_alpha is not None, "LoRA alpha is required for LoRA training"
+        assert (
+            args.target_modules is not None and len(args.target_modules) > 0
+        ), "Target modules are required for LoRA training"
 
 
 def _validate_validation_args(args: Args):
