@@ -5,7 +5,7 @@ import os
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import diffusers
 import torch
@@ -207,16 +207,6 @@ class Trainer:
             if self.args.enable_tiling:
                 self.vae.enable_tiling()
 
-    def _disable_grad_for_components(self, components: list):
-        for component in components:
-            if component is not None:
-                component.requires_grad_(False)
-
-    def _enable_grad_for_components(self, components: list):
-        for component in components:
-            if component is not None:
-                component.requires_grad_(True)
-
     def prepare_precomputations(self) -> None:
         if not self.args.precompute_conditions:
             return
@@ -391,20 +381,14 @@ class Trainer:
         diffusion_components = self.model_config["load_diffusion_models"](**self._get_load_components_kwargs())
         self._set_components(diffusion_components)
 
-        self._disable_grad_for_components(
-            components=[
-                self.text_encoder,
-                self.text_encoder_2,
-                self.text_encoder_3,
-                self.vae,
-            ]
-        )
+        components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.vae]
+        self._disable_grad_for_components(components)
 
         if self.args.training_type == "full-finetune":
-            logger.info("Full Fine Tuning Enabled")
+            logger.info("Finetuning transformer with no additional parameters.")
             self._enable_grad_for_components(components=[self.transformer])
         else:
-            logger.info("Lora Fine Tuning Enabled")
+            logger.info("Finetuning transformer with low-rank peft parameters.")
             self._disable_grad_for_components(components=[self.transformer])
 
         # For mixed precision training we cast all non-trainable weights (vae, text_encoder and transformer) to half-precision
@@ -412,7 +396,7 @@ class Trainer:
         weight_dtype = self._get_training_dtype(accelerator=self.state.accelerator)
 
         if torch.backends.mps.is_available() and weight_dtype == torch.bfloat16:
-            # due to pytorch#99272, MPS does not yet support bfloat16.
+            # Due to pytorch#99272, MPS does not yet support bfloat16.
             raise ValueError(
                 "Mixed precision training with bfloat16 is not supported on MPS. Please use fp16 (recommended) or fp32 instead."
             )
@@ -1174,14 +1158,13 @@ class Trainer:
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
             )
         else:
-            # `torch_dtype` is manually set within `initialize_pipeline()`.
             self._delete_components()
-            if self.args.training_type == "lora":
-                transformer = None
-            else:
-                transformer = self.model_config["load_diffusion_models"](
-                    model_id=self.args.output_dir, subfolder=None
-                )["transformer"]
+
+            # Load the transformer weights from the final checkpoint if performing full-finetune
+            transformer = None
+            if self.args.training_type == "full-finetune":
+                transformer = self.model_config["load_diffusion_models"](model_id=self.args.output_dir)["transformer"]
+
             pipeline = self.model_config["initialize_pipeline"](
                 model_id=self.args.pretrained_model_name_or_path,
                 transformer=transformer,
@@ -1192,7 +1175,19 @@ class Trainer:
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
             )
+
+            # Load the LoRA weights if performing LoRA finetuning
             if self.args.training_type == "lora":
                 pipeline.load_lora_weights(self.args.output_dir)
 
         return pipeline
+
+    def _disable_grad_for_components(self, components: List[torch.nn.Module]):
+        for component in components:
+            if component is not None:
+                component.requires_grad_(False)
+
+    def _enable_grad_for_components(self, components: List[torch.nn.Module]):
+        for component in components:
+            if component is not None:
+                component.requires_grad_(True)
