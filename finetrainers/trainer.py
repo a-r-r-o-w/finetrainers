@@ -100,9 +100,6 @@ class Trainer:
         self.state.model_name = self.args.model_name
         self.model_config = get_config_from_model_name(self.args.model_name, self.args.training_type)
 
-        # Components list
-        self.components = []
-
     def prepare_dataset(self) -> None:
         # TODO(aryan): Make a background process for fetching
         logger.info("Initializing dataset and dataloader")
@@ -157,18 +154,6 @@ class Trainer:
         self.transformer_config = self.transformer.config if self.transformer is not None else self.transformer_config
         self.vae_config = self.vae.config if self.vae is not None else self.vae_config
 
-        self.components = [
-            self.tokenizer,
-            self.tokenizer_2,
-            self.tokenizer_3,
-            self.text_encoder,
-            self.text_encoder_2,
-            self.text_encoder_3,
-            self.transformer,
-            self.unet,
-            self.vae,
-        ]
-
     def _delete_components(self) -> None:
         self.tokenizer = None
         self.tokenizer_2 = None
@@ -182,8 +167,6 @@ class Trainer:
         self.scheduler = None
         free_memory()
         torch.cuda.synchronize(self.state.accelerator.device)
-
-        self.components = None
 
     def prepare_models(self) -> None:
         logger.info("Initializing models")
@@ -260,14 +243,8 @@ class Trainer:
         condition_components = self.model_config["load_condition_models"](**self._get_load_components_kwargs())
         self._set_components(condition_components)
         self._move_components_to_device()
+        self._disable_grad_for_components([self.text_encoder, self.text_encoder_2, self.text_encoder_3])
 
-        self._disable_grad_for_components(
-            components=[
-                self.text_encoder,
-                self.text_encoder_2,
-                self.text_encoder_3,
-            ]
-        )
         if self.args.caption_dropout_p > 0 and self.args.caption_dropout_technique == "empty":
             logger.warning(
                 "Caption dropout is not supported with precomputation yet. This will be supported in the future."
@@ -320,8 +297,8 @@ class Trainer:
         latent_components = self.model_config["load_latent_models"](**self._get_load_components_kwargs())
         self._set_components(latent_components)
         self._move_components_to_device()
+        self._disable_grad_for_components([self.vae])
 
-        self._disable_grad_for_components(components=[self.vae])
         if self.vae is not None:
             if self.args.enable_slicing:
                 self.vae.enable_slicing()
