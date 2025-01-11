@@ -1,4 +1,5 @@
 import argparse
+import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -10,6 +11,13 @@ from .models import SUPPORTED_MODEL_CONFIGS
 class Args:
     r"""
     The arguments for the finetrainers training script.
+
+    For helpful information about arguments, run `python train.py --help`.
+
+    TODO(aryan): add `python train.py --recommend_configs --model_name <model_name>` to recommend
+    good training configs for a model after extensive testing.
+    TODO(aryan): add `python train.py --memory_requirements --model_name <model_name>` to show
+    memory requirements per model, per training type with sensible training settings.
 
     MODEL ARGUMENTS
     ---------------
@@ -424,20 +432,31 @@ class Args:
         }
 
 
+# TODO(aryan): handle more informative messages
+_IS_ARGUMENTS_REQUIRED = "--list_models" not in sys.argv
+
+
 def parse_arguments() -> Args:
     parser = argparse.ArgumentParser()
 
-    _add_model_arguments(parser)
-    _add_dataset_arguments(parser)
-    _add_dataloader_arguments(parser)
-    _add_diffusion_arguments(parser)
-    _add_training_arguments(parser)
-    _add_optimizer_arguments(parser)
-    _add_validation_arguments(parser)
-    _add_miscellaneous_arguments(parser)
+    if _IS_ARGUMENTS_REQUIRED:
+        _add_model_arguments(parser)
+        _add_dataset_arguments(parser)
+        _add_dataloader_arguments(parser)
+        _add_diffusion_arguments(parser)
+        _add_training_arguments(parser)
+        _add_optimizer_arguments(parser)
+        _add_validation_arguments(parser)
+        _add_miscellaneous_arguments(parser)
 
-    args = parser.parse_args()
-    return _map_to_args_type(args)
+        args = parser.parse_args()
+        return _map_to_args_type(args)
+    else:
+        _add_helper_arguments(parser)
+
+        args = parser.parse_args()
+        _display_helper_messages(args)
+        sys.exit(0)
 
 
 def validate_args(args: Args):
@@ -456,7 +475,7 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--pretrained_model_name_or_path",
         type=str,
-        default=None,
+        required=True,
         help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
     parser.add_argument(
@@ -506,7 +525,7 @@ def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--data_root",
         type=str,
-        default=None,
+        required=True,
         help=("A folder containing the training data."),
     )
     parser.add_argument(
@@ -633,19 +652,19 @@ def _add_diffusion_arguments(parser: argparse.ArgumentParser) -> None:
         type=str,
         default="none",
         choices=["sigma_sqrt", "logit_normal", "mode", "cosmap", "none"],
-        help=('We default to the "none" weighting scheme for uniform sampling and uniform loss'),
+        help='We default to the "none" weighting scheme for uniform sampling and uniform loss',
     )
     parser.add_argument(
         "--flow_logit_mean",
         type=float,
         default=0.0,
-        help="mean to use when using the `'logit_normal'` weighting scheme.",
+        help="Mean to use when using the `'logit_normal'` weighting scheme.",
     )
     parser.add_argument(
         "--flow_logit_std",
         type=float,
         default=1.0,
-        help="std to use when using the `'logit_normal'` weighting scheme.",
+        help="Standard deviation to use when using the `'logit_normal'` weighting scheme.",
     )
     parser.add_argument(
         "--flow_mode_scale",
@@ -660,8 +679,8 @@ def _add_training_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--training_type",
         type=str,
-        default=None,
         choices=["lora", "full-finetune"],
+        required=True,
         help="Type of training to perform. Choose between ['lora', 'full-finetune']",
     )
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
@@ -678,10 +697,10 @@ def _add_training_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=4,
+        default=1,
         help="Batch size (per device) for the training dataloader.",
     )
-    parser.add_argument("--train_epochs", type=int, default=1)
+    parser.add_argument("--train_epochs", type=int, default=1, help="Number of training epochs.")
     parser.add_argument(
         "--train_steps",
         type=int,
@@ -737,13 +756,11 @@ def _add_training_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--enable_slicing",
         action="store_true",
-        default=False,
         help="Whether or not to use VAE slicing for saving memory.",
     )
     parser.add_argument(
         "--enable_tiling",
         action="store_true",
-        default=False,
         help="Whether or not to use VAE tiling for saving memory.",
     )
 
@@ -758,7 +775,6 @@ def _add_optimizer_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--scale_lr",
         action="store_true",
-        default=False,
         help="Scale the learning rate by the number of GPUs, gradient accumulation steps, and batch size.",
     )
     parser.add_argument(
@@ -879,7 +895,6 @@ def _add_validation_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--enable_model_cpu_offload",
         action="store_true",
-        default=False,
         help="Whether or not to enable model-wise CPU offloading when performing validation/testing to save memory.",
     )
 
@@ -906,7 +921,7 @@ def _add_miscellaneous_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="finetrainer-training",
+        default="finetrainers-training",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
@@ -933,10 +948,16 @@ def _add_miscellaneous_arguments(parser: argparse.ArgumentParser) -> None:
         "--report_to",
         type=str,
         default="none",
-        help=(
-            'The integration to report the results and logs to. Supported platforms are `"tensorboard"`'
-            ' (default), `"wandb"` and `"comet_ml"`. Use `"all"` to report to all integrations.'
-        ),
+        choices=["none", "wandb"],
+        help="The integration to report the results and logs to.",
+    )
+
+
+def _add_helper_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--list_models",
+        action="store_true",
+        help="List all the supported models.",
     )
 
 
@@ -1106,3 +1127,10 @@ def _validate_validation_args(args: Args):
     assert len(args.validation_prompts) == len(
         args.validation_widths
     ), "Validation prompts and widths should be of same length"
+
+
+def _display_helper_messages(args: argparse.Namespace):
+    if args.list_models:
+        print("Supported models:")
+        for index, model_name in enumerate(SUPPORTED_MODEL_CONFIGS.keys()):
+            print(f"  {index + 1}. {model_name}")
