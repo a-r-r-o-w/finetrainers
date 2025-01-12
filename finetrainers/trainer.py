@@ -11,7 +11,6 @@ import diffusers
 import torch
 import torch.backends
 import transformers
-import wandb
 from accelerate import Accelerator, DistributedType
 from accelerate.logging import get_logger
 from accelerate.utils import (
@@ -30,6 +29,8 @@ from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
+
+import wandb
 
 from .args import _INVERSE_DTYPE_MAP, Args, validate_args
 from .constants import (
@@ -926,7 +927,7 @@ class Trainer:
             height = self.args.validation_heights[i]
             width = self.args.validation_widths[i]
             num_frames = self.args.validation_num_frames[i]
-
+            frame_rate = self.args.validation_frame_rate
             if image is not None:
                 image = load_image(image)
             if video is not None:
@@ -944,6 +945,7 @@ class Trainer:
                 height=height,
                 width=width,
                 num_frames=num_frames,
+                frame_rate=frame_rate,
                 num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
                 generator=torch.Generator(device=accelerator.device).manual_seed(
                     self.args.seed if self.args.seed is not None else 0
@@ -983,7 +985,7 @@ class Trainer:
                 elif artifact_type == "video":
                     logger.debug(f"Saving video to {filename}")
                     # TODO: this should be configurable here as well as in validation runs where we call the pipeline that has `fps`.
-                    export_to_video(artifact_value, filename, fps=15)
+                    export_to_video(artifact_value, filename, fps=frame_rate)
                     artifact_value = wandb.Video(filename, caption=prompt)
 
                 all_processes_artifacts.append(artifact_value)

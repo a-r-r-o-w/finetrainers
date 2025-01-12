@@ -893,6 +893,12 @@ def _add_validation_arguments(parser: argparse.ArgumentParser) -> None:
         help="Run validation every X training steps. Validation consists of running the validation prompt `args.num_validation_videos` times.",
     )
     parser.add_argument(
+        "--validation_frame_rate",
+        type=int,
+        default=None,
+        help="Run inference validation at a specified frame rate every X training steps with the same output frame rate. `args.validation_frame_rate`",
+    )
+    parser.add_argument(
         "--enable_model_cpu_offload",
         action="store_true",
         help="Whether or not to enable model-wise CPU offloading when performing validation/testing to save memory.",

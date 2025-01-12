@@ -225,7 +225,7 @@ def validation(
     height: Optional[int] = None,
     width: Optional[int] = None,
     num_frames: Optional[int] = None,
-    frame_rate: int = 25,
+    frame_rate: int = 24,
     num_videos_per_prompt: int = 1,
     generator: Optional[torch.Generator] = None,
     **kwargs,
