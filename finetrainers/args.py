@@ -1093,6 +1093,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.validation_every_n_epochs = args.validation_epochs
     result_args.validation_every_n_steps = args.validation_steps
     result_args.enable_model_cpu_offload = args.enable_model_cpu_offload
+    result_args.validation_frame_rate = args.validation_frame_rate
 
     # Miscellaneous arguments
     result_args.tracker_name = args.tracker_name
