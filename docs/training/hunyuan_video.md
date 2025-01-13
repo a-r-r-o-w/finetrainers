@@ -2,6 +2,8 @@
 
 ## Training
 
+For LoRA training, specify `--training_type lora`. For full finetuning, specify `--training_type full-finetune`.
+
 ```bash
 #!/bin/bash
 
@@ -87,6 +89,8 @@ echo -ne "-------------------- Finished executing script --------------------\n\
 
 ## Memory Usage
 
+### LoRA
+
 LoRA with rank 128, batch size 1, gradient checkpointing, optimizer adamw, `49x512x768` resolutions, **without precomputation**:
 
 ```
@@ -138,6 +142,10 @@ Training configuration: {
 | after training end            | 24.842           | 41.039              |
 
 Note: requires about `47` GB of VRAM with validation. If validation is not performed, the memory usage is reduced to about `42` GB.
+
+### Full finetuning
+
+Current, full finetuning is not supported for HunyuanVideo. It goes out of memory (OOM) for `49x512x768` resolutions.
 
 ## Inference
 

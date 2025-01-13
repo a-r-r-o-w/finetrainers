@@ -2,7 +2,7 @@
 
 ## Training
 
-Provided you have a dataset:
+For LoRA training, specify `--training_type lora`. For full finetuning, specify `--training_type full-finetune`.
 
 ```bash
 #!/bin/bash

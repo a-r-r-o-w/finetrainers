@@ -2,6 +2,8 @@
 
 ## Training
 
+For LoRA training, specify `--training_type lora`. For full finetuning, specify `--training_type full-finetune`.
+
 ```bash
 #!/bin/bash
 export WANDB_MODE="offline"
@@ -84,6 +86,8 @@ echo -ne "-------------------- Finished executing script --------------------\n\
 
 ## Memory Usage
 
+### LoRA
+
 LoRA with rank 128, batch size 1, gradient checkpointing, optimizer adamw, `49x480x720` resolutions, **with precomputation**:
 
 ```
@@ -108,6 +112,18 @@ Training configuration: {
 | before validation start       | 11.145            | 20.702              |
 | after validation end          | 11.145            | 28.324              |
 | after training end            | 11.144            | 11.592              |
+
+### Full finetuning
+
+| stage                         | memory_allocated  | max_memory_reserved |
+|:-----------------------------:|:-----------------:|:-------------------:|
+| after precomputing conditions |  8.880            | 8.941               |
+| after precomputing latents    |  9.300            | 12.441              |
+| before training start         | 10.376            | 10.387              |
+| after epoch 1                 | 31.160            | 52.939              |
+| before validation start       | 31.161            | 52.939              |
+| after validation end          | 31.161            | 52.939              |
+| after training end            | 31.160            | 34.295              |
 
 ## Supported checkpoints
 
