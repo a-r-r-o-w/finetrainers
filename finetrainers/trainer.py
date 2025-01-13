@@ -781,9 +781,9 @@ class Trainer:
 
                         logs["grad_norm"] = grad_norm
 
-                    self.optimizer.step()
-                    self.lr_scheduler.step()
-                    self.optimizer.zero_grad()
+                        self.optimizer.step()
+                        self.lr_scheduler.step()
+                        self.optimizer.zero_grad()
 
                 # Checks if the accelerator has performed an optimization step behind the scenes
                 if accelerator.sync_gradients:
