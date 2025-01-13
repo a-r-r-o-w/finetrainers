@@ -88,6 +88,8 @@ echo -ne "-------------------- Finished executing script --------------------\n\
 
 ## Memory Usage
 
+### LoRA
+
 LoRA with rank 128, batch size 1, gradient checkpointing, optimizer adamw, `49x512x768` resolution, **without precomputation**:
 
 ```
@@ -139,6 +141,31 @@ Training configuration: {
 | after training end            | 4.26             | 14.314              |
 
 Note: requires about `17.5` GB of VRAM with precomputation. If validation is not performed, the memory usage is reduced to `11` GB.
+
+### Full Finetuning
+
+```
+Training configuration: {
+    "trainable parameters": 1923385472,
+    "total samples": 1,
+    "train epochs": 10,
+    "train steps": 10,
+    "batches per device": 1,
+    "total batches observed per epoch": 1,
+    "train batch size": 1,
+    "gradient accumulation steps": 1
+}
+```
+
+| stage                         | memory_allocated | max_memory_reserved |
+|:-----------------------------:|:----------------:|:-------------------:|
+| after precomputing conditions | 8.89             | 8.937               |
+| after precomputing latents    | 9.701            | 11.615              |
+| before training start         | 3.583            | 4.025               |
+| after epoch 1                 | 10.769           | 20.357              |
+| before validation start       | 10.769           | 20.357              |
+| after validation end          | 10.769           | 28.332              |
+| after training end            | 10.769           | 12.904              |
 
 ## Inference
 

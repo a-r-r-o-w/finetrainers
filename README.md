@@ -12,7 +12,8 @@ FineTrainers is a work-in-progress library to support (accessible) training of v
 
 ## News
 
-- 🔥 **2024-12-20**: Support for T2V LoRA finetuning of [CogVideoX](https://huggingface.co/docs/diffusers/main/api/pipelines/cogvideox) added! 
+- 🔥 **2024-01-13**: Support for T2V full-finetuning added! Thanks to @ArEnSc for taking up the initiative!
+- 🔥 **2024-01-03**: Support for T2V LoRA finetuning of [CogVideoX](https://huggingface.co/docs/diffusers/main/api/pipelines/cogvideox) added! 
 - 🔥 **2024-12-20**: Support for T2V LoRA finetuning of [Hunyuan Video](https://huggingface.co/docs/diffusers/main/api/pipelines/hunyuan_video) added! We would like to thank @SHYuanBest for his work on a training script [here](https://github.com/huggingface/diffusers/pull/10254).
 - 🔥 **2024-12-18**: Support for T2V LoRA finetuning of [LTX Video](https://huggingface.co/docs/diffusers/main/api/pipelines/ltx_video) added!
 
@@ -137,17 +138,17 @@ For inference, refer [here](./docs/training/ltx_video.md#inference). For docs re
 
 <div align="center">
 
-| **Model Name** | **Tasks** | **Min. GPU VRAM** |
-|:---:|:---:|:---:|
-| [LTX-Video](./docs/training/ltx_video.md) | Text-to-Video | 11 GB |
-| [HunyuanVideo](./docs/training/hunyuan_video.md) | Text-to-Video | 42 GB |
-| [CogVideoX](./docs/training/cogvideox.md) | Text-to-Video | 12GB<sup>*</sup> |
+| **Model Name**                                   | **Tasks**     | **Min. LoRA VRAM<sup>*</sup>**     | **Min. Full Finetuning VRAM<sup>^</sup>**     |
+|:------------------------------------------------:|:-------------:|:----------------------------------:|:---------------------------------------------:|
+| [LTX-Video](./docs/training/ltx_video.md)        | Text-to-Video | 11 GB                              | 21 GB                                         |
+| [HunyuanVideo](./docs/training/hunyuan_video.md) | Text-to-Video | 42 GB                              | OOM                                           |
+| [CogVideoX-5b](./docs/training/cogvideox.md)     | Text-to-Video | 21 GB                              | 53 GB                                         |
 
 </div>
 
-<sub><sup>*</sup>Noted for the 5B variant.</sub>
+<sub><sup>*</sup>Noted for training-only, no validation, at resolution `49x512x768`, rank 128, with pre-computation, using fp8 weights & gradient checkpointing. Pre-computation of conditions and latents may require higher limits (but typically under 16 GB).</sub>
 
-Note that the memory consumption in the table is reported with most of the options, discussed in [docs/training/optimizations](./docs/training/optimization.md), enabled.
+<sub><sup>^</sup>Noted for training-only, no validation, at resolution `49x512x768`, with pre-computation, using bf16 weights & gradient checkpointing.</sub>
 
 If you would like to use a custom dataset, refer to the dataset preparation guide [here](./docs/dataset/README.md).
 

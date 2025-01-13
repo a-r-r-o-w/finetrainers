@@ -437,6 +437,11 @@ class Trainer:
                 else:
                     model.save_pretrained(os.path.join(output_dir, "transformer"))
 
+                    # In some cases, the scheduler needs to be loaded with specific config (e.g. in CogVideoX). Since we need
+                    # to able to load all diffusion components from a specific checkpoint folder during validation, we need to
+                    # ensure the scheduler config is serialized as well.
+                    self.scheduler.save_pretrained(os.path.join(output_dir, "scheduler"))
+
         def load_model_hook(models, input_dir):
             if not self.state.accelerator.distributed_type == DistributedType.DEEPSPEED:
                 while len(models) > 0:
@@ -605,6 +610,12 @@ class Trainer:
                 cache_dir=self.args.cache_dir,
             )
             self.vae_config = FrozenDict(**vae_config)
+
+        # In some cases, the scheduler needs to be loaded with specific config (e.g. in CogVideoX). Since we need
+        # to able to load all diffusion components from a specific checkpoint folder during validation, we need to
+        # ensure the scheduler config is serialized as well.
+        if self.args.training_type == "full-finetune":
+            self.scheduler.save_pretrained(os.path.join(self.args.output_dir, "scheduler"))
 
         self.state.train_batch_size = (
             self.args.batch_size * self.state.accelerator.num_processes * self.args.gradient_accumulation_steps
