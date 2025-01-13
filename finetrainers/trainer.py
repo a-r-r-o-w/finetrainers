@@ -122,52 +122,6 @@ class Trainer:
             pin_memory=self.args.pin_memory,
         )
 
-    def _get_load_components_kwargs(self) -> Dict[str, Any]:
-        load_component_kwargs = {
-            "text_encoder_dtype": self.args.text_encoder_dtype,
-            "text_encoder_2_dtype": self.args.text_encoder_2_dtype,
-            "text_encoder_3_dtype": self.args.text_encoder_3_dtype,
-            "transformer_dtype": self.args.transformer_dtype,
-            "vae_dtype": self.args.vae_dtype,
-            "shift": self.args.flow_shift,
-            "revision": self.args.revision,
-            "cache_dir": self.args.cache_dir,
-        }
-        if self.args.pretrained_model_name_or_path is not None:
-            load_component_kwargs["model_id"] = self.args.pretrained_model_name_or_path
-        return load_component_kwargs
-
-    def _set_components(self, components: Dict[str, Any]) -> None:
-        # Set models
-        self.tokenizer = components.get("tokenizer", self.tokenizer)
-        self.tokenizer_2 = components.get("tokenizer_2", self.tokenizer_2)
-        self.tokenizer_3 = components.get("tokenizer_3", self.tokenizer_3)
-        self.text_encoder = components.get("text_encoder", self.text_encoder)
-        self.text_encoder_2 = components.get("text_encoder_2", self.text_encoder_2)
-        self.text_encoder_3 = components.get("text_encoder_3", self.text_encoder_3)
-        self.transformer = components.get("transformer", self.transformer)
-        self.unet = components.get("unet", self.unet)
-        self.vae = components.get("vae", self.vae)
-        self.scheduler = components.get("scheduler", self.scheduler)
-
-        # Set configs
-        self.transformer_config = self.transformer.config if self.transformer is not None else self.transformer_config
-        self.vae_config = self.vae.config if self.vae is not None else self.vae_config
-
-    def _delete_components(self) -> None:
-        self.tokenizer = None
-        self.tokenizer_2 = None
-        self.tokenizer_3 = None
-        self.text_encoder = None
-        self.text_encoder_2 = None
-        self.text_encoder_3 = None
-        self.transformer = None
-        self.unet = None
-        self.vae = None
-        self.scheduler = None
-        free_memory()
-        torch.cuda.synchronize(self.state.accelerator.device)
-
     def prepare_models(self) -> None:
         logger.info("Initializing models")
 
@@ -1108,6 +1062,52 @@ class Trainer:
             self.unet = self.unet.to(self.state.accelerator.device)
         if self.vae is not None:
             self.vae = self.vae.to(self.state.accelerator.device)
+
+    def _get_load_components_kwargs(self) -> Dict[str, Any]:
+        load_component_kwargs = {
+            "text_encoder_dtype": self.args.text_encoder_dtype,
+            "text_encoder_2_dtype": self.args.text_encoder_2_dtype,
+            "text_encoder_3_dtype": self.args.text_encoder_3_dtype,
+            "transformer_dtype": self.args.transformer_dtype,
+            "vae_dtype": self.args.vae_dtype,
+            "shift": self.args.flow_shift,
+            "revision": self.args.revision,
+            "cache_dir": self.args.cache_dir,
+        }
+        if self.args.pretrained_model_name_or_path is not None:
+            load_component_kwargs["model_id"] = self.args.pretrained_model_name_or_path
+        return load_component_kwargs
+
+    def _set_components(self, components: Dict[str, Any]) -> None:
+        # Set models
+        self.tokenizer = components.get("tokenizer", self.tokenizer)
+        self.tokenizer_2 = components.get("tokenizer_2", self.tokenizer_2)
+        self.tokenizer_3 = components.get("tokenizer_3", self.tokenizer_3)
+        self.text_encoder = components.get("text_encoder", self.text_encoder)
+        self.text_encoder_2 = components.get("text_encoder_2", self.text_encoder_2)
+        self.text_encoder_3 = components.get("text_encoder_3", self.text_encoder_3)
+        self.transformer = components.get("transformer", self.transformer)
+        self.unet = components.get("unet", self.unet)
+        self.vae = components.get("vae", self.vae)
+        self.scheduler = components.get("scheduler", self.scheduler)
+
+        # Set configs
+        self.transformer_config = self.transformer.config if self.transformer is not None else self.transformer_config
+        self.vae_config = self.vae.config if self.vae is not None else self.vae_config
+
+    def _delete_components(self) -> None:
+        self.tokenizer = None
+        self.tokenizer_2 = None
+        self.tokenizer_3 = None
+        self.text_encoder = None
+        self.text_encoder_2 = None
+        self.text_encoder_3 = None
+        self.transformer = None
+        self.unet = None
+        self.vae = None
+        self.scheduler = None
+        free_memory()
+        torch.cuda.synchronize(self.state.accelerator.device)
 
     def _get_training_dtype(self, accelerator) -> torch.dtype:
         weight_dtype = torch.float32
