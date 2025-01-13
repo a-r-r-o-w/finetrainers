@@ -115,6 +115,19 @@ Training configuration: {
 
 ### Full finetuning
 
+```
+Training configuration: {
+    "trainable parameters": 5570283072,
+    "total samples": 1,
+    "train epochs": 2,
+    "train steps": 2,
+    "batches per device": 1,
+    "total batches observed per epoch": 1,
+    "train batch size": 1,
+    "gradient accumulation steps": 1
+}
+```
+
 | stage                         | memory_allocated  | max_memory_reserved |
 |:-----------------------------:|:-----------------:|:-------------------:|
 | after precomputing conditions |  8.880            | 8.941               |
