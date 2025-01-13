@@ -1,8 +1,9 @@
-This directory contains the training-related specifications for all the models we support in `finetrainers`. Each model page has:
+# FineTrainers training documentation
 
-* an example training command
-* inference example
-* numbers on memory consumption
+This directory contains the training-related specifications for all the models we support in `finetrainers`. Each model page has:
+- an example training command
+- inference example
+- numbers on memory consumption
 
 By default, we don't include any validation-related arguments in the example training commands. To enable validation inference, one can pass:
 
@@ -12,8 +13,13 @@ By default, we don't include any validation-related arguments in the example tra
 + --validation_steps 100
 ```
 
-## Model-specific docs
+Supported models:
+- [CogVideoX](./cogvideox.md)
+- [LTX-Video](./ltx_video.md)
+- [HunyuanVideo](./hunyuan_video.md)
 
-* [CogVideoX](./cogvideox.md)
-* [LTX-Video](./ltx_video.md)
-* [HunyuanVideo](./hunyuan_video.md)
+Supported training types:
+- LoRA (`--training_type lora`)
+- Full finetuning (`--training_type full-finetune`)
+
+Arguments for training are well-documented in the code. For more information, please run `python train.py --help`.

@@ -2,6 +2,8 @@
 
 ## Training
 
+For LoRA training, specify `--training_type lora`. For full finetuning, specify `--training_type full-finetune`.
+
 ```bash
 #!/bin/bash
 
@@ -86,6 +88,8 @@ echo -ne "-------------------- Finished executing script --------------------\n\
 
 ## Memory Usage
 
+### LoRA
+
 > [!NOTE]
 >
 > The below measurements are done in `torch.bfloat16` precision. Memory usage can further be reduce by passing `--layerwise_upcasting_modules transformer` to the training script. This will cast the model weights to `torch.float8_e4m3fn` or `torch.float8_e5m2`, which halves the memory requirement for model weights. Computation is performed in the dtype set by `--transformer_dtype` (which defaults to `bf16`).
@@ -141,6 +145,10 @@ Training configuration: {
 | after training end            | 24.842           | 41.039              |
 
 Note: requires about `47` GB of VRAM with validation. If validation is not performed, the memory usage is reduced to about `42` GB.
+
+### Full finetuning
+
+Current, full finetuning is not supported for HunyuanVideo. It goes out of memory (OOM) for `49x512x768` resolutions.
 
 ## Inference
 

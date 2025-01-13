@@ -317,6 +317,7 @@ def _pad_frames(latents: torch.Tensor, patch_size_t: int):
     return latents
 
 
+# TODO(aryan): refactor into model specs for better re-use
 COGVIDEOX_T2V_LORA_CONFIG = {
     "pipeline_cls": CogVideoXPipeline,
     "load_condition_models": load_condition_models,

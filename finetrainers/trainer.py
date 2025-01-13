@@ -5,7 +5,7 @@ import os
 import random
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import diffusers
 import torch
@@ -21,6 +21,7 @@ from accelerate.utils import (
     gather_object,
     set_seed,
 )
+from diffusers import DiffusionPipeline
 from diffusers.configuration_utils import FrozenDict
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.optimization import get_scheduler
@@ -252,16 +253,7 @@ class Trainer:
         condition_components = self.model_config["load_condition_models"](**self._get_load_components_kwargs())
         self._set_components(condition_components)
         self._move_components_to_device()
-
-        # TODO(aryan): refactor later. for now only lora is supported
-        components_to_disable_grads = [
-            self.text_encoder,
-            self.text_encoder_2,
-            self.text_encoder_3,
-        ]
-        for component in components_to_disable_grads:
-            if component is not None:
-                component.requires_grad_(False)
+        self._disable_grad_for_components([self.text_encoder, self.text_encoder_2, self.text_encoder_3])
 
         if self.args.caption_dropout_p > 0 and self.args.caption_dropout_technique == "empty":
             logger.warning(
@@ -315,12 +307,7 @@ class Trainer:
         latent_components = self.model_config["load_latent_models"](**self._get_load_components_kwargs())
         self._set_components(latent_components)
         self._move_components_to_device()
-
-        # TODO(aryan): refactor later
-        components_to_disable_grads = [self.vae]
-        for component in components_to_disable_grads:
-            if component is not None:
-                component.requires_grad_(False)
+        self._disable_grad_for_components([self.vae])
 
         if self.vae is not None:
             if self.args.enable_slicing:
@@ -381,22 +368,15 @@ class Trainer:
         diffusion_components = self.model_config["load_diffusion_models"](**self._get_load_components_kwargs())
         self._set_components(diffusion_components)
 
-        # TODO(aryan): refactor later. for now only lora is supported
-        components_to_disable_grads = [
-            self.text_encoder,
-            self.text_encoder_2,
-            self.text_encoder_3,
-            self.transformer,
-            self.vae,
-        ]
-        for component in components_to_disable_grads:
-            if component is not None:
-                component.requires_grad_(False)
-                if torch.backends.mps.is_available() and component.dtype == torch.bfloat16:
-                    # due to pytorch#99272, MPS does not yet support bfloat16.
-                    raise ValueError(
-                        "Mixed precision training with bfloat16 is not supported on MPS. Please use fp16 (recommended) or fp32 instead."
-                    )
+        components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.vae]
+        self._disable_grad_for_components(components)
+
+        if self.args.training_type == "full-finetune":
+            logger.info("Finetuning transformer with no additional parameters")
+            self._enable_grad_for_components([self.transformer])
+        else:
+            logger.info("Finetuning transformer with PEFT parameters")
+            self._disable_grad_for_components([self.transformer])
 
         # Layerwise upcasting must be applied before adding the LoRA adapter.
         # If we don't perform this before moving to device, we might OOM on the GPU. So, best to do it on
@@ -415,13 +395,16 @@ class Trainer:
         if self.args.gradient_checkpointing:
             self.transformer.enable_gradient_checkpointing()
 
-        transformer_lora_config = LoraConfig(
-            r=self.args.rank,
-            lora_alpha=self.args.lora_alpha,
-            init_lora_weights=True,
-            target_modules=self.args.target_modules,
-        )
-        self.transformer.add_adapter(transformer_lora_config)
+        if self.args.training_type == "lora":
+            transformer_lora_config = LoraConfig(
+                r=self.args.rank,
+                lora_alpha=self.args.lora_alpha,
+                init_lora_weights=True,
+                target_modules=self.args.target_modules,
+            )
+            self.transformer.add_adapter(transformer_lora_config)
+        else:
+            transformer_lora_config = None
 
         # TODO(aryan): it might be nice to add some assertions here to make sure that lora parameters are still in fp32
         # even if layerwise upcasting. Would be nice to have a test as well
@@ -440,7 +423,8 @@ class Trainer:
                         type(unwrap_model(self.state.accelerator, self.transformer)),
                     ):
                         model = unwrap_model(self.state.accelerator, model)
-                        transformer_lora_layers_to_save = get_peft_model_state_dict(model)
+                        if self.args.training_type == "lora":
+                            transformer_lora_layers_to_save = get_peft_model_state_dict(model)
                     else:
                         raise ValueError(f"Unexpected save model: {model.__class__}")
 
@@ -448,10 +432,18 @@ class Trainer:
                     if weights:
                         weights.pop()
 
-                self.model_config["pipeline_cls"].save_lora_weights(
-                    output_dir,
-                    transformer_lora_layers=transformer_lora_layers_to_save,
-                )
+                if self.args.training_type == "lora":
+                    self.model_config["pipeline_cls"].save_lora_weights(
+                        output_dir,
+                        transformer_lora_layers=transformer_lora_layers_to_save,
+                    )
+                else:
+                    model.save_pretrained(os.path.join(output_dir, "transformer"))
+
+                    # In some cases, the scheduler needs to be loaded with specific config (e.g. in CogVideoX). Since we need
+                    # to able to load all diffusion components from a specific checkpoint folder during validation, we need to
+                    # ensure the scheduler config is serialized as well.
+                    self.scheduler.save_pretrained(os.path.join(output_dir, "scheduler"))
 
         def load_model_hook(models, input_dir):
             if not self.state.accelerator.distributed_type == DistributedType.DEEPSPEED:
@@ -467,26 +459,32 @@ class Trainer:
                             f"Unexpected save model: {unwrap_model(self.state.accelerator, model).__class__}"
                         )
             else:
-                transformer_ = unwrap_model(self.state.accelerator, self.transformer).__class__.from_pretrained(
-                    self.args.pretrained_model_name_or_path, subfolder="transformer"
-                )
-                transformer_.add_adapter(transformer_lora_config)
+                transformer_cls_ = unwrap_model(self.state.accelerator, self.transformer).__class__
 
-            lora_state_dict = self.model_config["pipeline_cls"].lora_state_dict(input_dir)
-            transformer_state_dict = {
-                f'{k.replace("transformer.", "")}': v
-                for k, v in lora_state_dict.items()
-                if k.startswith("transformer.")
-            }
-            incompatible_keys = set_peft_model_state_dict(transformer_, transformer_state_dict, adapter_name="default")
-            if incompatible_keys is not None:
-                # check only for unexpected keys
-                unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
-                if unexpected_keys:
-                    logger.warning(
-                        f"Loading adapter weights from state_dict led to unexpected keys not found in the model: "
-                        f" {unexpected_keys}. "
+                if self.args.training_type == "lora":
+                    transformer_ = transformer_cls_.from_pretrained(
+                        self.args.pretrained_model_name_or_path, subfolder="transformer"
                     )
+                    transformer_.add_adapter(transformer_lora_config)
+                    lora_state_dict = self.model_config["pipeline_cls"].lora_state_dict(input_dir)
+                    transformer_state_dict = {
+                        f'{k.replace("transformer.", "")}': v
+                        for k, v in lora_state_dict.items()
+                        if k.startswith("transformer.")
+                    }
+                    incompatible_keys = set_peft_model_state_dict(
+                        transformer_, transformer_state_dict, adapter_name="default"
+                    )
+                    if incompatible_keys is not None:
+                        # check only for unexpected keys
+                        unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
+                        if unexpected_keys:
+                            logger.warning(
+                                f"Loading adapter weights from state_dict led to unexpected keys not found in the model: "
+                                f" {unexpected_keys}. "
+                            )
+                else:
+                    transformer_ = transformer_cls_.from_pretrained(os.path.join(input_dir, "transformer"))
 
         self.state.accelerator.register_save_state_pre_hook(save_model_hook)
         self.state.accelerator.register_load_state_pre_hook(load_model_hook)
@@ -499,7 +497,6 @@ class Trainer:
 
         # Make sure the trainable params are in float32
         if self.args.training_type == "lora":
-            # only upcast trainable parameters to fp32
             cast_training_params([self.transformer], dtype=torch.float32)
 
         self.state.learning_rate = self.args.lr
@@ -511,13 +508,13 @@ class Trainer:
                 * self.state.accelerator.num_processes
             )
 
-        transformer_lora_parameters = list(filter(lambda p: p.requires_grad, self.transformer.parameters()))
+        transformer_trainable_parameters = list(filter(lambda p: p.requires_grad, self.transformer.parameters()))
         transformer_parameters_with_lr = {
-            "params": transformer_lora_parameters,
+            "params": transformer_trainable_parameters,
             "lr": self.state.learning_rate,
         }
         params_to_optimize = [transformer_parameters_with_lr]
-        self.state.num_trainable_parameters = sum(p.numel() for p in transformer_lora_parameters)
+        self.state.num_trainable_parameters = sum(p.numel() for p in transformer_trainable_parameters)
 
         use_deepspeed_opt = (
             self.state.accelerator.state.deepspeed_plugin is not None
@@ -608,6 +605,12 @@ class Trainer:
                 cache_dir=self.args.cache_dir,
             )
             self.vae_config = FrozenDict(**vae_config)
+
+        # In some cases, the scheduler needs to be loaded with specific config (e.g. in CogVideoX). Since we need
+        # to able to load all diffusion components from a specific checkpoint folder during validation, we need to
+        # ensure the scheduler config is serialized as well.
+        if self.args.training_type == "full-finetune":
+            self.scheduler.save_pretrained(os.path.join(self.args.output_dir, "scheduler"))
 
         self.state.train_batch_size = (
             self.args.batch_size * self.state.accelerator.num_processes * self.args.gradient_accumulation_steps
@@ -872,14 +875,17 @@ class Trainer:
 
         accelerator.wait_for_everyone()
         if accelerator.is_main_process:
-            # TODO: consider factoring this out when supporting other types of training algos.
-            self.transformer = unwrap_model(accelerator, self.transformer)
-            transformer_lora_layers = get_peft_model_state_dict(self.transformer)
+            transformer = unwrap_model(accelerator, self.transformer)
 
-            self.model_config["pipeline_cls"].save_lora_weights(
-                save_directory=self.args.output_dir,
-                transformer_lora_layers=transformer_lora_layers,
-            )
+            if self.args.training_type == "lora":
+                transformer_lora_layers = get_peft_model_state_dict(transformer)
+
+                self.model_config["pipeline_cls"].save_lora_weights(
+                    save_directory=self.args.output_dir,
+                    transformer_lora_layers=transformer_lora_layers,
+                )
+            else:
+                transformer.save_pretrained(os.path.join(self.args.output_dir, "transformer"))
 
         self.validate(step=global_step, final_validation=True)
 
@@ -910,37 +916,7 @@ class Trainer:
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory before validation start: {json.dumps(memory_statistics, indent=4)}")
 
-        if not final_validation:
-            pipeline = self.model_config["initialize_pipeline"](
-                model_id=self.args.pretrained_model_name_or_path,
-                tokenizer=self.tokenizer,
-                text_encoder=self.text_encoder,
-                tokenizer_2=self.tokenizer_2,
-                text_encoder_2=self.text_encoder_2,
-                transformer=unwrap_model(accelerator, self.transformer),
-                vae=self.vae,
-                device=accelerator.device,
-                revision=self.args.revision,
-                cache_dir=self.args.cache_dir,
-                enable_slicing=self.args.enable_slicing,
-                enable_tiling=self.args.enable_tiling,
-                enable_model_cpu_offload=self.args.enable_model_cpu_offload,
-                is_training=True,
-            )
-        else:
-            # `torch_dtype` is manually set within `initialize_pipeline()`.
-            self._delete_components()
-            pipeline = self.model_config["initialize_pipeline"](
-                model_id=self.args.pretrained_model_name_or_path,
-                device=accelerator.device,
-                revision=self.args.revision,
-                cache_dir=self.args.cache_dir,
-                enable_slicing=self.args.enable_slicing,
-                enable_tiling=self.args.enable_tiling,
-                enable_model_cpu_offload=self.args.enable_model_cpu_offload,
-                is_training=False,
-            )
-            pipeline.load_lora_weights(self.args.output_dir)
+        pipeline = self._get_and_prepare_pipeline_for_validation(final_validation=final_validation)
 
         all_processes_artifacts = []
         prompts_to_filenames = {}
@@ -955,7 +931,7 @@ class Trainer:
             height = self.args.validation_heights[i]
             width = self.args.validation_widths[i]
             num_frames = self.args.validation_num_frames[i]
-
+            frame_rate = self.args.validation_frame_rate
             if image is not None:
                 image = load_image(image)
             if video is not None:
@@ -973,6 +949,7 @@ class Trainer:
                 height=height,
                 width=width,
                 num_frames=num_frames,
+                frame_rate=frame_rate,
                 num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
                 generator=torch.Generator(device=accelerator.device).manual_seed(
                     self.args.seed if self.args.seed is not None else 0
@@ -1012,7 +989,7 @@ class Trainer:
                 elif artifact_type == "video":
                     logger.debug(f"Saving video to {filename}")
                     # TODO: this should be configurable here as well as in validation runs where we call the pipeline that has `fps`.
-                    export_to_video(artifact_value, filename, fps=15)
+                    export_to_video(artifact_value, filename, fps=frame_rate)
                     artifact_value = wandb.Video(filename, caption=prompt)
 
                 all_processes_artifacts.append(artifact_value)
@@ -1128,3 +1105,56 @@ class Trainer:
             self.unet = self.unet.to(self.state.accelerator.device)
         if self.vae is not None:
             self.vae = self.vae.to(self.state.accelerator.device)
+
+    def _get_and_prepare_pipeline_for_validation(self, final_validation: bool = False) -> DiffusionPipeline:
+        accelerator = self.state.accelerator
+        if not final_validation:
+            pipeline = self.model_config["initialize_pipeline"](
+                model_id=self.args.pretrained_model_name_or_path,
+                tokenizer=self.tokenizer,
+                text_encoder=self.text_encoder,
+                tokenizer_2=self.tokenizer_2,
+                text_encoder_2=self.text_encoder_2,
+                transformer=unwrap_model(accelerator, self.transformer),
+                vae=self.vae,
+                device=accelerator.device,
+                revision=self.args.revision,
+                cache_dir=self.args.cache_dir,
+                enable_slicing=self.args.enable_slicing,
+                enable_tiling=self.args.enable_tiling,
+                enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+            )
+        else:
+            self._delete_components()
+
+            # Load the transformer weights from the final checkpoint if performing full-finetune
+            transformer = None
+            if self.args.training_type == "full-finetune":
+                transformer = self.model_config["load_diffusion_models"](model_id=self.args.output_dir)["transformer"]
+
+            pipeline = self.model_config["initialize_pipeline"](
+                model_id=self.args.pretrained_model_name_or_path,
+                transformer=transformer,
+                device=accelerator.device,
+                revision=self.args.revision,
+                cache_dir=self.args.cache_dir,
+                enable_slicing=self.args.enable_slicing,
+                enable_tiling=self.args.enable_tiling,
+                enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+            )
+
+            # Load the LoRA weights if performing LoRA finetuning
+            if self.args.training_type == "lora":
+                pipeline.load_lora_weights(self.args.output_dir)
+
+        return pipeline
+
+    def _disable_grad_for_components(self, components: List[torch.nn.Module]):
+        for component in components:
+            if component is not None:
+                component.requires_grad_(False)
+
+    def _enable_grad_for_components(self, components: List[torch.nn.Module]):
+        for component in components:
+            if component is not None:
+                component.requires_grad_(True)

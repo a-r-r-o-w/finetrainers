@@ -1,19 +1,22 @@
 from typing import Any, Dict
 
-from .cogvideox import COGVIDEOX_T2V_LORA_CONFIG
-from .hunyuan_video import HUNYUAN_VIDEO_T2V_LORA_CONFIG
-from .ltx_video import LTX_VIDEO_T2V_LORA_CONFIG
+from .cogvideox import COGVIDEOX_T2V_FULL_FINETUNE_CONFIG, COGVIDEOX_T2V_LORA_CONFIG
+from .hunyuan_video import HUNYUAN_VIDEO_T2V_FULL_FINETUNE_CONFIG, HUNYUAN_VIDEO_T2V_LORA_CONFIG
+from .ltx_video import LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG, LTX_VIDEO_T2V_LORA_CONFIG
 
 
 SUPPORTED_MODEL_CONFIGS = {
     "hunyuan_video": {
         "lora": HUNYUAN_VIDEO_T2V_LORA_CONFIG,
+        "full-finetune": HUNYUAN_VIDEO_T2V_FULL_FINETUNE_CONFIG,
     },
     "ltx_video": {
         "lora": LTX_VIDEO_T2V_LORA_CONFIG,
+        "full-finetune": LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG,
     },
     "cogvideox": {
         "lora": COGVIDEOX_T2V_LORA_CONFIG,
+        "full-finetune": COGVIDEOX_T2V_FULL_FINETUNE_CONFIG,
     },
 }
 

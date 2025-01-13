@@ -207,6 +207,8 @@ class Args:
         Perform validation every `n` training steps.
     enable_model_cpu_offload (`bool`, defaults to `False`):
         Whether or not to offload different modeling components to CPU during validation.
+    validation_frame_rate (`int`, defaults to `25`):
+        Frame rate to use for the validation videos. This value is defaulted to 25, as used in LTX Video pipeline.
 
     MISCELLANEOUS ARGUMENTS
     -----------------------
@@ -328,6 +330,7 @@ class Args:
     validation_every_n_epochs: Optional[int] = None
     validation_every_n_steps: Optional[int] = None
     enable_model_cpu_offload: bool = False
+    validation_frame_rate: int = 25
 
     # Miscellaneous arguments
     tracker_name: str = "finetrainers"
@@ -429,6 +432,7 @@ class Args:
                 "validation_every_n_epochs": self.validation_every_n_epochs,
                 "validation_every_n_steps": self.validation_every_n_steps,
                 "enable_model_cpu_offload": self.enable_model_cpu_offload,
+                "validation_frame_rate": self.validation_frame_rate,
             },
             "miscellaneous_arguments": {
                 "tracker_name": self.tracker_name,
@@ -472,6 +476,7 @@ def parse_arguments() -> Args:
 
 
 def validate_args(args: Args):
+    _validate_training_args(args)
     _validate_validation_args(args)
 
 
@@ -719,8 +724,9 @@ def _add_training_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--training_type",
         type=str,
+        choices=["lora", "full-finetune"],
         required=True,
-        help="Type of training to perform. Choose between ['lora']",
+        help="Type of training to perform. Choose between ['lora', 'full-finetune']",
     )
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument(
@@ -744,7 +750,11 @@ def _add_training_arguments(parser: argparse.ArgumentParser) -> None:
         help="The lora_alpha to compute scaling factor (lora_alpha / rank) for LoRA matrices.",
     )
     parser.add_argument(
-        "--target_modules", type=str, default="to_k to_q to_v to_out.0", nargs="+", help="The target modules for LoRA."
+        "--target_modules",
+        type=str,
+        default=["to_k", "to_q", "to_v", "to_out.0"],
+        nargs="+",
+        help="The target modules for LoRA.",
     )
     parser.add_argument(
         "--gradient_accumulation_steps",
@@ -920,6 +930,12 @@ def _add_validation_arguments(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=None,
         help="Run validation every X training steps. Validation consists of running the validation prompt `args.num_validation_videos` times.",
+    )
+    parser.add_argument(
+        "--validation_frame_rate",
+        type=int,
+        default=25,
+        help="Frame rate to use for the validation videos.",
     )
     parser.add_argument(
         "--enable_model_cpu_offload",
@@ -1120,6 +1136,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.validation_every_n_epochs = args.validation_epochs
     result_args.validation_every_n_steps = args.validation_steps
     result_args.enable_model_cpu_offload = args.enable_model_cpu_offload
+    result_args.validation_frame_rate = args.validation_frame_rate
 
     # Miscellaneous arguments
     result_args.tracker_name = args.tracker_name
@@ -1133,6 +1150,15 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.report_to = args.report_to
 
     return result_args
+
+
+def _validate_training_args(args: Args):
+    if args.training_type == "lora":
+        assert args.rank is not None, "Rank is required for LoRA training"
+        assert args.lora_alpha is not None, "LoRA alpha is required for LoRA training"
+        assert (
+            args.target_modules is not None and len(args.target_modules) > 0
+        ), "Target modules are required for LoRA training"
 
 
 def _validate_validation_args(args: Args):

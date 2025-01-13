@@ -352,6 +352,7 @@ def _get_clip_prompt_embeds(
     return {"pooled_prompt_embeds": prompt_embeds}
 
 
+# TODO(aryan): refactor into model specs for better re-use
 HUNYUAN_VIDEO_T2V_LORA_CONFIG = {
     "pipeline_cls": HunyuanVideoPipeline,
     "load_condition_models": load_condition_models,
