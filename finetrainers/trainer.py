@@ -11,6 +11,7 @@ import diffusers
 import torch
 import torch.backends
 import transformers
+import wandb
 from accelerate import Accelerator, DistributedType
 from accelerate.logging import get_logger
 from accelerate.utils import (
@@ -29,8 +30,6 @@ from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
-
-import wandb
 
 from .args import _INVERSE_DTYPE_MAP, Args, validate_args
 from .constants import (
@@ -364,10 +363,10 @@ class Trainer:
 
         if self.args.training_type == "full-finetune":
             logger.info("Finetuning transformer with no additional parameters")
-            self._enable_grad_for_components(components=[self.transformer])
+            self._enable_grad_for_components([self.transformer])
         else:
             logger.info("Finetuning transformer with PEFT parameters")
-            self._disable_grad_for_components(components=[self.transformer])
+            self._disable_grad_for_components([self.transformer])
 
         # For mixed precision training we cast all non-trainable weights (vae, text_encoder and transformer) to half-precision
         # as these weights are only used for inference, keeping weights in full precision is not required.
@@ -480,9 +479,9 @@ class Trainer:
                     # Make sure the trainable params are in float32. This is again needed since the base models
                     # are in `weight_dtype`. More details:
                     # https://github.com/huggingface/diffusers/pull/6514#discussion_r1449796804
-                    if self.args.mixed_precision == "fp16":
+                    if self.args.mixed_precision == "fp16" and self.args.training_type == "lora":
                         # only upcast trainable parameters (LoRA) into fp32
-                        cast_training_params([transformer_])
+                        cast_training_params([transformer_], dtype=torch.float32)
                 else:
                     transformer_ = transformer_cls_.from_pretrained(os.path.join(input_dir, "transformer"))
 

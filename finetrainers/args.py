@@ -207,6 +207,8 @@ class Args:
         Perform validation every `n` training steps.
     enable_model_cpu_offload (`bool`, defaults to `False`):
         Whether or not to offload different modeling components to CPU during validation.
+    validation_frame_rate (`int`, defaults to `25`):
+        Frame rate to use for the validation videos. This value is defaulted to 25, as used in LTX Video pipeline.
 
     MISCELLANEOUS ARGUMENTS
     -----------------------
@@ -319,6 +321,7 @@ class Args:
     validation_every_n_epochs: Optional[int] = None
     validation_every_n_steps: Optional[int] = None
     enable_model_cpu_offload: bool = False
+    validation_frame_rate: int = 25
 
     # Miscellaneous arguments
     tracker_name: str = "finetrainers"
@@ -417,6 +420,7 @@ class Args:
                 "validation_every_n_epochs": self.validation_every_n_epochs,
                 "validation_every_n_steps": self.validation_every_n_steps,
                 "enable_model_cpu_offload": self.enable_model_cpu_offload,
+                "validation_frame_rate": self.validation_frame_rate,
             },
             "miscellaneous_arguments": {
                 "tracker_name": self.tracker_name,
@@ -715,7 +719,11 @@ def _add_training_arguments(parser: argparse.ArgumentParser) -> None:
         help="The lora_alpha to compute scaling factor (lora_alpha / rank) for LoRA matrices.",
     )
     parser.add_argument(
-        "--target_modules", type=str, default="to_k to_q to_v to_out.0", nargs="+", help="The target modules for LoRA."
+        "--target_modules",
+        type=str,
+        default=["to_k", "to_q", "to_v", "to_out.0"],
+        nargs="+",
+        help="The target modules for LoRA.",
     )
     parser.add_argument(
         "--gradient_accumulation_steps",
@@ -895,8 +903,8 @@ def _add_validation_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--validation_frame_rate",
         type=int,
-        default=None,
-        help="Run inference validation at a specified frame rate every X training steps with the same output frame rate. `args.validation_frame_rate`",
+        default=25,
+        help="Frame rate to use for the validation videos.",
     )
     parser.add_argument(
         "--enable_model_cpu_offload",
