@@ -1,6 +1,6 @@
 from diffusers import LTXPipeline
 
-from .ltx_video_lora import (
+from .lora import (
     collate_fn_t2v,
     forward_pass,
     initialize_pipeline,

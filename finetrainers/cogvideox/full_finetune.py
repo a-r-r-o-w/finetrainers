@@ -1,6 +1,6 @@
 from diffusers import CogVideoXPipeline
 
-from .cogvideox_lora import (
+from .lora import (
     calculate_noisy_latents,
     collate_fn_t2v,
     forward_pass,

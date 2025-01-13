@@ -1,2 +1,2 @@
 from .full_finetune import LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG
-from .ltx_video_lora import LTX_VIDEO_T2V_LORA_CONFIG
+from .lora import LTX_VIDEO_T2V_LORA_CONFIG
