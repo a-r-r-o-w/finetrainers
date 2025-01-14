@@ -84,7 +84,6 @@ diffusion_cmd="--flow_weighting_scheme logit_normal"
 # Training arguments
 training_cmd="--training_type lora \
   --seed 42 \
-  --mixed_precision bf16 \
   --batch_size 1 \
   --train_steps 3000 \
   --rank 128 \

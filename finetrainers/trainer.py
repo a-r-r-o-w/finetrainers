@@ -335,13 +335,13 @@ class Trainer:
         # Layerwise upcasting must be applied before adding the LoRA adapter.
         # If we don't perform this before moving to device, we might OOM on the GPU. So, best to do it on
         # CPU for now, before support is added in Diffusers for loading and enabling layerwise upcasting directly.
-        if "transformer" in self.args.layerwise_upcasting_modules:
+        if self.args.training_type == "lora" and "transformer" in self.args.layerwise_upcasting_modules:
             apply_layerwise_upcasting(
                 self.transformer,
                 storage_dtype=self.args.layerwise_upcasting_storage_dtype,
                 compute_dtype=self.args.transformer_dtype,
-                granularity=self.args.layerwise_upcasting_granularity,
                 skip_modules_pattern=self.args.layerwise_upcasting_skip_modules_pattern,
+                non_blocking=True,
             )
 
         self._move_components_to_device()
