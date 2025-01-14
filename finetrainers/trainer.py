@@ -1123,6 +1123,7 @@ class Trainer:
                 enable_slicing=self.args.enable_slicing,
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+                is_training=True,
             )
         else:
             self._delete_components()
@@ -1141,6 +1142,7 @@ class Trainer:
                 enable_slicing=self.args.enable_slicing,
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+                is_training=False,
             )
 
             # Load the LoRA weights if performing LoRA finetuning
