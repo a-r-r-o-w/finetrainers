@@ -40,10 +40,6 @@ from args import get_args  # isort:skip
 from dataset_simple import LatentEmbedDataset
 
 import sys
-
-
-sys.path.append("..")
-
 from utils import print_memory, reset_memory  # isort:skip
 
 
