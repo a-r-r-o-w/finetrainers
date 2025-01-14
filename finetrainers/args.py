@@ -45,7 +45,7 @@ class Args:
         Data type for the VAE model.
     layerwise_upcasting_modules (`List[str]`, defaults to `[]`):
         Modules that should have fp8 storage weights but higher precision computation. Choose between ['transformer'].
-    layerwise_upcasting_storage_dtype (`torch.dtype`, defaults to `torch.float8_e4m3fn`):
+    layerwise_upcasting_storage_dtype (`torch.dtype`, defaults to `float8_e4m3fn`):
         Data type for the layerwise upcasting storage. Choose between ['float8_e4m3fn', 'float8_e5m2'].
     layerwise_upcasting_skip_modules_pattern (`List[str]`, defaults to `["patch_embed", "pos_embed", "x_embedder", "context_embedder", "^proj_in$", "^proj_out$", "norm"]`):
         Modules to skip for layerwise upcasting. Layers such as normalization and modulation, when casted to fp8 precision
@@ -481,6 +481,7 @@ def parse_arguments() -> Args:
 
 
 def validate_args(args: Args):
+    _validated_model_args(args)
     _validate_training_args(args)
     _validate_validation_args(args)
 
@@ -1147,6 +1148,11 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.report_to = args.report_to
 
     return result_args
+
+
+def _validated_model_args(args: Args):
+    if args.training_type == "full-finetune":
+        assert "transformer" not in args.layerwise_upcasting_modules, "Layerwise upcasting is not supported for full-finetune training"
 
 
 def _validate_training_args(args: Args):
