@@ -1152,7 +1152,9 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
 
 def _validated_model_args(args: Args):
     if args.training_type == "full-finetune":
-        assert "transformer" not in args.layerwise_upcasting_modules, "Layerwise upcasting is not supported for full-finetune training"
+        assert (
+            "transformer" not in args.layerwise_upcasting_modules
+        ), "Layerwise upcasting is not supported for full-finetune training"
 
 
 def _validate_training_args(args: Args):
