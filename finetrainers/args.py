@@ -43,6 +43,14 @@ class Args:
         Data type for the transformer model.
     vae_dtype (`torch.dtype`, defaults to `torch.bfloat16`):
         Data type for the VAE model.
+    layerwise_upcasting_modules (`List[str]`, defaults to `[]`):
+        Modules that should have fp8 storage weights but higher precision computation. Choose between ['transformer'].
+    layerwise_upcasting_storage_dtype (`torch.dtype`, defaults to `torch.float8_e4m3fn`):
+        Data type for the layerwise upcasting storage. Choose between ['float8_e4m3fn', 'float8_e5m2'].
+    layerwise_upcasting_skip_modules_pattern (`List[str]`, defaults to `["patch_embed", "pos_embed", "x_embedder", "context_embedder", "^proj_in$", "^proj_out$", "norm"]`):
+        Modules to skip for layerwise upcasting. Layers such as normalization and modulation, when casted to fp8 precision
+        naively (as done in layerwise upcasting), can lead to poorer training and inference quality. We skip these layers
+        by default, and recommend adding more layers to the default list based on the model architecture.
 
     DATASET ARGUMENTS
     -----------------
