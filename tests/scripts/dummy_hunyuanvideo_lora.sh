@@ -25,7 +25,6 @@ dataloader_cmd="--dataloader_num_workers 0 --precompute_conditions"
 # Training arguments
 training_cmd="--training_type lora \
   --seed 42 \
-  --mixed_precision bf16 \
   --batch_size 1 \
   --train_steps 10 \
   --rank 16 \
