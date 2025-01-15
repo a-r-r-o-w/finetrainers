@@ -171,5 +171,6 @@ dump*
 outputs*
 *.slurm
 .vscode/
-
+ltx-video/ltxv_strip
 !requirements.txt
+video-dataset-pose-test

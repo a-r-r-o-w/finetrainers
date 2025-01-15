@@ -737,7 +737,8 @@ class Trainer:
                         # Default to flow-matching noise addition
                         noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
                         noisy_latents = noisy_latents.to(latent_conditions["latents"].dtype)
-
+                        
+                    # this is used for whatever reason to pass into the 
                     latent_conditions.update({"noisy_latents": noisy_latents})
 
                     weights = prepare_loss_weights(

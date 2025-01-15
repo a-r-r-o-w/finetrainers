@@ -138,9 +138,16 @@ def prepare_latents(
     image_or_video = image_or_video.permute(0, 2, 1, 3, 4).contiguous()  # [B, C, F, H, W] -> [B, F, C, H, W]
     if not precompute:
         latents = vae.encode(image_or_video).latent_dist.sample(generator=generator)
+
+     
+
         latents = latents.to(dtype=dtype)
         _, _, num_frames, height, width = latents.shape
         latents = _normalize_latents(latents, vae.latents_mean, vae.latents_std)
+
+        # expand the channel and pack
+        latents = torch.cat([latents,latents],dim=1)
+        
         latents = _pack_latents(latents, patch_size, patch_size_t)
         return {"latents": latents, "num_frames": num_frames, "height": height, "width": width}
     else:
@@ -294,6 +301,11 @@ def _pack_latents(latents: torch.Tensor, patch_size: int = 1, patch_size_t: int 
     post_patch_num_frames = num_frames // patch_size_t
     post_patch_height = height // patch_size
     post_patch_width = width // patch_size
+
+    dim1 = num_frames // patch_size_t * height // patch_size * width // patch_size
+    dim2 = num_channels * patch_size_t * patch_size * patch_size
+
+
     latents = latents.reshape(
         batch_size,
         -1,
