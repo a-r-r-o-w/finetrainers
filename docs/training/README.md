@@ -30,5 +30,5 @@ The accelerate config files (the ones seen [here](../../accelerate_configs/)) th
 
 `transformer_dtype` is the ultimate source of truth for the precision to be used when training. It will also most likely always have to be `torch.bfloat16` because:
 
-* All models currently supported (except Cog-2b) do not work well in FP16 for inference, so training would be broken as well. We can revisit if it makes sense to train in FP16 for other models added, but again, we don't really have to pass anything from our end since `accelerate` will read from config the file.
-* So, the `accelerate` config files now default to using "bf16" too, but modifying that would be at the risk of user and assuming they know what they are doing.
+* All models currently supported (except Cog-2b) do not work well in FP16 for inference, so training would be broken as well. This can be revisited if it makes sense to train in FP16 for other models added.
+* The `accelerate` config files default to using "bf16", but modifying that would be at the risk of user and assumes they understand the significance of their changes.
