@@ -708,7 +708,11 @@ class Trainer:
                         device=accelerator.device,
                         generator=self.state.generator,
                     )
-                    timesteps = (sigmas * 1000.0).long()
+                    timesteps = (sigmas * self.scheduler.config.num_train_timesteps).long()
+                    # TODO: This is for Mochi-1. Only the negation is the change here. Since that is a one-liner, I wonder
+                    # if it's fine to do: `if is_mochi: ...`. Or would it be better to have something like:
+                    # `prepare_timesteps()`?
+                    # timesteps = (1 - sigmas) * self.scheduler.config.num_train_timesteps
 
                     noise = torch.randn(
                         latent_conditions["latents"].shape,
@@ -749,8 +753,15 @@ class Trainer:
                         **latent_conditions,
                         **text_conditions,
                     )
+
+                    # TODO: This is a hack for now.
+                    # Should we rather implement `prepare_target()` for Mochi like we do for
+                    # `calculate_noisy_latents()`?
                     target = prepare_target(
-                        scheduler=self.scheduler, noise=noise, latents=latent_conditions["latents"]
+                        scheduler=self.scheduler,
+                        noise=noise,
+                        latents=latent_conditions["latents"],
+                        is_mochi="mochi" in self.model_config["pipeline_cls"].__class__.__name__.lower(),
                     )
 
                     loss = weights.float() * (pred["latents"].float() - target.float()).pow(2)

@@ -93,6 +93,9 @@ def prepare_sigmas(
     device: torch.device = torch.device("cpu"),
     generator: Optional[torch.Generator] = None,
 ) -> torch.Tensor:
+    # TODO: Mochi only does: sigmas = torch.rand(latents.shape[0])
+    # It doesn't rely on `sigmas` configured in the scheduler. To handle that, should
+    # Mochi implement its own `prepare_sigmas()` similar to how `calculate_noisy_latents()` is implemented?
     if isinstance(scheduler, FlowMatchEulerDiscreteScheduler):
         weights = compute_density_for_timestep_sampling(
             weighting_scheme=flow_weighting_scheme,
@@ -134,9 +137,12 @@ def prepare_target(
     scheduler: Union[CogVideoXDDIMScheduler, FlowMatchEulerDiscreteScheduler],
     noise: torch.Tensor,
     latents: torch.Tensor,
+    is_mochi: bool = False,
 ) -> torch.Tensor:
     if isinstance(scheduler, FlowMatchEulerDiscreteScheduler):
         target = noise - latents
+        if is_mochi:
+            target = -target
     elif isinstance(scheduler, CogVideoXDDIMScheduler):
         target = latents
     else:
