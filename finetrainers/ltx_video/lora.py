@@ -191,6 +191,7 @@ def collate_fn_t2v(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torc
     return {
         "prompts": [x["prompt"] for x in batch[0]],
         "videos": torch.stack([x["video"] for x in batch[0]]),
+        "poses": torch.stack([x["poses"] for x in batch[0]])
     }
 
 

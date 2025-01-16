@@ -249,6 +249,8 @@ class Args:
     dataset_file: Optional[str] = None
     video_column: str = None
     caption_column: str = None
+    pose_column:str = None
+    
     id_token: Optional[str] = None
     image_resolution_buckets: List[Tuple[int, int]] = None
     video_resolution_buckets: List[Tuple[int, int, int]] = None
@@ -353,6 +355,7 @@ class Args:
                 "dataset_file": self.dataset_file,
                 "video_column": self.video_column,
                 "caption_column": self.caption_column,
+                "pose_column": self.pose_column,
                 "id_token": self.id_token,
                 "image_resolution_buckets": self.image_resolution_buckets,
                 "video_resolution_buckets": self.video_resolution_buckets,
@@ -546,6 +549,12 @@ def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--caption_column",
+        type=str,
+        default="text",
+        help="The column of the dataset containing the instance prompt for each video. Or, the name of the file in `--data_root` folder containing the line-separated instance prompts.",
+    )
+    parser.add_argument(
+        "--pose_column",
         type=str,
         default="text",
         help="The column of the dataset containing the instance prompt for each video. Or, the name of the file in `--data_root` folder containing the line-separated instance prompts.",
@@ -1006,6 +1015,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.dataset_file = args.dataset_file
     result_args.video_column = args.video_column
     result_args.caption_column = args.caption_column
+    result_args.pose_column = args.pose_column
     result_args.id_token = args.id_token
     result_args.image_resolution_buckets = args.image_resolution_buckets or DEFAULT_IMAGE_RESOLUTION_BUCKETS
     result_args.video_resolution_buckets = args.video_resolution_buckets or DEFAULT_VIDEO_RESOLUTION_BUCKETS

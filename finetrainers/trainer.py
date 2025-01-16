@@ -100,19 +100,34 @@ class Trainer:
         self.state.model_name = self.args.model_name
         self.model_config = get_config_from_model_name(self.args.model_name, self.args.training_type)
 
+        if self.args.pose_column != None:
+            self.pose_condition = True
+        else:
+            self.pose_condition = False
+
     def prepare_dataset(self) -> None:
         # TODO(aryan): Make a background process for fetching
         logger.info("Initializing dataset and dataloader")
-
-        self.dataset = ImageOrVideoDatasetWithResizing(
-            data_root=self.args.data_root,
-            caption_column=self.args.caption_column,
-            video_column=self.args.video_column,
-            resolution_buckets=self.args.video_resolution_buckets,
-            dataset_file=self.args.dataset_file,
-            id_token=self.args.id_token,
-            remove_llm_prefixes=self.args.remove_common_llm_caption_prefixes,
-        )
+        if self.pose_condition == True:
+            self.dataset = ImageOrVideoDatasetWithResizing(
+                data_root=self.args.data_root,
+                caption_column=self.args.caption_column,
+                video_column=self.args.video_column,
+                pose_column=self.args.pose_column,
+                resolution_buckets=self.args.video_resolution_buckets,
+                dataset_file=self.args.dataset_file,
+                id_token=self.args.id_token,
+            )
+        else:
+            self.dataset = ImageOrVideoDatasetWithResizing(
+                data_root=self.args.data_root,
+                caption_column=self.args.caption_column,
+                video_column=self.args.video_column,
+                resolution_buckets=self.args.video_resolution_buckets,
+                dataset_file=self.args.dataset_file,
+                id_token=self.args.id_token,
+                remove_llm_prefixes=self.args.remove_common_llm_caption_prefixes,
+            )
         self.dataloader = torch.utils.data.DataLoader(
             self.dataset,
             batch_size=1,
@@ -647,6 +662,12 @@ class Trainer:
                     if not self.args.precompute_conditions:
                         videos = batch["videos"]
                         prompts = batch["prompts"]
+
+                        if self.pose_condition == True:
+                            poses = batch["poses"]
+                            # first frame video ? cond video.
+                            first_frame_videos = batch["first_frame_videos"]
+
                         batch_size = len(prompts)
 
                         if self.args.caption_dropout_technique == "empty":
@@ -691,6 +712,32 @@ class Trainer:
                         batch_size = latent_conditions["latents"].shape[0]
 
                     latent_conditions = make_contiguous(latent_conditions)
+
+                    if self.pose_conditioning:
+                        pose_video_latents = self.model_config["prepare_latents"](
+                            vae=self.vae,
+                            image_or_video=poses,
+                            patch_size=self.transformer_config.patch_size,
+                            patch_size_t=self.transformer_config.patch_size_t,
+                            device=accelerator.device,
+                            dtype=weight_dtype,
+                            generator=generator,
+                        )
+
+                        pose_video_latents = make_contiguous(pose_video_latents)
+
+                        single_frame_video_latents = self.model_config["prepare_latents"](
+                            vae=self.vae,
+                            image_or_video=first_frame_videos,
+                            patch_size=self.transformer_config.patch_size,
+                            patch_size_t=self.transformer_config.patch_size_t,
+                            device=accelerator.device,
+                            dtype=weight_dtype,
+                            generator=generator,
+                        )
+
+                        single_frame_video_latents = make_contiguous(single_frame_video_latents)
+                        
                     text_conditions = make_contiguous(text_conditions)
 
                     if self.args.caption_dropout_technique == "zero":
@@ -734,10 +781,20 @@ class Trainer:
                             timesteps=timesteps,
                         )
                     else:
-                        # Default to flow-matching noise addition
-                        noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
-                        noisy_latents = noisy_latents.to(latent_conditions["latents"].dtype)
-                        
+                        if self.pose_conditioning:
+                            # Use the training single frame - sample compare it to target 
+                            # todo fix it so the first frame isn't noised?
+                            noisy_latents = (1.0 - sigmas) * single_frame_video_latents["latents"] + sigmas * noise
+                            # add to noisy latent with the single frame repeating the conditioning to the pose latent
+                            noisy_latents = noisy_latents + pose_video_latents["latents"]
+                            single_frame_video_latents.update({"noisy_latents": noisy_latents})
+                        else:
+                            # Default to flow-matching noise addition
+                            noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
+                            noisy_latents = noisy_latents.to(latent_conditions["latents"].dtype)
+
+
+                  
                     # this is used for whatever reason to pass into the 
                     latent_conditions.update({"noisy_latents": noisy_latents})
 
@@ -749,13 +806,27 @@ class Trainer:
                     )
                     weights = expand_tensor_dims(weights, noise.ndim)
 
-                    pred = self.model_config["forward_pass"](
-                        transformer=self.transformer,
-                        scheduler=self.scheduler,
-                        timesteps=timesteps,
-                        **latent_conditions,
-                        **text_conditions,
-                    )
+                    if self.pose_conditioning:
+                        pred = self.model_config["forward_pass"](
+                            transformer=self.transformer,
+                            scheduler=self.scheduler,
+                            timesteps=timesteps,
+                            **single_frame_video_latents,
+                            **text_conditions,
+                        )
+
+
+                    else:
+                        pred = self.model_config["forward_pass"](
+                            transformer=self.transformer,
+                            scheduler=self.scheduler,
+                            timesteps=timesteps,
+                            **latent_conditions,
+                            **text_conditions,
+                        )
+
+                    
+
                     target = prepare_target(
                         scheduler=self.scheduler, noise=noise, latents=latent_conditions["latents"]
                     )
