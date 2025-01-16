@@ -21,7 +21,7 @@ def cast_dit(model, dtype):
 
 def load_condition_models(
     model_id: str = "genmo/mochi-1-preview",
-    text_encoder_dtype: torch.dtype = torch.float32,
+    text_encoder_dtype: torch.dtype = torch.bfloat16,
     revision: Optional[str] = None,
     cache_dir: Optional[str] = None,
     **kwargs,
@@ -35,7 +35,7 @@ def load_condition_models(
 
 def load_latent_models(
     model_id: str = "genmo/mochi-1-preview",
-    vae_dtype: torch.dtype = torch.float32,
+    vae_dtype: torch.dtype = torch.bfloat16,
     revision: Optional[str] = None,
     cache_dir: Optional[str] = None,
     **kwargs,
