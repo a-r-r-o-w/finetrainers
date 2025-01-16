@@ -754,14 +754,11 @@ class Trainer:
                         **text_conditions,
                     )
 
-                    # TODO: This is a hack for now.
-                    # Should we rather implement `prepare_target()` for Mochi like we do for
-                    # `calculate_noisy_latents()`?
+                    # TODO: Revisit the targets if needed for Mochi.
                     target = prepare_target(
                         scheduler=self.scheduler,
                         noise=noise,
-                        latents=latent_conditions["latents"],
-                        is_mochi="mochi" in self.model_config["pipeline_cls"].__class__.__name__.lower(),
+                        latents=latent_conditions["latents"]
                     )
 
                     loss = weights.float() * (pred["latents"].float() - target.float()).pow(2)
