@@ -23,3 +23,12 @@ Supported training types:
 - Full finetuning (`--training_type full-finetune`)
 
 Arguments for training are well-documented in the code. For more information, please run `python train.py --help`.
+
+## How do we handle `mixed_precision`?
+
+The accelerate config files (the ones seen [here](../../accelerate_configs/)) that are being supplied while launching training should contain a field called `mixed_precision` and `accelerate` makes use of that if specified. We don't let users explicitly pass that from the CLI args because it can be confusing to have `transformer_dtype` and `mixed_precision` in the codebase.
+
+`transformer_dtype` is the ultimate source of truth for the precision to be used when training. It will also most likely always have to be `torch.bfloat16` because:
+
+* All models currently supported (except Cog-2b) do not work well in FP16 for inference, so training would be broken as well. This can be revisited if it makes sense to train in FP16 for other models added.
+* The `accelerate` config files default to using "bf16", but modifying that would be at the risk of user and assumes they understand the significance of their changes.
