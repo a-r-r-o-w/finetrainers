@@ -964,7 +964,7 @@ class Trainer:
                     if video_artifacts:
                         artifact_log_dict["videos"] = video_artifacts
                     tracker.log({tracker_key: artifact_log_dict}, step=step)
-            
+
             if self.args.push_to_hub and final_validation:
                 video_filenames = list(prompts_to_filenames.values())
                 prompts = list(prompts_to_filenames.keys())
