@@ -56,8 +56,15 @@ def load_diffusion_models(
     transformer = MochiTransformer3DModel.from_pretrained(
         model_id, subfolder="transformer", torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
     )
+    # TODO (sayakpaul): 
+    # 1. test if this is necessary by doing a pure bf16 (casting with to()) and this way of casting.
+    # 2. this is likely fine for LoRA but for full fine-tuning this could be revisited.
     transformer = cast_dit(transformer, torch.bfloat16)
-    scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(model_id, subfolder="scheduler")
+    
+    # Instead of doing a `from_pretrained()` we simply initialize the scheduler. This is so that the 
+    # `invert_sigmas` flag in the original config does not mess with any
+    # of the downstream reversing of sigmas we apply.
+    scheduler = FlowMatchEulerDiscreteScheduler()
     return {"transformer": transformer, "scheduler": scheduler}
 
 
