@@ -141,8 +141,6 @@ def prepare_target(
 ) -> torch.Tensor:
     if isinstance(scheduler, FlowMatchEulerDiscreteScheduler):
         target = noise - latents
-        if is_mochi:
-            target = -target
     elif isinstance(scheduler, CogVideoXDDIMScheduler):
         target = latents
     else:

@@ -202,9 +202,15 @@ def forward_pass(
         hidden_states=noisy_latents,
         encoder_hidden_states=prompt_embeds,
         encoder_attention_mask=prompt_attention_mask,
-        timestep=timesteps,
+        # TODO: revisit if needed as Mochi has a weird way of doing `timesteps`.
+        timestep=scheduler.config.num_train_timesteps - timesteps,
         return_dict=False,
     )[0]
+    # TODO: revisit if needed. We do this because of 
+    # https://github.com/genmoai/mochi/blob/aba74c1b5e0755b1fa3343d9e4bd22e89de77ab1/src/genmo/mochi_preview/dit/joint_model/asymm_models_joint.py#L656
+    # In short, Mochi operates on reversed targets which is why we need to negate 
+    # the predictions.
+    denoised_latents = -denoised_latents
 
     return {"latents": denoised_latents}
 
