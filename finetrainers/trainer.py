@@ -696,6 +696,10 @@ class Trainer:
                             if "pooled_prompt_embeds" in text_conditions:
                                 text_conditions["pooled_prompt_embeds"].fill_(0)
 
+                    # TODO: Mochi only does: sigmas = torch.rand(latents.shape[0])
+                    # It doesn't rely on `sigmas` configured in the scheduler. To handle that, should
+                    # Mochi implement its own `prepare_sigmas()` similar to how 
+                    # `calculate_noisy_latents()` is implemented?
                     sigmas = prepare_sigmas(
                         scheduler=self.scheduler,
                         sigmas=scheduler_sigmas,
