@@ -538,7 +538,7 @@ class Trainer:
         logger.info("Initializing trackers")
 
         tracker_name = self.args.tracker_name or "finetrainers-experiment"
-        self.state.accelerator.init_trackers(tracker_name, config=self.args.to_dict())
+        self.state.accelerator.init_trackers(tracker_name, config=self._get_training_info())
 
     def train(self) -> None:
         logger.info("Starting training")
@@ -1160,3 +1160,21 @@ class Trainer:
         for component in components:
             if component is not None:
                 component.requires_grad_(True)
+
+    def _get_training_info(self) -> dict:
+        args = self.args.to_dict()
+
+        # Filter LoRA-related arguments based on training type
+        if args.get("training_type") == "full-finetune":
+            training_info = {k: v for k, v in args.items() if k not in {"rank", "lora_alpha", "target_modules"}}
+        else:
+            training_info = args.copy()
+
+        # Adjust diffusion/flow-related arguments
+        scheduler_name = self.scheduler.__class__.__name__
+        if scheduler_name != "FlowMatchEulerDiscreteScheduler":
+            updated_training_info = {k: v for k, v in training_info.items() if "flow" not in k}
+        else:
+            updated_training_info = training_info
+
+        return updated_training_info

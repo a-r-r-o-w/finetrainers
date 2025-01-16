@@ -484,7 +484,6 @@ def validate_args(args: Args):
     _validated_model_args(args)
     _validate_training_args(args)
     _validate_validation_args(args)
-    _maybe_reset_unnecessary_args(args)
 
 
 def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1183,16 +1182,6 @@ def _validate_validation_args(args: Args):
     assert len(args.validation_prompts) == len(
         args.validation_widths
     ), "Validation prompts and widths should be of same length"
-
-
-def _maybe_reset_unnecessary_args(args: Args):
-    if args.training_type == "full-finetune":
-        if args.rank:
-            setattr(args, "rank", None)
-        if args.lora_alpha:
-            setattr(args, "lora_alpha", None)
-        if args.target_modules:
-            setattr(args, "target_modules", None)
 
 
 def _display_helper_messages(args: argparse.Namespace):
