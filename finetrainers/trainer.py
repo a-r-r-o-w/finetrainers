@@ -955,19 +955,14 @@ class Trainer:
             tracker_key = "final" if final_validation else "validation"
             for tracker in accelerator.trackers:
                 if tracker.name == "wandb":
-                    image_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Image)]
-                    video_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Video)]
-                    image_dict = None
-                    video_dict = None
                     artifact_log_dict = {}
+
+                    image_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Image)]
                     if image_artifacts:
-                        image_dict = {"images": image_artifacts}
+                        artifact_log_dict["images"] = image_artifacts
+                    video_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Video)]
                     if video_artifacts:
-                        video_dict = {"videos": video_artifacts}
-                    if image_dict:
-                        artifact_log_dict.update(image_dict)
-                    if video_dict:
-                        artifact_log_dict.update(video_dict)
+                        artifact_log_dict["videos"] = video_artifacts
                     tracker.log({tracker_key: artifact_log_dict}, step=step)
             
             if self.args.push_to_hub and final_validation:
