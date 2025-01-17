@@ -958,10 +958,10 @@ class Trainer:
                     artifact_log_dict = {}
 
                     image_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Image)]
-                    if image_artifacts:
+                    if len(image_artifacts) > 0:
                         artifact_log_dict["images"] = image_artifacts
                     video_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Video)]
-                    if video_artifacts:
+                    if len(video_artifacts) > 0:
                         artifact_log_dict["videos"] = video_artifacts
                     tracker.log({tracker_key: artifact_log_dict}, step=step)
 
