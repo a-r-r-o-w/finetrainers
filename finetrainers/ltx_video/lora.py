@@ -181,13 +181,20 @@ def post_latent_preparation(
     return {"latents": latents, "num_frames": num_frames, "height": height, "width": width}
 
 
-def collate_fn_t2v(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torch.Tensor]:
+def collate_fn_t2v_cond(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torch.Tensor]:
     return {
         "prompts": [x["prompt"] for x in batch[0]],
         "videos": torch.stack([x["video"] for x in batch[0]]),
         "poses": torch.stack([x["pose"] for x in batch[0]]),
         "img_refs": torch.stack([x["img_ref"] for x in batch[0]])
     }
+
+def collate_fn_t2v(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torch.Tensor]:
+    return {
+        "prompts": [x["prompt"] for x in batch[0]],
+        "videos": torch.stack([x["video"] for x in batch[0]]),
+    }
+
 
 
 def forward_pass(

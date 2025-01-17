@@ -556,7 +556,7 @@ def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--pose_column",
         type=str,
-        default="text",
+        default=None,
         help="The column of the dataset containing the instance prompt for each video. Or, the name of the file in `--data_root` folder containing the line-separated instance prompts.",
     )
     parser.add_argument(

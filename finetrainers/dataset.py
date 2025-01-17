@@ -46,11 +46,11 @@ class ImageOrVideoDataset(Dataset):
         data_root: str,
         caption_column: str,
         video_column: str,
-        pose_column: str,
         resolution_buckets: List[Tuple[int, int, int]],
         dataset_file: Optional[str] = None,
         id_token: Optional[str] = None,
         remove_llm_prefixes: bool = False,
+        pose_column: str = None,
     ) -> None:
         super().__init__()
 
@@ -178,8 +178,20 @@ class ImageOrVideoDataset(Dataset):
 
         prompt_path = self.data_root.joinpath(self.caption_column)
         video_path = self.data_root.joinpath(self.video_column)
-        pose_path = self.data_root.joinpath(self.pose_column)
-    
+
+        if self.pose_column != None:
+            pose_path = self.data_root.joinpath(self.pose_column)
+            pose_conditioning = True
+
+            if not pose_path.exists() or not pose_path.is_file() or not self.pose_column:
+                pose_conditioning = False
+
+            if pose_conditioning:
+                with open(pose_path, "r", encoding="utf-8") as file:
+                    pose_paths = [self.data_root.joinpath(line.strip()) for line in file.readlines() if len(line.strip()) > 0]
+        else:
+            pose_paths = None 
+
         if not prompt_path.exists() or not prompt_path.is_file():
             raise ValueError(
                 "Expected `--caption_column` to be path to a file in `--data_root` containing line-separated text prompts."
@@ -188,16 +200,13 @@ class ImageOrVideoDataset(Dataset):
             raise ValueError(
                 "Expected `--video_column` to be path to a file in `--data_root` containing line-separated paths to video data in the same directory."
             )
-        if not pose_path.exists() or not pose_path.is_file():
-            raise ValueError(
-                "Expected `--pose_column` to be path to a file in `--data_root` containing line-separated paths to video data in the same directory."
-            )
+
         with open(prompt_path, "r", encoding="utf-8") as file:
             prompts = [line.strip() for line in file.readlines() if len(line.strip()) > 0]
         with open(video_path, "r", encoding="utf-8") as file:
             video_paths = [self.data_root.joinpath(line.strip()) for line in file.readlines() if len(line.strip()) > 0]
-        with open(pose_path, "r", encoding="utf-8") as file:
-            pose_paths = [self.data_root.joinpath(line.strip()) for line in file.readlines() if len(line.strip()) > 0]
+
+       
 
         if any(not path.is_file() for path in video_paths):
             raise ValueError(
