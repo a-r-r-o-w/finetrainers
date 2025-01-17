@@ -139,15 +139,9 @@ def prepare_latents(
     if not precompute:
         latents = vae.encode(image_or_video).latent_dist.sample(generator=generator)
 
-     
-
         latents = latents.to(dtype=dtype)
         _, _, num_frames, height, width = latents.shape
         latents = _normalize_latents(latents, vae.latents_mean, vae.latents_std)
-
-        # expand the channel and pack
-        latents = torch.cat([latents,latents],dim=1)
-        
         latents = _pack_latents(latents, patch_size, patch_size_t)
         return {"latents": latents, "num_frames": num_frames, "height": height, "width": width}
     else:
@@ -191,7 +185,8 @@ def collate_fn_t2v(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torc
     return {
         "prompts": [x["prompt"] for x in batch[0]],
         "videos": torch.stack([x["video"] for x in batch[0]]),
-        "poses": torch.stack([x["poses"] for x in batch[0]])
+        "poses": torch.stack([x["pose"] for x in batch[0]]),
+        "img_refs": torch.stack([x["img_ref"] for x in batch[0]])
     }
 
 

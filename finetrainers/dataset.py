@@ -76,7 +76,7 @@ class ImageOrVideoDataset(Dataset):
             (
                 self.prompts,
                 self.video_paths,
-                self.pose_pathes,
+                self.pose_paths,
             ) = self._load_dataset_from_local_path()
         elif dataset_file.endswith(".csv"):
             (
@@ -146,12 +146,15 @@ class ImageOrVideoDataset(Dataset):
         else:
             video = self._preprocess_video(video_path)
 
-        if self.pose_condition_column != None:
-            pose_video = self._preprocess_video(self.pose_paths[index])
+        if self.pose_column != None:
+            pose = self._preprocess_video(self.pose_paths[index])
+            img_ref = self._preprocess_video_image_reference_video(video_path)
+
             return {
                 "prompt": prompt,
                 "video": video,
-                "pose_video": pose_video,
+                "pose": pose,
+                "img_ref": img_ref,
                 "video_metadata": {
                     "num_frames": video.shape[0],
                     "height": video.shape[2],
@@ -268,7 +271,7 @@ class ImageOrVideoDataset(Dataset):
         frames = torch.stack([self.video_transforms(frame) for frame in frames], dim=0)
         return frames
     
-    def _preprocess_video_single_frame(self, path: Path) -> torch.Tensor:
+    def _preprocess_video_image_reference_video(self, path: Path) -> torch.Tensor:
         video_reader = decord.VideoReader(uri=path.as_posix())
 
         video_num_frames = len(video_reader)

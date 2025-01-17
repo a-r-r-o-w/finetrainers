@@ -665,8 +665,8 @@ class Trainer:
 
                         if self.pose_condition == True:
                             poses = batch["poses"]
-                            # first frame video ? cond video.
-                            first_frame_videos = batch["first_frame_videos"]
+                            # generate video across all frames
+                            img_refs = batch["img_refs"]
 
                         batch_size = len(prompts)
 
@@ -726,9 +726,9 @@ class Trainer:
 
                         pose_video_latents = make_contiguous(pose_video_latents)
 
-                        single_frame_video_latents = self.model_config["prepare_latents"](
+                        img_refs_latents = self.model_config["prepare_latents"](
                             vae=self.vae,
-                            image_or_video=first_frame_videos,
+                            image_or_video=img_refs,
                             patch_size=self.transformer_config.patch_size,
                             patch_size_t=self.transformer_config.patch_size_t,
                             device=accelerator.device,
@@ -736,7 +736,7 @@ class Trainer:
                             generator=generator,
                         )
 
-                        single_frame_video_latents = make_contiguous(single_frame_video_latents)
+                        img_refs_latents = make_contiguous(img_refs_latents)
                         
                     text_conditions = make_contiguous(text_conditions)
 
@@ -782,18 +782,15 @@ class Trainer:
                         )
                     else:
                         if self.pose_conditioning:
-                            # Use the training single frame - sample compare it to target 
-                            # todo fix it so the first frame isn't noised?
-                            noisy_latents = (1.0 - sigmas) * single_frame_video_latents["latents"] + sigmas * noise
-                            # add to noisy latent with the single frame repeating the conditioning to the pose latent
+                          
+                            noisy_latents = (1.0 - sigmas) * img_refs_latents["latents"] + sigmas * noise
+                           
                             noisy_latents = noisy_latents + pose_video_latents["latents"]
-                            single_frame_video_latents.update({"noisy_latents": noisy_latents})
+                            img_refs_latents.update({"noisy_latents": noisy_latents})
                         else:
                             # Default to flow-matching noise addition
                             noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
                             noisy_latents = noisy_latents.to(latent_conditions["latents"].dtype)
-
-
                   
                     # this is used for whatever reason to pass into the 
                     latent_conditions.update({"noisy_latents": noisy_latents})
@@ -811,10 +808,9 @@ class Trainer:
                             transformer=self.transformer,
                             scheduler=self.scheduler,
                             timesteps=timesteps,
-                            **single_frame_video_latents,
+                            **img_refs_latents,
                             **text_conditions,
                         )
-
 
                     else:
                         pred = self.model_config["forward_pass"](
