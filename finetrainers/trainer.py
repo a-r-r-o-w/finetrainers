@@ -100,10 +100,10 @@ class Trainer:
         self.state.model_name = self.args.model_name
         self.model_config = get_config_from_model_name(self.args.model_name, self.args.training_type)
 
+        self.pose_condition = False
         if self.args.pose_column != None:
             self.pose_condition = True
-        else:
-            self.pose_condition = False
+
 
     def prepare_dataset(self) -> None:
         # TODO(aryan): Make a background process for fetching
@@ -723,7 +723,7 @@ class Trainer:
 
                     latent_conditions = make_contiguous(latent_conditions)
 
-                    if self.pose_conditioning:
+                    if self.pose_condition:
                         # VAE output not patchified yet.
                         pose_video_latents = condition_latents_prepare.prepare_latents_for_conditioning(
                                 vae=self.vae,
@@ -739,7 +739,7 @@ class Trainer:
 
                         img_refs_latents = condition_latents_prepare.prepare_latents_for_conditioning(
                                 vae=self.vae,
-                                image_or_video=img_refs_latents,
+                                image_or_video=img_refs,
                                 patch_size=self.transformer_config.patch_size,
                                 patch_size_t=self.transformer_config.patch_size_t,
                                 device=accelerator.device,
@@ -773,7 +773,7 @@ class Trainer:
                         generator=self.state.generator,
                     )
                     timesteps = (sigmas * 1000.0).long()
-                    if self.pose_conditioning:
+                    if self.pose_condition:
                         noise = torch.randn(
                             latent_conditions["latents"].shape,
                             generator=self.state.generator,
@@ -826,7 +826,7 @@ class Trainer:
                     )
                     weights = expand_tensor_dims(weights, noise.ndim)
 
-                    if self.pose_conditioning:
+                    if self.pose_condition:
                         pred = self.model_config["forward_pass"](
                             transformer=self.transformer,
                             scheduler=self.scheduler,
