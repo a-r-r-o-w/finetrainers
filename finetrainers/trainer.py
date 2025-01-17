@@ -57,7 +57,7 @@ from .utils.model_utils import resolve_vae_cls_from_ckpt_path
 from .utils.optimizer_utils import get_optimizer
 from .utils.torch_utils import align_device_and_dtype, expand_tensor_dims, unwrap_model
 
-
+from .conditioning import condition_latents_prepare,post_conditioned_latent_patchify
 logger = get_logger("finetrainers")
 logger.setLevel(FINETRAINERS_LOG_LEVEL)
 
@@ -673,16 +673,26 @@ class Trainer:
                         if self.args.caption_dropout_technique == "empty":
                             if random.random() < self.args.caption_dropout_p:
                                 prompts = [""] * batch_size
-
-                        latent_conditions = self.model_config["prepare_latents"](
-                            vae=self.vae,
-                            image_or_video=videos,
-                            patch_size=self.transformer_config.patch_size,
-                            patch_size_t=self.transformer_config.patch_size_t,
-                            device=accelerator.device,
-                            dtype=weight_dtype,
-                            generator=self.state.generator,
-                        )
+                        if self.pose_condition == True:
+                            latent_conditions = condition_latents_prepare.prepare_latents_for_conditioning(
+                                vae=self.vae,
+                                image_or_video=videos,
+                                patch_size=self.transformer_config.patch_size,
+                                patch_size_t=self.transformer_config.patch_size_t,
+                                device=accelerator.device,
+                                dtype=weight_dtype,
+                                generator=self.state.generator,
+                            )
+                        else:
+                            latent_conditions = self.model_config["prepare_latents"](
+                                vae=self.vae,
+                                image_or_video=videos,
+                                patch_size=self.transformer_config.patch_size,
+                                patch_size_t=self.transformer_config.patch_size_t,
+                                device=accelerator.device,
+                                dtype=weight_dtype,
+                                generator=self.state.generator,
+                            )
                         text_conditions = self.model_config["prepare_conditions"](
                             tokenizer=self.tokenizer,
                             text_encoder=self.text_encoder,
@@ -714,27 +724,28 @@ class Trainer:
                     latent_conditions = make_contiguous(latent_conditions)
 
                     if self.pose_conditioning:
-                        pose_video_latents = self.model_config["prepare_latents"](
-                            vae=self.vae,
-                            image_or_video=poses,
-                            patch_size=self.transformer_config.patch_size,
-                            patch_size_t=self.transformer_config.patch_size_t,
-                            device=accelerator.device,
-                            dtype=weight_dtype,
-                            generator=generator,
-                        )
+                        # VAE output not patchified yet.
+                        pose_video_latents = condition_latents_prepare.prepare_latents_for_conditioning(
+                                vae=self.vae,
+                                image_or_video=poses,
+                                patch_size=self.transformer_config.patch_size,
+                                patch_size_t=self.transformer_config.patch_size_t,
+                                device=accelerator.device,
+                                dtype=weight_dtype,
+                                generator=self.state.generator,
+                            )
 
                         pose_video_latents = make_contiguous(pose_video_latents)
 
-                        img_refs_latents = self.model_config["prepare_latents"](
-                            vae=self.vae,
-                            image_or_video=img_refs,
-                            patch_size=self.transformer_config.patch_size,
-                            patch_size_t=self.transformer_config.patch_size_t,
-                            device=accelerator.device,
-                            dtype=weight_dtype,
-                            generator=generator,
-                        )
+                        img_refs_latents = condition_latents_prepare.prepare_latents_for_conditioning(
+                                vae=self.vae,
+                                image_or_video=img_refs_latents,
+                                patch_size=self.transformer_config.patch_size,
+                                patch_size_t=self.transformer_config.patch_size_t,
+                                device=accelerator.device,
+                                dtype=weight_dtype,
+                                generator=self.state.generator,
+                            )
 
                         img_refs_latents = make_contiguous(img_refs_latents)
                         
@@ -762,13 +773,24 @@ class Trainer:
                         generator=self.state.generator,
                     )
                     timesteps = (sigmas * 1000.0).long()
+                    if self.pose_conditioning:
+                        noise = torch.randn(
+                            latent_conditions["latents"].shape,
+                            generator=self.state.generator,
+                            device=accelerator.device,
+                            dtype=weight_dtype,
+                        )
+                        # B x 2C  latent 
+                        imf_ref_noise = torch.cat([img_refs_latents,noise])
+                    # create noise for the img ref and concat it to latent to be shape B, 2c, etc. 
+                    else:
+                        noise = torch.randn(
+                            latent_conditions["latents"].shape,
+                            generator=self.state.generator,
+                            device=accelerator.device,
+                            dtype=weight_dtype,
+                        )
 
-                    noise = torch.randn(
-                        latent_conditions["latents"].shape,
-                        generator=self.state.generator,
-                        device=accelerator.device,
-                        dtype=weight_dtype,
-                    )
                     sigmas = expand_tensor_dims(sigmas, ndim=noise.ndim)
 
                     # TODO(aryan): We probably don't need calculate_noisy_latents because we can determine the type of
@@ -781,19 +803,20 @@ class Trainer:
                             timesteps=timesteps,
                         )
                     else:
-                        if self.pose_conditioning:
-                          
-                            noisy_latents = (1.0 - sigmas) * img_refs_latents["latents"] + sigmas * noise
-                           
-                            noisy_latents = noisy_latents + pose_video_latents["latents"]
-                            img_refs_latents.update({"noisy_latents": noisy_latents})
+                        if self.pose_condition:
+                            # Default to flow-matching noise addition
+                            noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
+                            noisy_latents = noisy_latents.to(latent_conditions["latents"].dtype)
+                            
+                            # this is used for whatever reason to pass into the 
+                            latent_conditions.update({"noisy_latents": noisy_latents})
                         else:
                             # Default to flow-matching noise addition
                             noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
                             noisy_latents = noisy_latents.to(latent_conditions["latents"].dtype)
-                  
-                    # this is used for whatever reason to pass into the 
-                    latent_conditions.update({"noisy_latents": noisy_latents})
+                            
+                            # this is used for whatever reason to pass into the 
+                            latent_conditions.update({"noisy_latents": noisy_latents})
 
                     weights = prepare_loss_weights(
                         scheduler=self.scheduler,
@@ -820,8 +843,6 @@ class Trainer:
                             **latent_conditions,
                             **text_conditions,
                         )
-
-                    
 
                     target = prepare_target(
                         scheduler=self.scheduler, noise=noise, latents=latent_conditions["latents"]
