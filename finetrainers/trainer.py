@@ -748,6 +748,8 @@ class Trainer:
                             )
 
                         img_refs_latents = make_contiguous(img_refs_latents)
+
+                         
                         
                     text_conditions = make_contiguous(text_conditions)
 
@@ -773,23 +775,13 @@ class Trainer:
                         generator=self.state.generator,
                     )
                     timesteps = (sigmas * 1000.0).long()
-                    if self.pose_condition:
-                        noise = torch.randn(
+                  
+                    noise = torch.randn(
                             latent_conditions["latents"].shape,
                             generator=self.state.generator,
                             device=accelerator.device,
                             dtype=weight_dtype,
-                        )
-                        # B x 2C  latent 
-                        imf_ref_noise = torch.cat([img_refs_latents,noise])
-                    # create noise for the img ref and concat it to latent to be shape B, 2c, etc. 
-                    else:
-                        noise = torch.randn(
-                            latent_conditions["latents"].shape,
-                            generator=self.state.generator,
-                            device=accelerator.device,
-                            dtype=weight_dtype,
-                        )
+                    )
 
                     sigmas = expand_tensor_dims(sigmas, ndim=noise.ndim)
 
@@ -803,13 +795,39 @@ class Trainer:
                             timesteps=timesteps,
                         )
                     else:
+                      
                         if self.pose_condition:
-                            # Default to flow-matching noise addition
+                            # condition with the pose information
+
+                            # grab noise pre patchification shape
+                            noise = torch.randn(
+                                latent_conditions["latents"].shape,
+                                generator=self.state.generator,
+                                device=accelerator.device,
+                                dtype=weight_dtype,
+                            )
+
+                            # normalize and patchify 
+                            # create noise for latent to feed diffusion transformer to get pred noise
                             noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
                             noisy_latents = noisy_latents.to(latent_conditions["latents"].dtype)
+                            # add pose information to both channels
+                            pose_noisy_latents = noisy_latents + pose_video_latents["latents"]
+                            pose_img_ref_latents = img_refs_latents["latents"] + pose_video_latents["latents"]
+                            # expand channel information # B x 2C  latent will be projected to adapter to scale it back to 128d
+                            latent_final = torch.cat([pose_img_ref_latents,pose_noisy_latents], dim=1)
+                            # project this turn into patches
+
+                            latent_final = post_conditioned_latent_patchify(latents=latent_final,
+                                                                            latents_mean=(latent_conditions["mean"] + pose_video_latents["mean"] + img_refs_latents["mean"]) / 3.0,
+                                                                            latents_std=(latent_conditions["std"] + pose_video_latents["std"] + img_refs_latents["std"]) / 3.0,
+                                                                            num_frames=latent_conditions["num_frames"],
+                                                                            height=latent_conditions["height"],
+                                                                            width=latent_conditions["width"],
+                                                                            patch_size = 1,
+                                                                            patch_size_t = 1)
                             
-                            # this is used for whatever reason to pass into the 
-                            latent_conditions.update({"noisy_latents": noisy_latents})
+                            latent_conditions.update({"noisy_latents": latent_final})
                         else:
                             # Default to flow-matching noise addition
                             noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
@@ -831,7 +849,7 @@ class Trainer:
                             transformer=self.transformer,
                             scheduler=self.scheduler,
                             timesteps=timesteps,
-                            **img_refs_latents,
+                            **latent_conditions,
                             **text_conditions,
                         )
 

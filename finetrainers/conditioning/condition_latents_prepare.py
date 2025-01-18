@@ -21,8 +21,9 @@ def _pack_latents(latents: torch.Tensor, patch_size: int = 1, patch_size_t: int 
     post_patch_height = height // patch_size
     post_patch_width = width // patch_size
 
-    dim1 = num_frames // patch_size_t * height // patch_size * width // patch_size
-    dim2 = num_channels * patch_size_t * patch_size * patch_size
+    # to check math lol
+    # dim1 = num_frames // patch_size_t * height // patch_size * width // patch_size
+    # dim2 = num_channels * patch_size_t * patch_size * patch_size
 
     latents = latents.reshape(
         batch_size,
@@ -75,6 +76,11 @@ def prepare_latents_for_conditioning(
 
     latents = latents.to(dtype=dtype)
     _, _, num_frames, height, width = latents.shape
-    latents = _normalize_latents(latents, vae.latents_mean, vae.latents_std)
-    latents = _pack_latents(latents, patch_size, patch_size_t)
-    return {"latents": latents, "num_frames": num_frames, "height": height, "width": width}
+    # latents = _normalize_latents(latents, vae.latents_mean, vae.latents_std)
+    # latents = _pack_latents(latents, patch_size, patch_size_t)
+    return {"latents": latents, 
+            "num_frames": num_frames, 
+            "height": height, 
+            "width": width, 
+            "mean":vae.latents_mean,
+            "std":vae.latents_std}
