@@ -40,8 +40,6 @@ def _pack_latents(latents: torch.Tensor, patch_size: int = 1, patch_size_t: int 
 
 def post_conditioned_latent_patchify(
     latents: torch.Tensor,
-    latents_mean: torch.Tensor,
-    latents_std: torch.Tensor,
     num_frames: int,
     height: int,
     width: int,
@@ -49,7 +47,6 @@ def post_conditioned_latent_patchify(
     patch_size_t: int = 1,
     **kwargs,
 ) -> torch.Tensor:
-    latents = _normalize_latents(latents, latents_mean, latents_std)
     latents = _pack_latents(latents, patch_size, patch_size_t)
     return {"latents": latents, "num_frames": num_frames, "height": height, "width": width}
 
@@ -76,7 +73,7 @@ def prepare_latents_for_conditioning(
 
     latents = latents.to(dtype=dtype)
     _, _, num_frames, height, width = latents.shape
-    # latents = _normalize_latents(latents, vae.latents_mean, vae.latents_std)
+    latents = _normalize_latents(latents, vae.latents_mean, vae.latents_std)
     # latents = _pack_latents(latents, patch_size, patch_size_t)
     return {"latents": latents, 
             "num_frames": num_frames, 

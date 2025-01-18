@@ -11,6 +11,7 @@ from .lora import (
     prepare_conditions,
     prepare_latents,
     validation,
+    collate_fn_t2v_cond
 )
 
 
@@ -24,7 +25,7 @@ LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG = {
     "prepare_conditions": prepare_conditions,
     "prepare_latents": prepare_latents,
     "post_latent_preparation": post_latent_preparation,
-    "collate_fn": collate_fn_t2v,
+    "collate_fn": collate_fn_t2v_cond,
     "forward_pass": forward_pass,
     "validation": validation,
 }

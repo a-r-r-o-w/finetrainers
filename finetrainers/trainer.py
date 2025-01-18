@@ -799,14 +799,6 @@ class Trainer:
                         if self.pose_condition:
                             # condition with the pose information
 
-                            # grab noise pre patchification shape
-                            noise = torch.randn(
-                                latent_conditions["latents"].shape,
-                                generator=self.state.generator,
-                                device=accelerator.device,
-                                dtype=weight_dtype,
-                            )
-
                             # normalize and patchify 
                             # create noise for latent to feed diffusion transformer to get pred noise
                             noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
@@ -819,15 +811,13 @@ class Trainer:
                             # project this turn into patches
 
                             latent_final = post_conditioned_latent_patchify(latents=latent_final,
-                                                                            latents_mean=(latent_conditions["mean"] + pose_video_latents["mean"] + img_refs_latents["mean"]) / 3.0,
-                                                                            latents_std=(latent_conditions["std"] + pose_video_latents["std"] + img_refs_latents["std"]) / 3.0,
                                                                             num_frames=latent_conditions["num_frames"],
                                                                             height=latent_conditions["height"],
                                                                             width=latent_conditions["width"],
                                                                             patch_size = 1,
                                                                             patch_size_t = 1)
                             
-                            latent_conditions.update({"noisy_latents": latent_final})
+                            latent_conditions.update({"noisy_latents": latent_final["latents"]})
                         else:
                             # Default to flow-matching noise addition
                             noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
