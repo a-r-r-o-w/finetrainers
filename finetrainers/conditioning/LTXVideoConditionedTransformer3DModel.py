@@ -80,9 +80,10 @@ def forward(
             encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
 
         batch_size = hidden_states.size(0)
-        
+
         # inject the condition and the residual then project it into the pretrained proj_in
-        hidden_states = self.adapter(residual_x=residual_x,conditioned_x=hidden_states)
+        hidden_states = self.adapter(residual_x=residual_x,
+                                     conditioned_x=hidden_states)
 
         hidden_states = self.proj_in(hidden_states)
 
