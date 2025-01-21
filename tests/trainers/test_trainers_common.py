@@ -1,3 +1,14 @@
+import sys 
+from pathlib import Path
+
+current_file = Path(__file__).resolve()
+root_dir = current_file.parents[1]
+sys.path.append(str(root_dir))
+
+# import os
+# current_dir = os.path.dirname(os.path.abspath(__file__))
+# print(f"{current_dir=}")
+
 from finetrainers import Trainer
 from huggingface_hub import snapshot_download
 import tempfile

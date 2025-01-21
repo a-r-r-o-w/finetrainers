@@ -1,3 +1,10 @@
+import sys 
+from pathlib import Path
+
+current_file = Path(__file__).resolve()
+root_dir = current_file.parents[3]
+sys.path.append(str(root_dir))
+
 from ..test_trainers_common import TrainerTestMixin
 from finetrainers import parse_arguments
 import unittest
