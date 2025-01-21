@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from accelerate.logging import get_logger
 from diffusers import AutoencoderKLLTXVideo, FlowMatchEulerDiscreteScheduler, LTXPipeline, LTXVideoTransformer3DModel
+from finetrainers.conditioning import LTXVideoConditionedTransformer3DModel
 from PIL import Image
 from transformers import T5EncoderModel, T5Tokenizer
 
@@ -36,6 +37,19 @@ def load_latent_models(
         model_id, subfolder="vae", torch_dtype=vae_dtype, revision=revision, cache_dir=cache_dir
     )
     return {"vae": vae}
+
+def load_conditioned_diffusion_models(
+    model_id: str = "Lightricks/LTX-Video",
+    transformer_dtype: torch.dtype = torch.bfloat16,
+    revision: Optional[str] = None,
+    cache_dir: Optional[str] = None,
+    **kwargs,
+) -> Dict[str, nn.Module]:
+    transformer = LTXVideoConditionedTransformer3DModel.from_pretrained(
+        model_id, subfolder="transformer", torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
+    )
+    scheduler = FlowMatchEulerDiscreteScheduler()
+    return {"transformer": transformer, "scheduler": scheduler}
 
 
 def load_diffusion_models(

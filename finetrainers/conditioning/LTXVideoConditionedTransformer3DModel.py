@@ -36,7 +36,6 @@ class LTXVideoConditionedTransformer3DModel(LTXVideoTransformer3DModel):
             adapter_dropout=0.1,
             adapter_init_scale=1e-3
         )
-        self.adapter.requires_grad_(True)
 
         super().__init__(
             in_channels=in_channels,
@@ -59,24 +58,21 @@ class LTXVideoConditionedTransformer3DModel(LTXVideoTransformer3DModel):
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
         model = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
-        # model is now a LTXVideoTransformer3DModel instance; 
-        # but we want an instance of LTXVideoTransformer3DModelWithAdapter
-        # so we often do something like:
         new_model = cls(**model.config.__dict__)
         new_model.load_state_dict(model.state_dict())
         return new_model
 
-    def save_pretrained(self, save_directory: str, **kwargs):
-        """
-        Saves model weights (including adapter) + config to disk
-        in a format compatible with .from_pretrained()
-        """
-        # 1) Save config
-        self.config.save_pretrained(save_directory)
+    # def save_pretrained(self, save_directory: str, **kwargs):
+    #     """
+    #     Saves model weights (including adapter) + config to disk
+    #     in a format compatible with .from_pretrained()
+    #     """
+    #     # 1) Save config
+    #     self.config.save_pretrained(save_directory)
 
-        # 2) Save PyTorch state dict
-        state_dict = self.state_dict()
-        torch.save(state_dict, os.path.join(save_directory, "pytorch_model.bin"))
+    #     # 2) Save PyTorch state dict
+    #     state_dict = self.state_dict()
+    #     torch.save(state_dict, os.path.join(save_directory, "pytorch_model.bin"))
 
 def forward(
         self,
