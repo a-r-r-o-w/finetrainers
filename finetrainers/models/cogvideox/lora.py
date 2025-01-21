@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Union
 import torch
 from diffusers import AutoencoderKLCogVideoX, CogVideoXDDIMScheduler, CogVideoXPipeline, CogVideoXTransformer3DModel
 from PIL import Image
-from transformers import T5EncoderModel, T5Tokenizer, AutoTokenizer
+from transformers import AutoTokenizer, T5EncoderModel, T5Tokenizer
 
 from .utils import prepare_rotary_positional_embeddings
 
@@ -16,9 +16,13 @@ def load_condition_models(
     **kwargs,
 ):
     try:
-        tokenizer = T5Tokenizer.from_pretrained(model_id, subfolder="tokenizer", revision=revision, cache_dir=cache_dir)
-    except:
-        tokenizer = AutoTokenizer.from_pretrained(model_id, subfolder="tokenizer", revision=revision, cache_dir=cache_dir)
+        tokenizer = T5Tokenizer.from_pretrained(
+            model_id, subfolder="tokenizer", revision=revision, cache_dir=cache_dir
+        )
+    except:  # noqa
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_id, subfolder="tokenizer", revision=revision, cache_dir=cache_dir
+        )
     text_encoder = T5EncoderModel.from_pretrained(
         model_id, subfolder="text_encoder", torch_dtype=text_encoder_dtype, revision=revision, cache_dir=cache_dir
     )
