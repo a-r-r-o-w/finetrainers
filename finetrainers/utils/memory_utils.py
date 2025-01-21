@@ -28,10 +28,10 @@ def get_memory_statistics(precision: int = 3) -> Dict[str, Any]:
         logger.warning("No CUDA, MPS, or ROCm device found. Memory statistics are not available.")
 
     return {
-        "memory_allocated": round(bytes_to_gigabytes(memory_allocated), ndigits=precision),
-        "memory_reserved": round(bytes_to_gigabytes(memory_reserved), ndigits=precision),
-        "max_memory_allocated": round(bytes_to_gigabytes(max_memory_allocated), ndigits=precision),
-        "max_memory_reserved": round(bytes_to_gigabytes(max_memory_reserved), ndigits=precision),
+        "memory_allocated": round(bytes_to_gigabytes(memory_allocated), ndigits=precision) if memory_allocated else None,
+        "memory_reserved": round(bytes_to_gigabytes(memory_reserved), ndigits=precision) if memory_reserved else None,
+        "max_memory_allocated": round(bytes_to_gigabytes(max_memory_allocated), ndigits=precision) if max_memory_allocated else None,
+        "max_memory_reserved": round(bytes_to_gigabytes(max_memory_reserved), ndigits=precision) if max_memory_reserved else None,
     }
 
 
