@@ -57,7 +57,7 @@ export FINETRAINERS_LOG_LEVEL=DEBUG
 GPU_IDS="0,1"
 
 DATA_ROOT="/path/to/video-dataset-disney"
-CAPTION_COLUMN="prompts.txt"
+CAPTION_COLUMN="prompt.txt"
 VIDEO_COLUMN="videos.txt"
 OUTPUT_DIR="/path/to/output/directory/ltx-video/ltxv_disney"
 
