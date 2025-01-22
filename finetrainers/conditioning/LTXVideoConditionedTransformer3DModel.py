@@ -8,7 +8,8 @@ from diffusers import LTXVideoTransformer3DModel
 from diffusers.utils.torch_utils import maybe_allow_in_graph
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.utils import is_torch_version
-from conditioned_residual_adapter_bottleneck import ConditionedResidualAdapterBottleneck
+from finetrainers.conditioning.conditioned_residual_adapter_bottleneck import ConditionedResidualAdapterBottleneck
+
 @maybe_allow_in_graph
 class LTXVideoConditionedTransformer3DModel(LTXVideoTransformer3DModel):
     def __init__(self,
@@ -29,14 +30,6 @@ class LTXVideoConditionedTransformer3DModel(LTXVideoTransformer3DModel):
         attention_out_bias: bool = True,
         adapter_in_dim:int = 256):
 
-        self.adapter = ConditionedResidualAdapterBottleneck(
-            input_dim=adapter_in_dim,
-            output_dim=128,
-            bottleneck_dim=64,
-            adapter_dropout=0.1,
-            adapter_init_scale=1e-3
-        )
-
         super().__init__(
             in_channels=in_channels,
             out_channels=out_channels,
@@ -55,24 +48,35 @@ class LTXVideoConditionedTransformer3DModel(LTXVideoTransformer3DModel):
             attention_out_bias=attention_out_bias
         )
 
+        # adapter.down_proj.weight
+        self.adapter = ConditionedResidualAdapterBottleneck(
+            input_dim=adapter_in_dim,
+            output_dim=128,
+            bottleneck_dim=64,
+            adapter_dropout=0.1,
+            adapter_init_scale=1e-3
+        )
+
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
-        model = super().from_pretrained(pretrained_model_name_or_path, **kwargs)
-        new_model = cls(**model.config.__dict__)
-        new_model.load_state_dict(model.state_dict())
-        return new_model
+        # First create an empty model with the desired architecture
+        model = cls()
+        model_dict = model.state_dict()
+        # # Then load the pretrained weights into it
+        pretrained = LTXVideoTransformer3DModel.from_pretrained(pretrained_model_name_or_path, **kwargs)
+        
+        # Copy over the pretrained weights for the shared components
+        pretrained_dict = pretrained.state_dict()
 
-    # def save_pretrained(self, save_directory: str, **kwargs):
-    #     """
-    #     Saves model weights (including adapter) + config to disk
-    #     in a format compatible with .from_pretrained()
-    #     """
-    #     # 1) Save config
-    #     self.config.save_pretrained(save_directory)
-
-    #     # 2) Save PyTorch state dict
-    #     state_dict = self.state_dict()
-    #     torch.save(state_dict, os.path.join(save_directory, "pytorch_model.bin"))
+        # Filter out adapter weights from the pretrained dict
+        filtered_dict = {}
+        for k, v in pretrained_dict.items():
+            if k in model_dict:
+                filtered_dict[k] = v
+        # Update model with pretrained weights
+        model_dict.update(filtered_dict)
+        model.load_state_dict(model_dict)
+        return model
 
 def forward(
         self,

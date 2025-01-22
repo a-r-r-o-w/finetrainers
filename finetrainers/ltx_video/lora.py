@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from accelerate.logging import get_logger
 from diffusers import AutoencoderKLLTXVideo, FlowMatchEulerDiscreteScheduler, LTXPipeline, LTXVideoTransformer3DModel
-from finetrainers.conditioning import LTXVideoConditionedTransformer3DModel
+from finetrainers.conditioning.LTXVideoConditionedTransformer3DModel import LTXVideoConditionedTransformer3DModel
 from PIL import Image
 from transformers import T5EncoderModel, T5Tokenizer
 
