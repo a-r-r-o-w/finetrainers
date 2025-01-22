@@ -825,15 +825,8 @@ class Trainer:
                                                                             width=latent_conditions["width"],
                                                                             patch_size = 1,
                                                                             patch_size_t = 1)
-                            # target
-                            latent_conditions["latents"] = post_conditioned_latent_patchify(
-                                latents=latent_conditions["latents"],
-                                num_frames=latent_conditions["num_frames"],
-                                height=latent_conditions["height"],
-                                width=latent_conditions["width"],
-                                patch_size = 1,
-                                patch_size_t = 1
-                            )
+                            # target latent patchified
+                          
                             # pose information latent 
                             latent_conditions.update({"noisy_latents": latent_final["latents"]})
                             latent_conditions.update({"noisy_latents_residual":noisy_latents_residual["latents"]})
@@ -874,6 +867,15 @@ class Trainer:
                     target = prepare_target(
                         scheduler=self.scheduler, noise=noise, latents=latent_conditions["latents"]
                     )
+
+                    if self.pose_condition:
+                        # patchify target
+                        target = post_conditioned_latent_patchify(latents=target,
+                                                                            num_frames=latent_conditions["num_frames"],
+                                                                            height=latent_conditions["height"],
+                                                                            width=latent_conditions["width"],
+                                                                            patch_size = 1,
+                                                                            patch_size_t = 1)["latents"]
 
                     loss = weights.float() * (pred["latents"].float() - target.float()).pow(2)
                     # Average loss across all but batch dimension
