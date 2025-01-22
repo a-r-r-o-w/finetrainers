@@ -825,6 +825,15 @@ class Trainer:
                                                                             width=latent_conditions["width"],
                                                                             patch_size = 1,
                                                                             patch_size_t = 1)
+                            # target
+                            latent_conditions["latents"] = post_conditioned_latent_patchify(
+                                latents=latent_conditions["latents"],
+                                num_frames=latent_conditions["num_frames"],
+                                height=latent_conditions["height"],
+                                width=latent_conditions["width"],
+                                patch_size = 1,
+                                patch_size_t = 1
+                            )
                             # pose information latent 
                             latent_conditions.update({"noisy_latents": latent_final["latents"]})
                             latent_conditions.update({"noisy_latents_residual":noisy_latents_residual["latents"]})
