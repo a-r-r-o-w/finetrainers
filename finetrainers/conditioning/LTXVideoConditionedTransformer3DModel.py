@@ -60,6 +60,7 @@ class LTXVideoConditionedTransformer3DModel(LTXVideoTransformer3DModel):
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, **kwargs):
         # First create an empty model with the desired architecture
+        print("Pretrain Loading")
         model = cls()
         model_dict = model.state_dict()
         # # Then load the pretrained weights into it
@@ -78,90 +79,90 @@ class LTXVideoConditionedTransformer3DModel(LTXVideoTransformer3DModel):
         model.load_state_dict(model_dict)
         return model
 
-def forward(
-        self,
-        hidden_states: torch.Tensor,
-        encoder_hidden_states: torch.Tensor,
-        timestep: torch.LongTensor,
-        encoder_attention_mask: torch.Tensor,
-        residual_x: torch.Tensor,
-        num_frames: int,
-        height: int,
-        width: int,
-        rope_interpolation_scale: Optional[Tuple[float, float, float]] = None,
-        attention_kwargs: Optional[Dict[str, Any]] = None,
-        return_dict: bool = True
-    ) -> torch.Tensor:
+    def forward(
+            self,
+            hidden_states: torch.Tensor,
+            encoder_hidden_states: torch.Tensor,
+            timestep: torch.LongTensor,
+            encoder_attention_mask: torch.Tensor,
+            residual_x: torch.Tensor,
+            num_frames: int,
+            height: int,
+            width: int,
+            rope_interpolation_scale: Optional[Tuple[float, float, float]] = None,
+            attention_kwargs: Optional[Dict[str, Any]] = None,
+            return_dict: bool = True
+        ) -> torch.Tensor:
 
-        image_rotary_emb = self.rope(hidden_states, num_frames, height, width, rope_interpolation_scale)
+            image_rotary_emb = self.rope(hidden_states, num_frames, height, width, rope_interpolation_scale)
 
-        # convert encoder_attention_mask to a bias the same way we do for attention_mask
-        if encoder_attention_mask is not None and encoder_attention_mask.ndim == 2:
-            encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
-            encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
+            # convert encoder_attention_mask to a bias the same way we do for attention_mask
+            if encoder_attention_mask is not None and encoder_attention_mask.ndim == 2:
+                encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
+                encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
 
-        batch_size = hidden_states.size(0)
+            batch_size = hidden_states.size(0)
 
-        # inject the condition and the residual then project it into the pretrained proj_in
-        hidden_states = self.adapter(residual_x=residual_x,
-                                     conditioned_x=hidden_states)
+            # inject the condition and the residual then project it into the pretrained proj_in
+            hidden_states = self.adapter(residual_x=residual_x,
+                                        conditioned_x=hidden_states)
 
-        hidden_states = self.proj_in(hidden_states)
+            hidden_states = self.proj_in(hidden_states)
 
-        temb, embedded_timestep = self.time_embed(
-            timestep.flatten(),
-            batch_size=batch_size,
-            hidden_dtype=hidden_states.dtype,
-        )
+            temb, embedded_timestep = self.time_embed(
+                timestep.flatten(),
+                batch_size=batch_size,
+                hidden_dtype=hidden_states.dtype,
+            )
 
-        temb = temb.view(batch_size, -1, temb.size(-1))
-        embedded_timestep = embedded_timestep.view(batch_size, -1, embedded_timestep.size(-1))
+            temb = temb.view(batch_size, -1, temb.size(-1))
+            embedded_timestep = embedded_timestep.view(batch_size, -1, embedded_timestep.size(-1))
 
-        encoder_hidden_states = self.caption_projection(encoder_hidden_states)
-        encoder_hidden_states = encoder_hidden_states.view(batch_size, -1, hidden_states.size(-1))
+            encoder_hidden_states = self.caption_projection(encoder_hidden_states)
+            encoder_hidden_states = encoder_hidden_states.view(batch_size, -1, hidden_states.size(-1))
 
-        for block in self.transformer_blocks:
-            if torch.is_grad_enabled() and self.gradient_checkpointing:
+            for block in self.transformer_blocks:
+                if torch.is_grad_enabled() and self.gradient_checkpointing:
 
-                def create_custom_forward(module, return_dict=None):
-                    def custom_forward(*inputs):
-                        if return_dict is not None:
-                            return module(*inputs, return_dict=return_dict)
-                        else:
-                            return module(*inputs)
+                    def create_custom_forward(module, return_dict=None):
+                        def custom_forward(*inputs):
+                            if return_dict is not None:
+                                return module(*inputs, return_dict=return_dict)
+                            else:
+                                return module(*inputs)
 
-                    return custom_forward
+                        return custom_forward
 
-                ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
-                hidden_states = torch.utils.checkpoint.checkpoint(
-                    create_custom_forward(block),
-                    hidden_states,
-                    encoder_hidden_states,
-                    temb,
-                    image_rotary_emb,
-                    encoder_attention_mask,
-                    **ckpt_kwargs,
-                )
-            else:
-                hidden_states = block(
-                    hidden_states=hidden_states,
-                    encoder_hidden_states=encoder_hidden_states,
-                    temb=temb,
-                    image_rotary_emb=image_rotary_emb,
-                    encoder_attention_mask=encoder_attention_mask,
-                )
+                    ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
+                    hidden_states = torch.utils.checkpoint.checkpoint(
+                        create_custom_forward(block),
+                        hidden_states,
+                        encoder_hidden_states,
+                        temb,
+                        image_rotary_emb,
+                        encoder_attention_mask,
+                        **ckpt_kwargs,
+                    )
+                else:
+                    hidden_states = block(
+                        hidden_states=hidden_states,
+                        encoder_hidden_states=encoder_hidden_states,
+                        temb=temb,
+                        image_rotary_emb=image_rotary_emb,
+                        encoder_attention_mask=encoder_attention_mask,
+                    )
 
-        scale_shift_values = self.scale_shift_table[None, None] + embedded_timestep[:, :, None]
-        shift, scale = scale_shift_values[:, :, 0], scale_shift_values[:, :, 1]
+            scale_shift_values = self.scale_shift_table[None, None] + embedded_timestep[:, :, None]
+            shift, scale = scale_shift_values[:, :, 0], scale_shift_values[:, :, 1]
 
-        hidden_states = self.norm_out(hidden_states)
-        hidden_states = hidden_states * (1 + scale) + shift
-        output = self.proj_out(hidden_states)
+            hidden_states = self.norm_out(hidden_states)
+            hidden_states = hidden_states * (1 + scale) + shift
+            output = self.proj_out(hidden_states)
 
 
-        if not return_dict:
-            return (output,)
-        return Transformer2DModelOutput(sample=output)
+            if not return_dict:
+                return (output,)
+            return Transformer2DModelOutput(sample=output)
 
 
 def apply_rotary_emb(x, freqs):

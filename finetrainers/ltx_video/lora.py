@@ -210,6 +210,33 @@ def collate_fn_t2v(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torc
     }
 
 
+def conditioned_forward_pass(
+    transformer: LTXVideoConditionedTransformer3DModel,
+    prompt_embeds: torch.Tensor,
+    prompt_attention_mask: torch.Tensor,
+    latents: torch.Tensor,
+    noisy_latents: torch.Tensor,
+    timesteps: torch.LongTensor,
+    num_frames: int,
+    height: int,
+    width: int,
+    **kwargs,
+) -> torch.Tensor:
+    rope_interpolation_scale = [1 / 25, 32, 32]
+
+    denoised_latents = transformer(
+        hidden_states=noisy_latents,
+        encoder_hidden_states=prompt_embeds,
+        timestep=timesteps,
+        encoder_attention_mask=prompt_attention_mask,
+        num_frames=num_frames,
+        height=height,
+        width=width,
+        rope_interpolation_scale=rope_interpolation_scale,
+        return_dict=False,
+    )[0]
+
+    return {"latents": denoised_latents}
 
 def forward_pass(
     transformer: LTXVideoTransformer3DModel,

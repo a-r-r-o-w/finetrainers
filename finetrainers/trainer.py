@@ -145,12 +145,14 @@ class Trainer:
         if not self.args.precompute_conditions:
             condition_components = self.model_config["load_condition_models"](**load_components_kwargs)
             latent_components = self.model_config["load_latent_models"](**load_components_kwargs)
-            diffusion_components = self.model_config["load_diffusion_models"](**load_components_kwargs)
+            # bug
+            #diffusion_components = self.model_config["load_diffusion_models"](**load_components_kwargs)
 
         components = {}
         components.update(condition_components)
         components.update(latent_components)
-        components.update(diffusion_components)
+        #bug
+        #components.update(diffusion_components)
         self._set_components(components)
 
         if self.vae is not None:
@@ -817,6 +819,13 @@ class Trainer:
                                                                             patch_size = 1,
                                                                             patch_size_t = 1)
                             
+                            noisy_latents_residual = post_conditioned_latent_patchify(latents=noisy_latents,
+                                                                            num_frames=latent_conditions["num_frames"],
+                                                                            height=latent_conditions["height"],
+                                                                            width=latent_conditions["width"],
+                                                                            patch_size = 1,
+                                                                            patch_size_t = 1)
+                            # pose information latent 
                             latent_conditions.update({"noisy_latents": latent_final["latents"]})
                         else:
                             # Default to flow-matching noise addition
@@ -839,6 +848,7 @@ class Trainer:
                             transformer=self.transformer,
                             scheduler=self.scheduler,
                             timesteps=timesteps,
+                            residual_x=noisy_latents_residual,
                             **latent_conditions,
                             **text_conditions,
                         )
