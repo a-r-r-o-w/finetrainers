@@ -827,6 +827,7 @@ class Trainer:
                                                                             patch_size_t = 1)
                             # pose information latent 
                             latent_conditions.update({"noisy_latents": latent_final["latents"]})
+                            latent_conditions.update({"noisy_latents_residual":noisy_latents_residual["latents"]})
                         else:
                             # Default to flow-matching noise addition
                             noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
@@ -848,7 +849,6 @@ class Trainer:
                             transformer=self.transformer,
                             scheduler=self.scheduler,
                             timesteps=timesteps,
-                            residual_x=noisy_latents_residual,
                             **latent_conditions,
                             **text_conditions,
                         )

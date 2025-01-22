@@ -220,10 +220,11 @@ def conditioned_forward_pass(
     num_frames: int,
     height: int,
     width: int,
+    noisy_latents_residual:torch.Tensor,
     **kwargs,
 ) -> torch.Tensor:
     rope_interpolation_scale = [1 / 25, 32, 32]
-
+   
     denoised_latents = transformer(
         hidden_states=noisy_latents,
         encoder_hidden_states=prompt_embeds,
@@ -234,6 +235,7 @@ def conditioned_forward_pass(
         width=width,
         rope_interpolation_scale=rope_interpolation_scale,
         return_dict=False,
+        residual_x=noisy_latents_residual,
     )[0]
 
     return {"latents": denoised_latents}
