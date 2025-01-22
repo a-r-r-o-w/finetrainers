@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from diffusers import LTXVideoTransformer3DModel
-from torch.utils import maybe_allow_in_graph
-from diffusers.models import Transformer2DModelOutput
+from diffusers.utils.torch_utils import maybe_allow_in_graph
+from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.utils import is_torch_version
 from conditioned_residual_adapter_bottleneck import ConditionedResidualAdapterBottleneck
 @maybe_allow_in_graph
