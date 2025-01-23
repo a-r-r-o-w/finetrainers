@@ -676,6 +676,7 @@ class Trainer:
                             if random.random() < self.args.caption_dropout_p:
                                 prompts = [""] * batch_size
                         if self.pose_condition == True:
+                            # this is vae output of target video
                             latent_conditions = condition_latents_prepare.prepare_latents_for_conditioning(
                                 vae=self.vae,
                                 image_or_video=videos,
@@ -726,7 +727,7 @@ class Trainer:
                     latent_conditions = make_contiguous(latent_conditions)
 
                     if self.pose_condition:
-                        # VAE output not patchified yet.
+                        # Pose Template VAE.
                         pose_video_latents = condition_latents_prepare.prepare_latents_for_conditioning(
                                 vae=self.vae,
                                 image_or_video=poses,
@@ -739,6 +740,7 @@ class Trainer:
 
                         pose_video_latents = make_contiguous(pose_video_latents)
 
+                        # Image Ref VAE.
                         img_refs_latents = condition_latents_prepare.prepare_latents_for_conditioning(
                                 vae=self.vae,
                                 image_or_video=img_refs,
@@ -751,8 +753,6 @@ class Trainer:
 
                         img_refs_latents = make_contiguous(img_refs_latents)
 
-                         
-                        
                     text_conditions = make_contiguous(text_conditions)
 
                     if self.args.caption_dropout_technique == "zero":
@@ -776,13 +776,14 @@ class Trainer:
                         device=accelerator.device,
                         generator=self.state.generator,
                     )
+
                     timesteps = (sigmas * 1000.0).long()
                   
                     noise = torch.randn(
-                            latent_conditions["latents"].shape,
-                            generator=self.state.generator,
-                            device=accelerator.device,
-                            dtype=weight_dtype,
+                        latent_conditions["latents"].shape,
+                        generator=self.state.generator,
+                        device=accelerator.device,
+                        dtype=weight_dtype,
                     )
 
                     sigmas = expand_tensor_dims(sigmas, ndim=noise.ndim)
@@ -797,38 +798,41 @@ class Trainer:
                             timesteps=timesteps,
                         )
                     else:
-                      
                         if self.pose_condition:
+                            # Note in pose mode all shapes are VAE output shape and not patchified until the end
                             # condition with the pose information
 
                             # normalize and patchify 
                             # create noise for latent to feed diffusion transformer to get pred noise
-                            noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
-                            noisy_latents = noisy_latents.to(latent_conditions["latents"].dtype)
+                            target_video_latents = latent_conditions["latents"]
+                            noisy_latents = (1.0 - sigmas) * target_video_latents + sigmas * noise
+                            noisy_latents = noisy_latents.to(target_video_latents.dtype)
+
                             # add pose information to both channels
                             pose_noisy_latents = noisy_latents + pose_video_latents["latents"]
                             pose_img_ref_latents = img_refs_latents["latents"] + pose_video_latents["latents"]
-                            # expand channel information # B x 2C  latent will be projected to adapter to scale it back to 128d
-                            latent_final = torch.cat([pose_img_ref_latents,pose_noisy_latents], dim=1)
+                            
+                            # expand channel information # B x 2C  latent will be projected to adapter to scale it back to 128d using adapter.
+                            pose_img_ref_latents = torch.cat([pose_img_ref_latents,pose_noisy_latents], dim=1)
                             # project this turn into patches
 
-                            latent_final = post_conditioned_latent_patchify(latents=latent_final,
+                            pose_img_ref_latents = post_conditioned_latent_patchify(latents=pose_img_ref_latents,
                                                                             num_frames=latent_conditions["num_frames"],
                                                                             height=latent_conditions["height"],
                                                                             width=latent_conditions["width"],
                                                                             patch_size = 1,
                                                                             patch_size_t = 1)
-                            
+                            # target video as a input residual
                             noisy_latents_residual = post_conditioned_latent_patchify(latents=noisy_latents,
                                                                             num_frames=latent_conditions["num_frames"],
                                                                             height=latent_conditions["height"],
                                                                             width=latent_conditions["width"],
                                                                             patch_size = 1,
                                                                             patch_size_t = 1)
-                            # target latent patchified
-                          
-                            # pose information latent 
-                            latent_conditions.update({"noisy_latents": latent_final["latents"]})
+                            # Target Latent Patchified
+                            # pose template noisey input [cat] img_ref + pose video 
+                            latent_conditions.update({"noisy_latents": pose_img_ref_latents["latents"]})
+                            # input video noise at level residual information to adapter
                             latent_conditions.update({"noisy_latents_residual":noisy_latents_residual["latents"]})
                         else:
                             # Default to flow-matching noise addition

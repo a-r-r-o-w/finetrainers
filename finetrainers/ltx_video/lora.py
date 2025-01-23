@@ -66,6 +66,7 @@ def load_diffusion_models(
     return {"transformer": transformer, "scheduler": scheduler}
 
 
+    
 def initialize_pipeline(
     model_id: str = "Lightricks/LTX-Video",
     text_encoder_dtype: torch.dtype = torch.bfloat16,
@@ -269,7 +270,42 @@ def forward_pass(
 
     return {"latents": denoised_latents}
 
+def conditional_validation(
+    pipeline: LTXPipeline,
+    prompt: str,
+    image: Optional[Image.Image] = None,
+    video: Optional[List[Image.Image]] = None,
+    pose_video: Optional[List[Image.Image]] = None,
+    height: Optional[int] = None,
+    width: Optional[int] = None,
+    num_frames: Optional[int] = None,
+    frame_rate: int = 24,
+    num_videos_per_prompt: int = 1,
+    generator: Optional[torch.Generator] = None,
+    **kwargs,
+):
+    generation_kwargs = {
+        "prompt": prompt,
+        "height": height,
+        "width": width,
+        "num_frames": num_frames,
+        "frame_rate": frame_rate,
+        "num_videos_per_prompt": num_videos_per_prompt,
+        "generator": generator,
+        "return_dict": True,
+        "output_type": "pil",
+        "residual_x": None,
+    }
+    
+    # pose template ref video latent + patchify video latent.
+    # img ref patchify video latent +
+    # add them together as input 
+    # residual x latent 
 
+    generation_kwargs = {k: v for k, v in generation_kwargs.items() if v is not None}
+    video = pipeline(**generation_kwargs).frames[0]
+    
+    
 def validation(
     pipeline: LTXPipeline,
     prompt: str,

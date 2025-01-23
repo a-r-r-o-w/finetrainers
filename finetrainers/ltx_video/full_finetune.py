@@ -6,14 +6,15 @@ from .lora import (
     initialize_pipeline,
     load_condition_models,
     load_diffusion_models,
-    load_conditioned_diffusion_models,
+    load_conditioned_diffusion_models, # use this for conditioning
     load_latent_models,
     post_latent_preparation,
     prepare_conditions,
     prepare_latents,
     validation,
+    conditional_validation,
     collate_fn_t2v_cond,
-    conditioned_forward_pass
+    conditioned_forward_pass # use this for conditioning
 )
 
 
@@ -29,5 +30,5 @@ LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG = {
     "post_latent_preparation": post_latent_preparation,
     "collate_fn": collate_fn_t2v_cond,
     "forward_pass": conditioned_forward_pass,
-    "validation": validation,
+    "validation": conditional_validation,
 }

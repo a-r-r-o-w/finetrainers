@@ -78,6 +78,4 @@ def prepare_latents_for_conditioning(
     return {"latents": latents, 
             "num_frames": num_frames, 
             "height": height, 
-            "width": width, 
-            "mean":vae.latents_mean,
-            "std":vae.latents_std}
+            "width": width }
