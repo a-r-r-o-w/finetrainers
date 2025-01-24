@@ -53,6 +53,14 @@ def free_memory() -> None:
     # TODO(aryan): handle non-cuda devices
 
 
+def reset_memory_stats(device: torch.device):
+    # TODO: handle for non-cuda devices
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats(device)
+    else:
+        logger.warning("No CUDA, device found. Memory statistics are not available.")
+
+
 def make_contiguous(x: Union[torch.Tensor, Dict[str, torch.Tensor]]) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
     if isinstance(x, torch.Tensor):
         return x.contiguous()

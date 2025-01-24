@@ -54,7 +54,7 @@ from .utils.diffusion_utils import (
 )
 from .utils.file_utils import string_to_filename
 from .utils.hub_utils import save_model_card
-from .utils.memory_utils import free_memory, get_memory_statistics, make_contiguous
+from .utils.memory_utils import free_memory, get_memory_statistics, make_contiguous, reset_memory_stats
 from .utils.model_utils import resolve_vae_cls_from_ckpt_path
 from .utils.optimizer_utils import get_optimizer
 from .utils.torch_utils import align_device_and_dtype, expand_tensor_dims, unwrap_model
@@ -255,8 +255,7 @@ class Trainer:
 
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory after precomputing conditions: {json.dumps(memory_statistics, indent=4)}")
-        if torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats(accelerator.device)
+        reset_memory_stats(accelerator.device)
 
         # Precompute latents
         latent_components = self.model_config["load_latent_models"](**self._get_load_components_kwargs())
@@ -303,8 +302,7 @@ class Trainer:
 
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory after precomputing latents: {json.dumps(memory_statistics, indent=4)}")
-        if torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats(accelerator.device)
+        reset_memory_stats(accelerator.device)
 
         # Update dataloader to use precomputed conditions and latents
         self.dataloader = torch.utils.data.DataLoader(
@@ -986,8 +984,7 @@ class Trainer:
         free_memory()
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
-        if torch.cuda.is_available():
-            torch.cuda.reset_peak_memory_stats(accelerator.device)
+        reset_memory_stats(accelerator.device)
 
         if not final_validation:
             self.transformer.train()
