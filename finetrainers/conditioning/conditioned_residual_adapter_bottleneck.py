@@ -52,7 +52,6 @@ class ConditionedResidualAdapterBottleneck(nn.Module):
         # Up projection to new dimension
         hidden_states = self.up_proj(hidden_states)
         
-
         hidden_states = hidden_states + residual_x
             
         return hidden_states
