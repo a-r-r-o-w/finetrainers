@@ -30,5 +30,7 @@ class CogVideoXTester(unittest.TestCase, TrainerTestMixin):
         args.data_root = ""  # will be set from the tester method.
         args.video_resolution_buckets = [parse_resolution_bucket("9x16x16")]
         args.precompute_conditions = True
-        args.do_not_run_validation = True
+        args.validation_prompts = []
+        args.validation_heights = []
+        args.validation_widths = []
         return args

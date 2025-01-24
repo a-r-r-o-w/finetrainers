@@ -337,7 +337,6 @@ class Args:
     validation_every_n_steps: Optional[int] = None
     enable_model_cpu_offload: bool = False
     validation_frame_rate: int = 25
-    do_not_run_validation: bool = False
 
     # Miscellaneous arguments
     tracker_name: str = "finetrainers"
@@ -484,8 +483,7 @@ def parse_arguments() -> Args:
 def validate_args(args: Args):
     _validated_model_args(args)
     _validate_training_args(args)
-    if not args.do_not_run_validation:
-        _validate_validation_args(args)
+    _validate_validation_args(args)
 
 
 def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
