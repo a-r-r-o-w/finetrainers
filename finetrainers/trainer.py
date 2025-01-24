@@ -549,10 +549,10 @@ class Trainer:
         if self.vae_config is None:
             # If we've precomputed conditions and latents already, and are now re-using it, we will never load
             # the VAE so self.vae_config will not be set. So, we need to load it here.
-            vae_cls_name = resolve_vae_cls_from_ckpt_path(
+            vae_cls = resolve_vae_cls_from_ckpt_path(
                 self.args.pretrained_model_name_or_path, revision=self.args.revision, cache_dir=self.args.cache_dir
             )
-            vae_config = vae_cls_name.load_config(
+            vae_config = vae_cls.load_config(
                 self.args.pretrained_model_name_or_path,
                 subfolder="vae",
                 revision=self.args.revision,

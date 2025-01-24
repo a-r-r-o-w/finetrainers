@@ -205,7 +205,10 @@ def forward_pass(
     **kwargs,
 ) -> torch.Tensor:
     # TODO(aryan): make configurable
-    rope_interpolation_scale = [1 / 25, 32, 32]
+    frame_rate = 25
+    latent_frame_rate = frame_rate / 8
+    spatial_compression_ratio = 32
+    rope_interpolation_scale = [1 / latent_frame_rate, spatial_compression_ratio, spatial_compression_ratio]
 
     denoised_latents = transformer(
         hidden_states=noisy_latents,
