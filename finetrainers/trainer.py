@@ -54,7 +54,13 @@ from .utils.diffusion_utils import (
 )
 from .utils.file_utils import string_to_filename
 from .utils.hub_utils import save_model_card
-from .utils.memory_utils import free_memory, get_memory_statistics, make_contiguous, reset_memory_stats
+from .utils.memory_utils import (
+    free_memory,
+    get_memory_statistics,
+    make_contiguous,
+    reset_memory_stats,
+    synchornize_device,
+)
 from .utils.model_utils import resolve_vae_cls_from_ckpt_path
 from .utils.optimizer_utils import get_optimizer
 from .utils.torch_utils import align_device_and_dtype, expand_tensor_dims, unwrap_model
@@ -1107,8 +1113,7 @@ class Trainer:
         self.vae = None
         self.scheduler = None
         free_memory()
-        if torch.cuda.is_available():
-            torch.cuda.synchronize(self.state.accelerator.device)
+        synchornize_device(self.state.accelerator.device)
 
     def _get_and_prepare_pipeline_for_validation(self, final_validation: bool = False) -> DiffusionPipeline:
         accelerator = self.state.accelerator

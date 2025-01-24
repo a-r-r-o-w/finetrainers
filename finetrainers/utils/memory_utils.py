@@ -58,7 +58,14 @@ def reset_memory_stats(device: torch.device):
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats(device)
     else:
-        logger.warning("No CUDA, device found. Memory statistics are not available.")
+        logger.warning("No CUDA, device found. Nothing to reset memory of.")
+
+
+def synchornize_device(device: torch.device):
+    if torch.cuda.is_available():
+        torch.cuda.synchronize(device)
+    else:
+        logger.warning("No CUDA, device found. Nothing to synchronize.")
 
 
 def make_contiguous(x: Union[torch.Tensor, Dict[str, torch.Tensor]]) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
