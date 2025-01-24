@@ -9,35 +9,33 @@ logger = get_logger("finetrainers")
 
 
 def get_memory_statistics(precision: int = 3) -> Dict[str, Any]:
-    memory_allocated = None
-    memory_reserved = None
-    max_memory_allocated = None
-    max_memory_reserved = None
+    memory_stats = {
+        "memory_allocated": None,
+        "memory_reserved": None,
+        "max_memory_allocated": None,
+        "max_memory_reserved": None,
+    }
 
     if torch.cuda.is_available():
         device = torch.cuda.current_device()
-        memory_allocated = torch.cuda.memory_allocated(device)
-        memory_reserved = torch.cuda.memory_reserved(device)
-        max_memory_allocated = torch.cuda.max_memory_allocated(device)
-        max_memory_reserved = torch.cuda.max_memory_reserved(device)
+        memory_stats.update(
+            {
+                "memory_allocated": torch.cuda.memory_allocated(device),
+                "memory_reserved": torch.cuda.memory_reserved(device),
+                "max_memory_allocated": torch.cuda.max_memory_allocated(device),
+                "max_memory_reserved": torch.cuda.max_memory_reserved(device),
+            }
+        )
 
     elif torch.backends.mps.is_available():
-        memory_allocated = torch.mps.current_allocated_memory()
+        memory_stats["memory_allocated"] = torch.mps.current_allocated_memory()
 
     else:
         logger.warning("No CUDA, MPS, or ROCm device found. Memory statistics are not available.")
 
     return {
-        "memory_allocated": round(bytes_to_gigabytes(memory_allocated), ndigits=precision)
-        if memory_allocated
-        else None,
-        "memory_reserved": round(bytes_to_gigabytes(memory_reserved), ndigits=precision) if memory_reserved else None,
-        "max_memory_allocated": round(bytes_to_gigabytes(max_memory_allocated), ndigits=precision)
-        if max_memory_allocated
-        else None,
-        "max_memory_reserved": round(bytes_to_gigabytes(max_memory_reserved), ndigits=precision)
-        if max_memory_reserved
-        else None,
+        key: (round(bytes_to_gigabytes(value), ndigits=precision) if value else None)
+        for key, value in memory_stats.items()
     }
 
 
