@@ -83,7 +83,7 @@ def initialize_pipeline(
     enable_tiling: bool = False,
     enable_model_cpu_offload: bool = False,
     **kwargs,
-) -> LTXConditionedPipeline:
+) -> LTXPipeline:
     component_name_pairs = [
         ("tokenizer", tokenizer),
         ("text_encoder", text_encoder),
@@ -96,7 +96,7 @@ def initialize_pipeline(
         if component is not None:
             components[name] = component
 
-    pipe = LTXConditionedPipeline.from_pretrained(model_id, **components, revision=revision, cache_dir=cache_dir)
+    pipe = LTXPipeline.from_pretrained(model_id, **components, revision=revision, cache_dir=cache_dir)
     pipe.text_encoder = pipe.text_encoder.to(dtype=text_encoder_dtype)
     pipe.transformer = pipe.transformer.to(dtype=transformer_dtype)
     pipe.vae = pipe.vae.to(dtype=vae_dtype)

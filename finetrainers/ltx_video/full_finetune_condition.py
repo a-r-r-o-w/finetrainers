@@ -7,6 +7,12 @@ from diffusers import FlowMatchEulerDiscreteScheduler, LTXVideoTransformer3DMode
 from finetrainers.conditioning.LTXVideoConditionedTransformer3DModel import LTXVideoConditionedTransformer3DModel
 from finetrainers.conditioning.conditioned_pipeline import LTXConditionedPipeline
 from PIL import Image
+from diffusers import LTXVideoConditionedTransformer3DModel, FlowMatchEulerDiscreteScheduler
+from finetrainers.conditioning.LTXVideoConditionedTransformer3DModel import LTXVideoConditionedTransformer3DModel
+from finetrainers.conditioning.conditioned_pipeline import LTXConditionedPipeline
+from PIL import Image
+from transformers import T5Tokenizer, T5EncoderModel,AutoencoderKLLTXVideo
+
 
 # Exisiting Pipeline
 from .lora import (
@@ -18,6 +24,53 @@ from .lora import (
     prepare_latents,
     load_condition_models
 )
+    
+def initialize_conditioned_pipeline(
+    model_id: str = "Lightricks/LTX-Video",
+    text_encoder_dtype: torch.dtype = torch.bfloat16,
+    transformer_dtype: torch.dtype = torch.bfloat16,
+    vae_dtype: torch.dtype = torch.bfloat16,
+    tokenizer: Optional[T5Tokenizer] = None,
+    text_encoder: Optional[T5EncoderModel] = None,
+    transformer: Optional[LTXVideoTransformer3DModel] = None,
+    vae: Optional[AutoencoderKLLTXVideo] = None,
+    scheduler: Optional[FlowMatchEulerDiscreteScheduler] = None,
+    device: Optional[torch.device] = None,
+    revision: Optional[str] = None,
+    cache_dir: Optional[str] = None,
+    enable_slicing: bool = False,
+    enable_tiling: bool = False,
+    enable_model_cpu_offload: bool = False,
+    **kwargs,
+) -> LTXConditionedPipeline:
+    component_name_pairs = [
+        ("tokenizer", tokenizer),
+        ("text_encoder", text_encoder),
+        ("transformer", transformer),
+        ("vae", vae),
+        ("scheduler", scheduler),
+    ]
+    components = {}
+    for name, component in component_name_pairs:
+        if component is not None:
+            components[name] = component
+
+    pipe = LTXConditionedPipeline.from_pretrained(model_id, **components, revision=revision, cache_dir=cache_dir)
+    pipe.text_encoder = pipe.text_encoder.to(dtype=text_encoder_dtype)
+    pipe.transformer = pipe.transformer.to(dtype=transformer_dtype)
+    pipe.vae = pipe.vae.to(dtype=vae_dtype)
+
+    if enable_slicing:
+        pipe.vae.enable_slicing()
+    if enable_tiling:
+        pipe.vae.enable_tiling()
+
+    if enable_model_cpu_offload:
+        pipe.enable_model_cpu_offload(device=device)
+    else:
+        pipe.to(device=device)
+
+    return pipe
 
 def load_conditioned_diffusion_models(
     model_id: str = "Lightricks/LTX-Video",
@@ -125,17 +178,16 @@ def conditional_validation(
     video = pipeline(**generation_kwargs).frames[0]
     return [("video", video)]
 
-
 LTX_VIDEO_COND_T2V_FULL_FINETUNE_CONFIG = {
-    "pipeline_cls": LTXConditionedPipeline,
+    "pipeline_cls": LTXConditionedPipeline, # override
     "load_condition_models": load_condition_models,
     "load_latent_models": load_latent_models,
-    "load_diffusion_models": load_conditioned_diffusion_models,
-    "initialize_pipeline": initialize_pipeline,
+    "load_diffusion_models": load_conditioned_diffusion_models, # override
+    "initialize_pipeline": initialize_conditioned_pipeline,
     "prepare_conditions": prepare_conditions,
     "prepare_latents": prepare_latents,
     "post_latent_preparation": post_latent_preparation,
-    "collate_fn": collate_fn_t2v_cond,
-    "forward_pass": conditioned_forward_pass,
-    "validation": conditional_validation,
+    "collate_fn": collate_fn_t2v_cond, # override
+    "forward_pass": conditioned_forward_pass, # override
+    "validation": conditional_validation, # override
 }
