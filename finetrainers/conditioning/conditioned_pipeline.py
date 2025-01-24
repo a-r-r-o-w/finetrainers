@@ -111,6 +111,8 @@ class LTXConditionedPipeline(LTXPipeline):
             prompt_attention_mask = torch.cat([negative_prompt_attention_mask, prompt_attention_mask], dim=0)
 
         # 4. Prepare latent variables
+        # it needs to be the size of the image 
+        
         num_channels_latents = self.transformer.config.in_channels
         latents = self.prepare_latents(
             batch_size * num_videos_per_prompt,
@@ -122,9 +124,12 @@ class LTXConditionedPipeline(LTXPipeline):
             device,
             generator,
             latents,
+        ) # creates noise tensor the size suggested by the user
+
+        pose_latents = self.prepare_latents(
+
         )
-        
-        
+
 
         # 5. Prepare timesteps
         latent_num_frames = (num_frames - 1) // self.vae_temporal_compression_ratio + 1

@@ -1010,6 +1010,7 @@ class Trainer:
             prompt = self.args.validation_prompts[i]
             image = self.args.validation_images[i]
             video = self.args.validation_videos[i]
+            pose_video = self.args.validation_pose_videos[i]
             height = self.args.validation_heights[i]
             width = self.args.validation_widths[i]
             num_frames = self.args.validation_num_frames[i]
@@ -1018,16 +1019,20 @@ class Trainer:
                 image = load_image(image)
             if video is not None:
                 video = load_video(video)
+            if pose_video is not None:
+                pose_video = load_video(pose_video)
 
             logger.debug(
                 f"Validating sample {i + 1}/{num_validation_samples} on process {accelerator.process_index}. Prompt: {prompt}",
                 main_process_only=False,
             )
+            
             validation_artifacts = self.model_config["validation"](
                 pipeline=pipeline,
                 prompt=prompt,
                 image=image,
                 video=video,
+                pose_video=pose_video,
                 height=height,
                 width=width,
                 num_frames=num_frames,
