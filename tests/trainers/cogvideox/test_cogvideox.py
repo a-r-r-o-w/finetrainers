@@ -20,11 +20,13 @@ def parse_resolution_bucket(resolution_bucket: str) -> Tuple[int, ...]:
 
 
 class CogVideoXTester(unittest.TestCase, TrainerTestMixin):
-    model_name = "cogvideox"
+    MODEL_NAME = "cogvideox"
+    EXPECTED_PRECOMPUTATION_LATENT_KEYS = {"latents"}
+    EXPECTED_PRECOMPUTATION_CONDITION_KEYS = {"prompt_embeds"}
 
     def get_training_args(self):
         args = Args()
-        args.model_name = self.model_name
+        args.model_name = self.MODEL_NAME
         args.training_type = "lora"
         args.pretrained_model_name_or_path = "finetrainers/dummy-cogvideox"
         args.data_root = ""  # will be set from the tester method.
@@ -34,3 +36,17 @@ class CogVideoXTester(unittest.TestCase, TrainerTestMixin):
         args.validation_heights = []
         args.validation_widths = []
         return args
+
+    @property
+    def latent_output_shape(self):
+        return (8, 3, 2, 2)
+
+    @property
+    def condition_output_shape(self):
+        return (226, 32)
+
+    def populate_shapes(self):
+        for k in self.EXPECTED_PRECOMPUTATION_LATENT_KEYS:
+            self.EXPECTED_LATENT_SHAPES[k] = self.latent_output_shape
+        for k in self.EXPECTED_PRECOMPUTATION_CONDITION_KEYS:
+            self.EXPECTED_CONDITION_SHAPES[k] = self.condition_output_shape
