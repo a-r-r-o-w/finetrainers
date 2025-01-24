@@ -22,7 +22,7 @@ ACCELERATE_CONFIG_FILE="accelerate_configs/deepspeed.yaml"
 # This example assumes you downloaded an already prepared dataset from HF CLI as follows:
 #   huggingface-cli download --repo-type dataset Wild-Heart/Disney-VideoGeneration-Dataset --local-dir /path/to/my/datasets/disney-dataset
 DATA_ROOT="/path/to/my/datasets/video-dataset-disney"
-CAPTION_COLUMN="prompts.txt"
+CAPTION_COLUMN="prompt.txt"
 VIDEO_COLUMN="videos.txt"
 MODEL_PATH="THUDM/CogVideoX1.5-5B-I2V"
 

@@ -40,7 +40,7 @@ fi
 # Run models
 ######################################################
 
-Define models to test
+# Define models to test
 models=("dummy_ltx_video_lora" "dummy_cogvideox_lora" "dummy_hunyuanvideo_lora")
 for model_script in "${models[@]}"; do
     echo "Running $model_script test..."
