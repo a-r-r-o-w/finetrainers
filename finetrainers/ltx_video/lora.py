@@ -5,12 +5,11 @@ import torch.nn as nn
 from accelerate.logging import get_logger
 from diffusers import AutoencoderKLLTXVideo, FlowMatchEulerDiscreteScheduler, LTXPipeline, LTXVideoTransformer3DModel
 from finetrainers.conditioning.LTXVideoConditionedTransformer3DModel import LTXVideoConditionedTransformer3DModel
+from finetrainers.conditioning.conditioned_pipeline import LTXConditionedPipeline
 from PIL import Image
 from transformers import T5EncoderModel, T5Tokenizer
 
-
 logger = get_logger("finetrainers")  # pylint: disable=invalid-name
-
 
 def load_condition_models(
     model_id: str = "Lightricks/LTX-Video",
@@ -38,9 +37,9 @@ def load_latent_models(
     )
     return {"vae": vae}
 
-def load_conditioned_diffusion_models(
+def load_condition_models(
     model_id: str = "Lightricks/LTX-Video",
-    transformer_dtype: torch.dtype = torch.bfloat16,
+    text_encoder_dtype: torch.dtype = torch.bfloat16,
     revision: Optional[str] = None,
     cache_dir: Optional[str] = None,
     **kwargs,
@@ -84,7 +83,7 @@ def initialize_pipeline(
     enable_tiling: bool = False,
     enable_model_cpu_offload: bool = False,
     **kwargs,
-) -> LTXPipeline:
+) -> LTXConditionedPipeline:
     component_name_pairs = [
         ("tokenizer", tokenizer),
         ("text_encoder", text_encoder),
@@ -97,7 +96,7 @@ def initialize_pipeline(
         if component is not None:
             components[name] = component
 
-    pipe = LTXPipeline.from_pretrained(model_id, **components, revision=revision, cache_dir=cache_dir)
+    pipe = LTXConditionedPipeline.from_pretrained(model_id, **components, revision=revision, cache_dir=cache_dir)
     pipe.text_encoder = pipe.text_encoder.to(dtype=text_encoder_dtype)
     pipe.transformer = pipe.transformer.to(dtype=transformer_dtype)
     pipe.vae = pipe.vae.to(dtype=vae_dtype)
@@ -196,14 +195,6 @@ def post_latent_preparation(
     return {"latents": latents, "num_frames": num_frames, "height": height, "width": width}
 
 
-def collate_fn_t2v_cond(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torch.Tensor]:
-    return {
-        "prompts": [x["prompt"] for x in batch[0]],
-        "videos": torch.stack([x["video"] for x in batch[0]]),
-        "poses": torch.stack([x["pose"] for x in batch[0]]),
-        "img_refs": torch.stack([x["img_ref"] for x in batch[0]])
-    }
-
 def collate_fn_t2v(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torch.Tensor]:
     return {
         "prompts": [x["prompt"] for x in batch[0]],
@@ -211,35 +202,6 @@ def collate_fn_t2v(batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torc
     }
 
 
-def conditioned_forward_pass(
-    transformer: LTXVideoConditionedTransformer3DModel,
-    prompt_embeds: torch.Tensor,
-    prompt_attention_mask: torch.Tensor,
-    latents: torch.Tensor,
-    noisy_latents: torch.Tensor,
-    timesteps: torch.LongTensor,
-    num_frames: int,
-    height: int,
-    width: int,
-    noisy_latents_residual:torch.Tensor,
-    **kwargs,
-) -> torch.Tensor:
-    rope_interpolation_scale = [1 / 25, 32, 32]
-   
-    denoised_latents = transformer(
-        hidden_states=noisy_latents,
-        encoder_hidden_states=prompt_embeds,
-        timestep=timesteps,
-        encoder_attention_mask=prompt_attention_mask,
-        num_frames=num_frames,
-        height=height,
-        width=width,
-        rope_interpolation_scale=rope_interpolation_scale,
-        return_dict=False,
-        residual_x=noisy_latents_residual,
-    )[0]
-
-    return {"latents": denoised_latents}
 
 def forward_pass(
     transformer: LTXVideoTransformer3DModel,
@@ -270,45 +232,7 @@ def forward_pass(
 
     return {"latents": denoised_latents}
 
-def conditional_validation(
-    pipeline: LTXPipeline,
-    prompt: str,
-    image: Optional[Image.Image] = None,
-    video: Optional[List[Image.Image]] = None,
-    pose_video: Optional[List[Image.Image]] = None,
-    image_ref_video: Optional[List[Image.Image]] = None,
-    height: Optional[int] = None,
-    width: Optional[int] = None,
-    num_frames: Optional[int] = None,
-    frame_rate: int = 24,
-    num_videos_per_prompt: int = 1,
-    generator: Optional[torch.Generator] = None,
-    **kwargs,
-):
-    generation_kwargs = {
-        "prompt": prompt,
-        "height": height,
-        "width": width,
-        "num_frames": num_frames,
-        "frame_rate": frame_rate,
-        "num_videos_per_prompt": num_videos_per_prompt,
-        "generator": generator,
-        "return_dict": True,
-        "output_type": "pil",
-        "pose_video": pose_video,
-        "image_ref_video": image_ref_video,
-    }
-    # pose template noisey input [cat] img_ref + pose video 
-      
-    # pose template ref video latent + patchify video latent.
-    # img ref patchify video latent +
-    # add them together as input 
-    # residual x latent 
 
-    generation_kwargs = {k: v for k, v in generation_kwargs.items() if v is not None}
-    video = pipeline(**generation_kwargs).frames[0]
-    
-    
 def validation(
     pipeline: LTXPipeline,
     prompt: str,
