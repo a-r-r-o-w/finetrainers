@@ -1,6 +1,7 @@
 from pathlib import Path
-from typing import Union
+from typing import Any, Union
 
+import torch
 from accelerate.logging import get_logger
 
 from ..constants import PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME
@@ -33,3 +34,18 @@ def should_perform_precomputation(precomputation_dir: Union[str, Path]) -> bool:
             return False
     logger.info("Precomputed data not found. Running precomputation.")
     return True
+
+
+def determine_batch_size(x: Any) -> int:
+    if isinstance(x, list):
+        return len(x)
+    if isinstance(x, torch.Tensor):
+        return x.size(0)
+    if isinstance(x, dict):
+        for key in x:
+            try:
+                return determine_batch_size(x[key])
+            except ValueError:
+                pass
+        return 1
+    raise ValueError("Could not determine batch size from input.")

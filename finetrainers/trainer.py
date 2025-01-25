@@ -2,7 +2,6 @@ import json
 import logging
 import math
 import os
-import random
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List
@@ -22,7 +21,6 @@ from accelerate.utils import (
     set_seed,
 )
 from diffusers import DiffusionPipeline
-from diffusers.configuration_utils import FrozenDict
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import cast_training_params
@@ -32,6 +30,7 @@ from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dic
 from tqdm import tqdm
 
 from .args import Args, validate_args
+from .conditions import Condition, ConditionType, get_condition
 from .constants import (
     FINETRAINERS_LOG_LEVEL,
     PRECOMPUTED_CONDITIONS_DIR_NAME,
@@ -40,22 +39,20 @@ from .constants import (
 )
 from .dataset import BucketSampler, ImageOrVideoDatasetWithResizing, PrecomputedDataset
 from .hooks import apply_layerwise_upcasting
-from .models import get_config_from_model_name
+from .models import ModelSpecification, get_model_specifiction_cls
 from .patches import perform_peft_patches
 from .state import State
 from .utils.checkpointing import get_intermediate_ckpt_path, get_latest_ckpt_path_to_resume_from
-from .utils.data_utils import should_perform_precomputation
+from .utils.data_utils import determine_batch_size, should_perform_precomputation
 from .utils.diffusion_utils import (
     get_scheduler_alphas,
     get_scheduler_sigmas,
     prepare_loss_weights,
     prepare_sigmas,
-    prepare_target,
 )
 from .utils.file_utils import string_to_filename
 from .utils.hub_utils import save_model_card
 from .utils.memory_utils import free_memory, get_memory_statistics, make_contiguous
-from .utils.model_utils import resolve_vae_cls_from_ckpt_path
 from .utils.optimizer_utils import get_optimizer
 from .utils.torch_utils import align_device_and_dtype, expand_tensor_dims, unwrap_model
 
@@ -92,13 +89,18 @@ class Trainer:
         # Scheduler
         self.scheduler = None
 
-        self.transformer_config = None
-        self.vae_config = None
+        # Trainer-specific conditions
+        self.caption_preprocessing_conditions: List[Condition] = []
+        self.caption_postprocessing_conditions: List[Condition] = []
+
+        self.state.model_name = self.args.model_name
+        self.state.conditions = self.args.conditions
 
         self._init_distributed()
         self._init_logging()
         self._init_directories_and_repositories()
         self._init_config_options()
+        self._init_non_model_conditions()
 
         # Peform any patches needed for training
         if len(self.args.layerwise_upcasting_modules) > 0:
@@ -107,8 +109,25 @@ class Trainer:
         # if any(["text_encoder" in component_name for component_name in self.args.layerwise_upcasting_modules]):
         #     perform_text_encoder_patches()
 
-        self.state.model_name = self.args.model_name
-        self.model_config = get_config_from_model_name(self.args.model_name, self.args.training_type)
+        model_specification_cls = get_model_specifiction_cls(self.args.model_name, self.args.training_type)
+        self.model_specification: ModelSpecification = model_specification_cls(
+            pretrained_model_name_or_path=self.args.pretrained_model_name_or_path,
+            tokenizer_id=self.args.tokenizer_id,
+            tokenizer_2_id=self.args.tokenizer_2_id,
+            tokenizer_3_id=self.args.tokenizer_3_id,
+            text_encoder_id=self.args.text_encoder_id,
+            text_encoder_2_id=self.args.text_encoder_2_id,
+            text_encoder_3_id=self.args.text_encoder_3_id,
+            transformer_id=self.args.transformer_id,
+            vae_id=self.args.vae_id,
+            text_encoder_dtype=self.args.text_encoder_dtype,
+            text_encoder_2_dtype=self.args.text_encoder_2_dtype,
+            text_encoder_3_dtype=self.args.text_encoder_3_dtype,
+            transformer_dtype=self.args.transformer_dtype,
+            vae_dtype=self.args.vae_dtype,
+            revision=self.args.revision,
+            cache_dir=self.args.cache_dir,
+        )
 
     def prepare_dataset(self) -> None:
         # TODO(aryan): Make a background process for fetching
@@ -127,7 +146,7 @@ class Trainer:
             self.dataset,
             batch_size=1,
             sampler=BucketSampler(self.dataset, batch_size=self.args.batch_size, shuffle=True),
-            collate_fn=self.model_config.get("collate_fn"),
+            collate_fn=self.model_specification.collate_fn,
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.pin_memory,
         )
@@ -135,12 +154,11 @@ class Trainer:
     def prepare_models(self) -> None:
         logger.info("Initializing models")
 
-        load_components_kwargs = self._get_load_components_kwargs()
         condition_components, latent_components, diffusion_components = {}, {}, {}
         if not self.args.precompute_conditions:
-            condition_components = self.model_config["load_condition_models"](**load_components_kwargs)
-            latent_components = self.model_config["load_latent_models"](**load_components_kwargs)
-            diffusion_components = self.model_config["load_diffusion_models"](**load_components_kwargs)
+            condition_components = self.model_specification.load_condition_models()
+            latent_components = self.model_specification.load_latent_models()
+            diffusion_components = self.model_specification.load_diffusion_models()
 
         components = {}
         components.update(condition_components)
@@ -204,7 +222,7 @@ class Trainer:
         logger.info("Precomputed conditions and latents not found. Running precomputation.")
 
         # At this point, no models are loaded, so we need to load and precompute conditions and latents
-        condition_components = self.model_config["load_condition_models"](**self._get_load_components_kwargs())
+        condition_components = self.model_specification.load_condition_models()
         self._set_components(condition_components)
         self._move_components_to_device()
         self._disable_grad_for_components([self.text_encoder, self.text_encoder_2, self.text_encoder_3])
@@ -236,7 +254,7 @@ class Trainer:
                 f"Precomputing conditions for batch {i + 1}/{len(self.dataset)} on process {accelerator.process_index}"
             )
 
-            text_conditions = self.model_config["prepare_conditions"](
+            text_conditions = self.model_specification.prepare_conditions(
                 tokenizer=self.tokenizer,
                 tokenizer_2=self.tokenizer_2,
                 tokenizer_3=self.tokenizer_3,
@@ -244,8 +262,6 @@ class Trainer:
                 text_encoder_2=self.text_encoder_2,
                 text_encoder_3=self.text_encoder_3,
                 prompt=data["prompt"],
-                device=accelerator.device,
-                dtype=self.args.transformer_dtype,
             )
             filename = conditions_dir / f"conditions-{accelerator.process_index}-{index}.pt"
             torch.save(text_conditions, filename.as_posix())
@@ -258,7 +274,7 @@ class Trainer:
         torch.cuda.reset_peak_memory_stats(accelerator.device)
 
         # Precompute latents
-        latent_components = self.model_config["load_latent_models"](**self._get_load_components_kwargs())
+        latent_components = self.model_specification.load_latent_models()
         self._set_components(latent_components)
         self._move_components_to_device()
         self._disable_grad_for_components([self.vae])
@@ -283,11 +299,11 @@ class Trainer:
                 f"Precomputing latents for batch {i + 1}/{len(self.dataset)} on process {accelerator.process_index}"
             )
 
-            latent_conditions = self.model_config["prepare_latents"](
+            image_or_video_key = "video" if "video" in data else "image"
+            image_or_video = data[image_or_video_key].unsqueeze(0)
+            latent_conditions = self.model_specification.prepare_latents(
                 vae=self.vae,
-                image_or_video=data["video"].unsqueeze(0),
-                device=accelerator.device,
-                dtype=self.args.transformer_dtype,
+                image_or_video=image_or_video,
                 generator=self.state.generator,
                 precompute=True,
             )
@@ -319,8 +335,9 @@ class Trainer:
     def prepare_trainable_parameters(self) -> None:
         logger.info("Initializing trainable parameters")
 
-        diffusion_components = self.model_config["load_diffusion_models"](**self._get_load_components_kwargs())
-        self._set_components(diffusion_components)
+        if self.args.precompute_conditions:
+            diffusion_components = self.model_specification.load_diffusion_models()
+            self._set_components(diffusion_components)
 
         components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.vae]
         self._disable_grad_for_components(components)
@@ -387,7 +404,7 @@ class Trainer:
                         weights.pop()
 
                 if self.args.training_type == "lora":
-                    self.model_config["pipeline_cls"].save_lora_weights(
+                    self.model_specification.pipeline_cls.save_lora_weights(
                         output_dir,
                         transformer_lora_layers=transformer_lora_layers_to_save,
                     )
@@ -420,7 +437,7 @@ class Trainer:
                         self.args.pretrained_model_name_or_path, subfolder="transformer"
                     )
                     transformer_.add_adapter(transformer_lora_config)
-                    lora_state_dict = self.model_config["pipeline_cls"].lora_state_dict(input_dir)
+                    lora_state_dict = self.model_specification.pipeline_cls.lora_state_dict(input_dir)
                     transformer_state_dict = {
                         f'{k.replace("transformer.", "")}': v
                         for k, v in lora_state_dict.items()
@@ -546,20 +563,6 @@ class Trainer:
         memory_statistics = get_memory_statistics()
         logger.info(f"Memory before training start: {json.dumps(memory_statistics, indent=4)}")
 
-        if self.vae_config is None:
-            # If we've precomputed conditions and latents already, and are now re-using it, we will never load
-            # the VAE so self.vae_config will not be set. So, we need to load it here.
-            vae_cls = resolve_vae_cls_from_ckpt_path(
-                self.args.pretrained_model_name_or_path, revision=self.args.revision, cache_dir=self.args.cache_dir
-            )
-            vae_config = vae_cls.load_config(
-                self.args.pretrained_model_name_or_path,
-                subfolder="vae",
-                revision=self.args.revision,
-                cache_dir=self.args.cache_dir,
-            )
-            self.vae_config = FrozenDict(**vae_config)
-
         # In some cases, the scheduler needs to be loaded with specific config (e.g. in CogVideoX). Since we need
         # to able to load all diffusion components from a specific checkpoint folder during validation, we need to
         # ensure the scheduler config is serialized as well.
@@ -636,65 +639,71 @@ class Trainer:
             for step, batch in enumerate(self.dataloader):
                 logger.debug(f"Starting step {step + 1}")
                 logs = {}
+                batch_size = determine_batch_size(batch)
 
                 with accelerator.accumulate(models_to_accumulate):
                     if not self.args.precompute_conditions:
-                        videos = batch["videos"]
-                        prompts = batch["prompts"]
-                        batch_size = len(prompts)
+                        for condition in self.caption_preprocessing_conditions:
+                            batch["text"] = condition(batch["text"])
 
-                        if self.args.caption_dropout_technique == "empty":
-                            if random.random() < self.args.caption_dropout_p:
-                                prompts = [""] * batch_size
-
-                        latent_conditions = self.model_config["prepare_latents"](
+                        latent_model_conditions = self.model_specification.prepare_latents(
                             vae=self.vae,
-                            image_or_video=videos,
-                            patch_size=self.transformer_config.patch_size,
-                            patch_size_t=self.transformer_config.patch_size_t,
-                            device=accelerator.device,
-                            dtype=self.args.transformer_dtype,
                             generator=self.state.generator,
+                            precompute=False,
+                            **batch,
                         )
-                        text_conditions = self.model_config["prepare_conditions"](
+                        condition_model_conditions = self.model_specification.prepare_conditions(
                             tokenizer=self.tokenizer,
-                            text_encoder=self.text_encoder,
                             tokenizer_2=self.tokenizer_2,
+                            tokenizer_3=self.tokenizer_3,
+                            text_encoder=self.text_encoder,
                             text_encoder_2=self.text_encoder_2,
-                            prompt=prompts,
-                            device=accelerator.device,
-                            dtype=self.args.transformer_dtype,
+                            text_encoder_3=self.text_encoder_3,
+                            generator=self.state.generator,
+                            precompute=False,
+                            **batch,
                         )
                     else:
-                        latent_conditions = batch["latent_conditions"]
-                        text_conditions = batch["text_conditions"]
-                        latent_conditions["latents"] = DiagonalGaussianDistribution(
-                            latent_conditions["latents"]
+                        latent_model_conditions = batch["latent_conditions"]
+                        condition_model_conditions = batch["text_conditions"]
+                        latent_model_conditions["latents"] = DiagonalGaussianDistribution(
+                            latent_model_conditions["latents"]
                         ).sample(self.state.generator)
 
                         # This method should only be called for precomputed latents.
                         # TODO(aryan): rename this in separate PR
-                        latent_conditions = self.model_config["post_latent_preparation"](
-                            vae_config=self.vae_config,
-                            patch_size=self.transformer_config.patch_size,
-                            patch_size_t=self.transformer_config.patch_size_t,
-                            **latent_conditions,
+                        latent_model_conditions = self.model_specification.postprocess_precomputed_conditions(
+                            condition_model_conditions, latent_model_conditions
                         )
-                        align_device_and_dtype(latent_conditions, accelerator.device, self.args.transformer_dtype)
-                        align_device_and_dtype(text_conditions, accelerator.device, self.args.transformer_dtype)
-                        batch_size = latent_conditions["latents"].shape[0]
+                        align_device_and_dtype(
+                            latent_model_conditions, accelerator.device, self.args.transformer_dtype
+                        )
+                        align_device_and_dtype(
+                            condition_model_conditions, accelerator.device, self.args.transformer_dtype
+                        )
+                        batch_size = latent_model_conditions["latents"].shape[0]
 
-                    latent_conditions = make_contiguous(latent_conditions)
-                    text_conditions = make_contiguous(text_conditions)
+                    latent_model_conditions = make_contiguous(latent_model_conditions)
+                    condition_model_conditions = make_contiguous(condition_model_conditions)
 
-                    if self.args.caption_dropout_technique == "zero":
-                        if random.random() < self.args.caption_dropout_p:
-                            text_conditions["prompt_embeds"].fill_(0)
-                            text_conditions["prompt_attention_mask"].fill_(False)
+                    for condition in self.caption_postprocessing_conditions:
+                        prompt_embeds = condition_model_conditions.get("prompt_embeds", None)
+                        prompt_attention_mask = condition_model_conditions.get("prompt_attention_mask", None)
+                        pooled_prompt_embeds = condition_model_conditions.get("pooled_prompt_embeds", None)
 
-                            # TODO(aryan): refactor later
-                            if "pooled_prompt_embeds" in text_conditions:
-                                text_conditions["pooled_prompt_embeds"].fill_(0)
+                        if prompt_embeds is not None:
+                            masks = []
+                            if prompt_attention_mask is not None:
+                                masks.append(prompt_attention_mask)
+                            if pooled_prompt_embeds is not None:
+                                masks.append(pooled_prompt_embeds)
+                            prompt_embeds, masks = condition(prompt_embeds, masks)
+
+                            condition_model_conditions["prompt_embeds"] = prompt_embeds
+                            if prompt_attention_mask is not None:
+                                condition_model_conditions["prompt_attention_mask"] = masks.pop(0)
+                            if pooled_prompt_embeds is not None:
+                                condition_model_conditions["pooled_prompt_embeds"] = masks.pop(0)
 
                     sigmas = prepare_sigmas(
                         scheduler=self.scheduler,
@@ -708,10 +717,9 @@ class Trainer:
                         device=accelerator.device,
                         generator=self.state.generator,
                     )
-                    timesteps = (sigmas * 1000.0).long()
 
                     noise = torch.randn(
-                        latent_conditions["latents"].shape,
+                        latent_model_conditions["latents"].shape,
                         generator=self.state.generator,
                         device=accelerator.device,
                         dtype=self.args.transformer_dtype,
@@ -720,20 +728,15 @@ class Trainer:
 
                     # TODO(aryan): We probably don't need calculate_noisy_latents because we can determine the type of
                     # scheduler and calculate the noisy latents accordingly. Look into this later.
-                    if "calculate_noisy_latents" in self.model_config.keys():
-                        noisy_latents = self.model_config["calculate_noisy_latents"](
-                            scheduler=self.scheduler,
-                            noise=noise,
-                            latents=latent_conditions["latents"],
-                            timesteps=timesteps,
-                        )
-                    else:
-                        # Default to flow-matching noise addition
-                        noisy_latents = (1.0 - sigmas) * latent_conditions["latents"] + sigmas * noise
-                        noisy_latents = noisy_latents.to(latent_conditions["latents"].dtype)
+                    pred, target = self.model_specification.forward(
+                        transformer=self.transformer,
+                        scheduler=self.scheduler,
+                        condition_model_conditions=condition_model_conditions,
+                        latent_model_conditions=latent_model_conditions,
+                        sigmas=sigmas,
+                    )
 
-                    latent_conditions.update({"noisy_latents": noisy_latents})
-
+                    timesteps = (sigmas * 1000.0).long()
                     weights = prepare_loss_weights(
                         scheduler=self.scheduler,
                         alphas=scheduler_alphas[timesteps] if scheduler_alphas is not None else None,
@@ -742,18 +745,7 @@ class Trainer:
                     )
                     weights = expand_tensor_dims(weights, noise.ndim)
 
-                    pred = self.model_config["forward_pass"](
-                        transformer=self.transformer,
-                        scheduler=self.scheduler,
-                        timesteps=timesteps,
-                        **latent_conditions,
-                        **text_conditions,
-                    )
-                    target = prepare_target(
-                        scheduler=self.scheduler, noise=noise, latents=latent_conditions["latents"]
-                    )
-
-                    loss = weights.float() * (pred["latents"].float() - target.float()).pow(2)
+                    loss = weights.float() * (pred.float() - target.float()).pow(2)
                     # Average loss across all but batch dimension
                     loss = loss.mean(list(range(1, loss.ndim)))
                     # Average loss across batch dimension
@@ -828,18 +820,19 @@ class Trainer:
                 self.validate(global_step)
 
         accelerator.wait_for_everyone()
+
         if accelerator.is_main_process:
             transformer = unwrap_model(accelerator, self.transformer)
 
             if self.args.training_type == "lora":
                 transformer_lora_layers = get_peft_model_state_dict(transformer)
-
-                self.model_config["pipeline_cls"].save_lora_weights(
+                self.model_specification.pipeline_cls.save_lora_weights(
                     save_directory=self.args.output_dir,
                     transformer_lora_layers=transformer_lora_layers,
                 )
             else:
                 transformer.save_pretrained(os.path.join(self.args.output_dir, "transformer"))
+
         accelerator.wait_for_everyone()
         self.validate(step=global_step, final_validation=True)
 
@@ -895,7 +888,7 @@ class Trainer:
                 f"Validating sample {i + 1}/{num_validation_samples} on process {accelerator.process_index}. Prompt: {prompt}",
                 main_process_only=False,
             )
-            validation_artifacts = self.model_config["validation"](
+            validation_artifacts = self.model_specification.validation(
                 pipeline=pipeline,
                 prompt=prompt,
                 image=image,
@@ -908,7 +901,7 @@ class Trainer:
                 generator=torch.Generator(device=accelerator.device).manual_seed(
                     self.args.seed if self.args.seed is not None else 0
                 ),
-                # todo support passing `fps` for supported pipelines.
+                # TODO: support passing `fps` for supported pipelines
             )
 
             prompt_filename = string_to_filename(prompt)[:25]
@@ -1049,6 +1042,17 @@ class Trainer:
         if self.args.allow_tf32 and torch.cuda.is_available():
             torch.backends.cuda.matmul.allow_tf32 = True
 
+    def _init_non_model_conditions(self) -> None:
+        if ConditionType.CAPTION_TEXT_DROPOUT in self.state.conditions:
+            params = {"dropout_p": self.args.caption_dropout_p}
+            self.caption_preprocessing_conditions.append(get_condition(ConditionType.CAPTION_TEXT_DROPOUT, params))
+            self.state.conditions.remove(ConditionType.CAPTION_TEXT_DROPOUT)
+
+        if ConditionType.CAPTION_TEXT_EMPTY in self.state.conditions:
+            params = {"dropout_p": self.args.caption_dropout_p}
+            self.caption_postprocessing_conditions.append(get_condition(ConditionType.CAPTION_TEXT_EMPTY, params))
+            self.state.conditions.remove(ConditionType.CAPTION_TEXT_EMPTY)
+
     def _move_components_to_device(self):
         if self.text_encoder is not None:
             self.text_encoder = self.text_encoder.to(self.state.accelerator.device)
@@ -1063,21 +1067,6 @@ class Trainer:
         if self.vae is not None:
             self.vae = self.vae.to(self.state.accelerator.device)
 
-    def _get_load_components_kwargs(self) -> Dict[str, Any]:
-        load_component_kwargs = {
-            "text_encoder_dtype": self.args.text_encoder_dtype,
-            "text_encoder_2_dtype": self.args.text_encoder_2_dtype,
-            "text_encoder_3_dtype": self.args.text_encoder_3_dtype,
-            "transformer_dtype": self.args.transformer_dtype,
-            "vae_dtype": self.args.vae_dtype,
-            "shift": self.args.flow_shift,
-            "revision": self.args.revision,
-            "cache_dir": self.args.cache_dir,
-        }
-        if self.args.pretrained_model_name_or_path is not None:
-            load_component_kwargs["model_id"] = self.args.pretrained_model_name_or_path
-        return load_component_kwargs
-
     def _set_components(self, components: Dict[str, Any]) -> None:
         # Set models
         self.tokenizer = components.get("tokenizer", self.tokenizer)
@@ -1090,10 +1079,6 @@ class Trainer:
         self.unet = components.get("unet", self.unet)
         self.vae = components.get("vae", self.vae)
         self.scheduler = components.get("scheduler", self.scheduler)
-
-        # Set configs
-        self.transformer_config = self.transformer.config if self.transformer is not None else self.transformer_config
-        self.vae_config = self.vae.config if self.vae is not None else self.vae_config
 
     def _delete_components(self) -> None:
         self.tokenizer = None
@@ -1111,22 +1096,22 @@ class Trainer:
 
     def _get_and_prepare_pipeline_for_validation(self, final_validation: bool = False) -> DiffusionPipeline:
         accelerator = self.state.accelerator
+
         if not final_validation:
-            pipeline = self.model_config["initialize_pipeline"](
-                model_id=self.args.pretrained_model_name_or_path,
+            pipeline = self.model_specification.load_pipeline(
                 tokenizer=self.tokenizer,
-                text_encoder=self.text_encoder,
                 tokenizer_2=self.tokenizer_2,
+                tokenizer_3=self.tokenizer_3,
+                text_encoder=self.text_encoder,
                 text_encoder_2=self.text_encoder_2,
+                text_encoder_3=self.text_encoder_3,
                 transformer=unwrap_model(accelerator, self.transformer),
                 vae=self.vae,
-                device=accelerator.device,
-                revision=self.args.revision,
-                cache_dir=self.args.cache_dir,
                 enable_slicing=self.args.enable_slicing,
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
-                is_training=True,
+                training=True,
+                device=accelerator.device,
             )
         else:
             self._delete_components()
@@ -1134,18 +1119,15 @@ class Trainer:
             # Load the transformer weights from the final checkpoint if performing full-finetune
             transformer = None
             if self.args.training_type == "full-finetune":
-                transformer = self.model_config["load_diffusion_models"](model_id=self.args.output_dir)["transformer"]
+                transformer = self.model_specification.load_diffusion_models()["transformer"]
 
-            pipeline = self.model_config["initialize_pipeline"](
-                model_id=self.args.pretrained_model_name_or_path,
+            pipeline = self.model_specification.load_pipeline(
                 transformer=transformer,
-                device=accelerator.device,
-                revision=self.args.revision,
-                cache_dir=self.args.cache_dir,
                 enable_slicing=self.args.enable_slicing,
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
-                is_training=False,
+                training=False,
+                device=accelerator.device,
             )
 
             # Load the LoRA weights if performing LoRA finetuning

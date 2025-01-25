@@ -1,3 +1,5 @@
+from typing import List
+
 import torch
 from accelerate import Accelerator
 
@@ -16,6 +18,9 @@ class State:
     train_batch_size: int = None
     generator: torch.Generator = None
     num_update_steps_per_epoch: int = None
+
+    # Conditions
+    conditions: List[str] = []
 
     # Hub state
     repo_id: str = None
