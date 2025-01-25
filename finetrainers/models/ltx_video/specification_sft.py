@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -10,8 +11,6 @@ from ..modeling_utils import ModelSpecification
 
 
 class LTXVideoModelSpecification(ModelSpecification):
-    pipeline_cls = LTXPipeline
-
     def __init__(
         self,
         pretrained_model_name_or_path: str = "Lightricks/LTX-Video",
@@ -87,6 +86,7 @@ class LTXVideoModelSpecification(ModelSpecification):
                 revision=self.revision,
                 cache_dir=self.cache_dir,
             )
+
         return {"vae": vae}
 
     def load_diffusion_models(self, *args, **kwargs) -> Dict[str, torch.nn.Module]:
@@ -321,6 +321,23 @@ class LTXVideoModelSpecification(ModelSpecification):
         generation_kwargs = get_non_null_items(generation_kwargs)
         video = pipeline(**generation_kwargs).frames[0]
         return [("video", video)]
+
+    def save_lora_weights(self, directory: str, transformer_layers: List[torch.nn.Parameter]) -> None:
+        LTXPipeline.save_lora_weights(directory, transformer_layers)
+
+    def save_model(
+        self,
+        directory: str,
+        transformer: Optional[LTXVideoTransformer3DModel] = None,
+        scheduler: Optional[FlowMatchEulerDiscreteScheduler] = None,
+        *args,
+        **kwargs,
+    ) -> None:
+        directory = Path(directory)
+        if transformer is not None:
+            transformer.save_pretrained((directory / "transformer").as_posix())
+        if scheduler is not None:
+            scheduler.save_pretrained((directory / "scheduler").as_posix())
 
     def _normalize_latents(
         latents: torch.Tensor, latents_mean: torch.Tensor, latents_std: torch.Tensor, scaling_factor: float = 1.0

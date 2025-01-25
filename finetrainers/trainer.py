@@ -404,17 +404,9 @@ class Trainer:
                         weights.pop()
 
                 if self.args.training_type == "lora":
-                    self.model_specification.pipeline_cls.save_lora_weights(
-                        output_dir,
-                        transformer_lora_layers=transformer_lora_layers_to_save,
-                    )
+                    self.model_specification.save_lora_weights(output_dir, transformer_lora_layers_to_save)
                 else:
-                    model.save_pretrained(os.path.join(output_dir, "transformer"))
-
-                    # In some cases, the scheduler needs to be loaded with specific config (e.g. in CogVideoX). Since we need
-                    # to able to load all diffusion components from a specific checkpoint folder during validation, we need to
-                    # ensure the scheduler config is serialized as well.
-                    self.scheduler.save_pretrained(os.path.join(output_dir, "scheduler"))
+                    self.model_specification.save_model(output_dir, transformer=model, scheduler=self.scheduler)
 
         def load_model_hook(models, input_dir):
             if not self.state.accelerator.distributed_type == DistributedType.DEEPSPEED:
@@ -567,7 +559,7 @@ class Trainer:
         # to able to load all diffusion components from a specific checkpoint folder during validation, we need to
         # ensure the scheduler config is serialized as well.
         if self.args.training_type == "full-finetune":
-            self.scheduler.save_pretrained(os.path.join(self.args.output_dir, "scheduler"))
+            self.model_specification.save_model(self.args.output_dir, scheduler=self.scheduler)
 
         self.state.train_batch_size = (
             self.args.batch_size * self.state.accelerator.num_processes * self.args.gradient_accumulation_steps
@@ -813,12 +805,9 @@ class Trainer:
 
             if self.args.training_type == "lora":
                 transformer_lora_layers = get_peft_model_state_dict(transformer)
-                self.model_specification.pipeline_cls.save_lora_weights(
-                    save_directory=self.args.output_dir,
-                    transformer_lora_layers=transformer_lora_layers,
-                )
+                self.model_specification.save_lora_weights(self.args.output_dir, transformer_lora_layers)
             else:
-                transformer.save_pretrained(os.path.join(self.args.output_dir, "transformer"))
+                self.model_specification.save_model(self.args.output_dir, transformer=transformer)
 
         accelerator.wait_for_everyone()
         self.validate(step=global_step, final_validation=True)

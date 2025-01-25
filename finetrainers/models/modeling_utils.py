@@ -10,8 +10,6 @@ from ..utils import get_parameter_names, resolve_component_cls
 
 
 class ModelSpecification:
-    pipeline_cls = None
-
     def __init__(
         self,
         pretrained_model_name_or_path: Optional[str] = None,
@@ -144,9 +142,6 @@ class ModelSpecification:
     ) -> Dict[str, torch.Tensor]:
         raise NotImplementedError(f"ModelSpecification::forward is not implemented for {self.__class__.__name__}")
 
-    def loss(self, *args, **kwargs) -> torch.Tensor:
-        raise NotImplementedError(f"ModelSpecification::loss is not implemented for {self.__class__.__name__}")
-
     def validation(
         self,
         pipeline: DiffusionPipeline,
@@ -160,6 +155,31 @@ class ModelSpecification:
         generator: Optional[torch.Generator] = None,
     ) -> List[Tuple[str, Union[Image, List[Image]]]]:
         raise NotImplementedError(f"ModelSpecification::validation is not implemented for {self.__class__.__name__}")
+
+    def save_lora_weights(
+        self,
+        directory: str,
+        transformer_layers: List[torch.nn.Parameter],
+        # TODO(aryan): add support for text encoders
+    ) -> None:
+        raise NotImplementedError(
+            f"ModelSpecification::save_lora_weights is not implemented for {self.__class__.__name__}"
+        )
+
+    def load_model(self) -> Dict[str, torch.nn.Module]:
+        raise NotImplementedError(f"ModelSpecification::load_model is not implemented for {self.__class__.__name__}")
+
+    def save_model(
+        self,
+        directory: str,
+        text_encoder: Optional[torch.nn.Module] = None,
+        text_encoder_2: Optional[torch.nn.Module] = None,
+        text_encoder_3: Optional[torch.nn.Module] = None,
+        transformer: Optional[torch.nn.Module] = None,
+        vae: Optional[torch.nn.Module] = None,
+        scheduler: Optional[SchedulerType] = None,
+    ) -> None:
+        raise NotImplementedError(f"ModelSpecification::save_model is not implemented for {self.__class__.__name__}")
 
     def _add_condition(self, name: str, condition: Condition) -> None:
         self.conditions[name] = condition
