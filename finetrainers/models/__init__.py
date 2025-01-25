@@ -1,8 +1,9 @@
-from typing import Any, Dict
+from typing import Any, Dict, Type
 
 from .cogvideox import COGVIDEOX_T2V_FULL_FINETUNE_CONFIG, COGVIDEOX_T2V_LORA_CONFIG
 from .hunyuan_video import HUNYUAN_VIDEO_T2V_FULL_FINETUNE_CONFIG, HUNYUAN_VIDEO_T2V_LORA_CONFIG
-from .ltx_video import LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG, LTX_VIDEO_T2V_LORA_CONFIG
+from .ltx_video import LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG, LTX_VIDEO_T2V_LORA_CONFIG, LTXVideoModelSpecification
+from .modeling_utils import ModelSpecification
 
 
 SUPPORTED_MODEL_CONFIGS = {
@@ -11,8 +12,10 @@ SUPPORTED_MODEL_CONFIGS = {
         "full-finetune": HUNYUAN_VIDEO_T2V_FULL_FINETUNE_CONFIG,
     },
     "ltx_video": {
-        "lora": LTX_VIDEO_T2V_LORA_CONFIG,
-        "full-finetune": LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG,
+        "lora": LTXVideoModelSpecification,
+        "full-finetune": LTXVideoModelSpecification,
+        # "lora": LTX_VIDEO_T2V_LORA_CONFIG,
+        # "full-finetune": LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG,
     },
     "cogvideox": {
         "lora": COGVIDEOX_T2V_LORA_CONFIG,
@@ -21,7 +24,7 @@ SUPPORTED_MODEL_CONFIGS = {
 }
 
 
-def get_config_from_model_name(model_name: str, training_type: str) -> Dict[str, Any]:
+def get_model_specifiction_cls(model_name: str, training_type: str) -> Type[ModelSpecification]:
     if model_name not in SUPPORTED_MODEL_CONFIGS:
         raise ValueError(
             f"Model {model_name} not supported. Supported models are: {list(SUPPORTED_MODEL_CONFIGS.keys())}"
