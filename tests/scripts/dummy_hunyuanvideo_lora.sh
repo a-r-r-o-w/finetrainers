@@ -15,7 +15,7 @@ model_cmd="--model_name hunyuan_video \
 dataset_cmd="--data_root $DATA_ROOT \
   --video_column $VIDEO_COLUMN \
   --caption_column $CAPTION_COLUMN \
-  --id_token afkx \
+  --id_token $ID_TOKEN \
   --video_resolution_buckets 24x512x768 \
   --caption_dropout_p 0.05"
 
