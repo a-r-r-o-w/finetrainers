@@ -15,7 +15,7 @@ from .file_utils import delete_files, find_files
 from .memory_utils import bytes_to_gigabytes, free_memory, get_memory_statistics, make_contiguous
 from .model_utils import resolve_component_cls
 from .optimizer_utils import get_optimizer, gradient_norm, max_gradient
-from .torch_utils import unwrap_model
+from .torch_utils import expand_tensor_dims, unwrap_model
 
 
 def get_parameter_names(obj: Any, method_name: Optional[str] = None) -> Set[str]:

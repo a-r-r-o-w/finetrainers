@@ -670,22 +670,17 @@ class Trainer:
                             latent_model_conditions["latents"]
                         ).sample(self.state.generator)
 
-                        # This method should only be called for precomputed latents.
-                        # TODO(aryan): rename this in separate PR
                         latent_model_conditions = self.model_specification.postprocess_precomputed_conditions(
                             condition_model_conditions, latent_model_conditions
                         )
-                        align_device_and_dtype(
-                            latent_model_conditions, accelerator.device, self.args.transformer_dtype
-                        )
-                        align_device_and_dtype(
-                            condition_model_conditions, accelerator.device, self.args.transformer_dtype
-                        )
-                        batch_size = latent_model_conditions["latents"].shape[0]
 
+                    align_device_and_dtype(latent_model_conditions, accelerator.device, self.args.transformer_dtype)
+                    align_device_and_dtype(condition_model_conditions, accelerator.device, self.args.transformer_dtype)
                     latent_model_conditions = make_contiguous(latent_model_conditions)
                     condition_model_conditions = make_contiguous(condition_model_conditions)
 
+                    # TODO(aryan): This should ideally be handled automatically in forward pass. Refactor later after
+                    # design improves a bit
                     for condition in self.caption_postprocessing_conditions:
                         prompt_embeds = condition_model_conditions.get("prompt_embeds", None)
                         prompt_attention_mask = condition_model_conditions.get("prompt_attention_mask", None)
@@ -718,14 +713,6 @@ class Trainer:
                         generator=self.state.generator,
                     )
 
-                    noise = torch.randn(
-                        latent_model_conditions["latents"].shape,
-                        generator=self.state.generator,
-                        device=accelerator.device,
-                        dtype=self.args.transformer_dtype,
-                    )
-                    sigmas = expand_tensor_dims(sigmas, ndim=noise.ndim)
-
                     # TODO(aryan): We probably don't need calculate_noisy_latents because we can determine the type of
                     # scheduler and calculate the noisy latents accordingly. Look into this later.
                     pred, target = self.model_specification.forward(
@@ -743,7 +730,7 @@ class Trainer:
                         sigmas=sigmas,
                         flow_weighting_scheme=self.args.flow_weighting_scheme,
                     )
-                    weights = expand_tensor_dims(weights, noise.ndim)
+                    weights = expand_tensor_dims(weights, pred.ndim)
 
                     loss = weights.float() * (pred.float() - target.float()).pow(2)
                     # Average loss across all but batch dimension

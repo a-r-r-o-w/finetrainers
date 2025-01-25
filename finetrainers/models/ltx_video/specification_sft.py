@@ -5,7 +5,7 @@ from diffusers import AutoencoderKLLTXVideo, FlowMatchEulerDiscreteScheduler, LT
 from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Tokenizer
 
 from ... import functional as FF
-from ...utils import get_non_null_items
+from ...utils import expand_tensor_dims, get_non_null_items
 from ..modeling_utils import ModelSpecification
 
 
@@ -262,12 +262,13 @@ class LTXVideoModelSpecification(ModelSpecification):
         generator: Optional[torch.Generator] = None,
         *args,
         **kwargs,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         latents = latent_model_conditions.pop("latents")
         noise = torch.zeros_like(latents).normal_(generator=generator)
         noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
 
+        sigmas = expand_tensor_dims(sigmas, latents.ndim)
         timesteps = (sigmas * 1000.0).long()
 
         # TODO(aryan): make this configurable
@@ -291,10 +292,7 @@ class LTXVideoModelSpecification(ModelSpecification):
         )[0]
         target = FF.flow_match_target(noise, latents)
 
-        return {
-            "pred": pred,
-            "target": target,
-        }
+        return pred, target
 
     def validation(
         self,
