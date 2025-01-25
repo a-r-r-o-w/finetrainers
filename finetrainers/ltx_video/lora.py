@@ -44,11 +44,12 @@ def load_condition_models(
     cache_dir: Optional[str] = None,
     **kwargs,
 ) -> Dict[str, nn.Module]:
-    transformer = LTXVideoConditionedTransformer3DModel.from_pretrained(
-        model_id, subfolder="transformer", torch_dtype=transformer_dtype, revision=revision, cache_dir=cache_dir
+    tokenizer = T5Tokenizer.from_pretrained(model_id, subfolder="tokenizer", revision=revision, cache_dir=cache_dir)
+    text_encoder = T5EncoderModel.from_pretrained(
+        model_id, subfolder="text_encoder", torch_dtype=text_encoder_dtype, revision=revision, cache_dir=cache_dir
     )
-    scheduler = FlowMatchEulerDiscreteScheduler()
-    return {"transformer": transformer, "scheduler": scheduler}
+    return {"tokenizer": tokenizer, "text_encoder": text_encoder}
+
 
 
 def load_diffusion_models(
