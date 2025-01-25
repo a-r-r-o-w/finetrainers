@@ -10,7 +10,6 @@ import diffusers
 import torch
 import torch.backends
 import transformers
-import wandb
 from accelerate import Accelerator, DistributedType
 from accelerate.logging import get_logger
 from accelerate.utils import (
@@ -28,6 +27,8 @@ from diffusers.utils import export_to_video, load_image, load_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from tqdm import tqdm
+
+import wandb
 
 from .args import Args, validate_args
 from .conditions import Condition, ConditionType, get_condition
@@ -94,7 +95,7 @@ class Trainer:
         self.caption_postprocessing_conditions: List[Condition] = []
 
         self.state.model_name = self.args.model_name
-        self.state.conditions = self.args.conditions
+        self.state.condition_types = self.args.conditions
 
         self._init_distributed()
         self._init_logging()
@@ -156,7 +157,7 @@ class Trainer:
 
         condition_components, latent_components, diffusion_components = {}, {}, {}
         if not self.args.precompute_conditions:
-            condition_components = self.model_specification.load_condition_models()
+            condition_components = self.model_specification.load_condition_models(self.state.condition_types)
             latent_components = self.model_specification.load_latent_models()
             diffusion_components = self.model_specification.load_diffusion_models()
 
@@ -182,23 +183,28 @@ class Trainer:
             raise ValueError("Precomputation is only supported with batch size 1. This will be supported in future.")
 
         def collate_fn(batch):
-            latent_conditions = [x["latent_conditions"] for x in batch]
-            text_conditions = [x["text_conditions"] for x in batch]
-            batched_latent_conditions = {}
-            batched_text_conditions = {}
-            for key in list(latent_conditions[0].keys()):
-                if torch.is_tensor(latent_conditions[0][key]):
-                    batched_latent_conditions[key] = torch.cat([x[key] for x in latent_conditions], dim=0)
+            latent_model_conditions = [x["latent_model_conditions"] for x in batch]
+            condition_model_conditions = [x["condition_model_conditions"] for x in batch]
+            batched_latent_model_conditions = {}
+            batched_condition_model_conditions = {}
+            for key in list(latent_model_conditions[0].keys()):
+                if torch.is_tensor(latent_model_conditions[0][key]):
+                    batched_latent_model_conditions[key] = torch.cat([x[key] for x in latent_model_conditions], dim=0)
                 else:
                     # TODO(aryan): implement batch sampler for precomputed latents
-                    batched_latent_conditions[key] = [x[key] for x in latent_conditions][0]
-            for key in list(text_conditions[0].keys()):
-                if torch.is_tensor(text_conditions[0][key]):
-                    batched_text_conditions[key] = torch.cat([x[key] for x in text_conditions], dim=0)
+                    batched_latent_model_conditions[key] = [x[key] for x in latent_model_conditions][0]
+            for key in list(condition_model_conditions[0].keys()):
+                if torch.is_tensor(condition_model_conditions[0][key]):
+                    batched_condition_model_conditions[key] = torch.cat(
+                        [x[key] for x in condition_model_conditions], dim=0
+                    )
                 else:
                     # TODO(aryan): implement batch sampler for precomputed latents
-                    batched_text_conditions[key] = [x[key] for x in text_conditions][0]
-            return {"latent_conditions": batched_latent_conditions, "text_conditions": batched_text_conditions}
+                    batched_condition_model_conditions[key] = [x[key] for x in condition_model_conditions][0]
+            return {
+                "latent_model_conditions": batched_latent_model_conditions,
+                "condition_model_conditions": batched_condition_model_conditions,
+            }
 
         cleaned_model_id = string_to_filename(self.args.pretrained_model_name_or_path)
         precomputation_dir = (
@@ -222,7 +228,7 @@ class Trainer:
         logger.info("Precomputed conditions and latents not found. Running precomputation.")
 
         # At this point, no models are loaded, so we need to load and precompute conditions and latents
-        condition_components = self.model_specification.load_condition_models()
+        condition_components = self.model_specification.load_condition_models(self.state.condition_types)
         self._set_components(condition_components)
         self._move_components_to_device()
         self._disable_grad_for_components([self.text_encoder, self.text_encoder_2, self.text_encoder_3])
@@ -254,17 +260,17 @@ class Trainer:
                 f"Precomputing conditions for batch {i + 1}/{len(self.dataset)} on process {accelerator.process_index}"
             )
 
-            text_conditions = self.model_specification.prepare_conditions(
+            condition_model_conditions = self.model_specification.prepare_conditions(
                 tokenizer=self.tokenizer,
                 tokenizer_2=self.tokenizer_2,
                 tokenizer_3=self.tokenizer_3,
                 text_encoder=self.text_encoder,
                 text_encoder_2=self.text_encoder_2,
                 text_encoder_3=self.text_encoder_3,
-                prompt=data["prompt"],
+                **data,
             )
             filename = conditions_dir / f"conditions-{accelerator.process_index}-{index}.pt"
-            torch.save(text_conditions, filename.as_posix())
+            torch.save(condition_model_conditions, filename.as_posix())
             index += 1
             progress_bar.update(1)
         self._delete_components()
@@ -656,15 +662,11 @@ class Trainer:
                             **batch,
                         )
                     else:
-                        latent_model_conditions = batch["latent_conditions"]
-                        condition_model_conditions = batch["text_conditions"]
+                        latent_model_conditions = batch["latent_model_conditions"]
+                        condition_model_conditions = batch["condition_model_conditions"]
                         latent_model_conditions["latents"] = DiagonalGaussianDistribution(
                             latent_model_conditions["latents"]
                         ).sample(self.state.generator)
-
-                        latent_model_conditions = self.model_specification.postprocess_precomputed_conditions(
-                            condition_model_conditions, latent_model_conditions
-                        )
 
                     align_device_and_dtype(latent_model_conditions, accelerator.device, self.args.transformer_dtype)
                     align_device_and_dtype(condition_model_conditions, accelerator.device, self.args.transformer_dtype)
@@ -707,7 +709,7 @@ class Trainer:
 
                     # TODO(aryan): We probably don't need calculate_noisy_latents because we can determine the type of
                     # scheduler and calculate the noisy latents accordingly. Look into this later.
-                    pred, target = self.model_specification.forward(
+                    pred, target, sigmas = self.model_specification.forward(
                         transformer=self.transformer,
                         scheduler=self.scheduler,
                         condition_model_conditions=condition_model_conditions,
@@ -1019,15 +1021,17 @@ class Trainer:
             torch.backends.cuda.matmul.allow_tf32 = True
 
     def _init_non_model_conditions(self) -> None:
-        if ConditionType.CAPTION_TEXT_DROPOUT in self.state.conditions:
+        if ConditionType.CAPTION_TEXT_DROPOUT in self.state.condition_types:
             params = {"dropout_p": self.args.caption_dropout_p}
             self.caption_preprocessing_conditions.append(get_condition(ConditionType.CAPTION_TEXT_DROPOUT, params))
-            self.state.conditions.remove(ConditionType.CAPTION_TEXT_DROPOUT)
+            self.state.condition_types.remove(ConditionType.CAPTION_TEXT_DROPOUT)
 
-        if ConditionType.CAPTION_TEXT_EMPTY in self.state.conditions:
+        if ConditionType.CAPTION_EMBEDDING_DROPOUT in self.state.condition_types:
             params = {"dropout_p": self.args.caption_dropout_p}
-            self.caption_postprocessing_conditions.append(get_condition(ConditionType.CAPTION_TEXT_EMPTY, params))
-            self.state.conditions.remove(ConditionType.CAPTION_TEXT_EMPTY)
+            self.caption_postprocessing_conditions.append(
+                get_condition(ConditionType.CAPTION_EMBEDDING_DROPOUT, params)
+            )
+            self.state.condition_types.remove(ConditionType.CAPTION_EMBEDDING_DROPOUT)
 
     def _move_components_to_device(self):
         if self.text_encoder is not None:

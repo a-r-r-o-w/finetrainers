@@ -133,7 +133,7 @@ class ImageOrVideoDataset(Dataset):
             # that data is not loaded a second time. PRs are welcome for improvements.
             return index
 
-        prompt = self.id_token + self.prompts[index]
+        text = self.id_token + self.prompts[index]
 
         video_path: Path = self.video_paths[index]
         if video_path.suffix.lower() in [".png", ".jpg", ".jpeg"]:
@@ -142,7 +142,7 @@ class ImageOrVideoDataset(Dataset):
             video = self._preprocess_video(video_path)
 
         return {
-            "prompt": prompt,
+            "text": text,
             "video": video,
             "video_metadata": {
                 "num_frames": video.shape[0],
@@ -378,8 +378,8 @@ class PrecomputedDataset(Dataset):
         conditions = {}
         latent_path = self.latents_path / self.latent_conditions[index]
         condition_path = self.conditions_path / self.text_conditions[index]
-        conditions["latent_conditions"] = torch.load(latent_path, map_location="cpu", weights_only=True)
-        conditions["text_conditions"] = torch.load(condition_path, map_location="cpu", weights_only=True)
+        conditions["latent_model_conditions"] = torch.load(latent_path, map_location="cpu", weights_only=True)
+        conditions["condition_model_conditions"] = torch.load(condition_path, map_location="cpu", weights_only=True)
         return conditions
 
 

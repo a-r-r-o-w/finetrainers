@@ -20,7 +20,7 @@ class State:
     num_update_steps_per_epoch: int = None
 
     # Conditions
-    conditions: List[str] = []
+    condition_types: List[str] = []
 
     # Hub state
     repo_id: str = None

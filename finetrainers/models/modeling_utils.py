@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from diffusers import DiffusionPipeline
+from diffusers.configuration_utils import FrozenDict
 from PIL.Image import Image
 
 from ..conditions import Condition, get_condition_parameters_from_dict
@@ -29,9 +30,6 @@ class ModelSpecification:
         revision: Optional[str] = None,
         cache_dir: Optional[str] = None,
     ) -> None:
-        if self.pipeline_cls is None:
-            raise ValueError(f"ModelSpecification {self.__class__.__name__} must define a pipeline_cls")
-
         self.pretrained_model_name_or_path = pretrained_model_name_or_path
         self.tokenizer_id = tokenizer_id
         self.tokenizer_2_id = tokenizer_2_id
@@ -126,17 +124,6 @@ class ModelSpecification:
             f"ModelSpecification::prepare_latents is not implemented for {self.__class__.__name__}"
         )
 
-    def postprocess_precomputed_conditions(
-        self,
-        condition_model_conditions: Dict[str, torch.Tensor],
-        latent_model_conditions: Dict[str, torch.Tensor],
-        *args,
-        **kwargs,
-    ) -> Dict[str, torch.Tensor]:
-        raise NotImplementedError(
-            f"ModelSpecification::postprocess_precomputed_latents is not implemented for {self.__class__.__name__}"
-        )
-
     def forward(
         self, transformer: torch.nn.Module, generator: Optional[torch.Generator] = None, *args, **kwargs
     ) -> Dict[str, torch.Tensor]:
@@ -204,36 +191,51 @@ class ModelSpecification:
 
     def _load_transformer_config(self) -> None:
         if self.transformer_id is not None:
-            self.transformer_config = resolve_component_cls(
+            transformer_cls = resolve_component_cls(
                 self.transformer_id,
                 component_name="_class_name",
                 filename="config.json",
                 revision=self.revision,
                 cache_dir=self.cache_dir,
             )
+            self.transformer_config = transformer_cls.load_config(
+                self.transformer_id, revision=self.revision, cache_dir=self.cache_dir
+            )
         else:
-            self.transformer_config = resolve_component_cls(
+            transformer_cls = resolve_component_cls(
                 self.pretrained_model_name_or_path,
                 component_name="transformer",
                 filename="model_index.json",
                 revision=self.revision,
                 cache_dir=self.cache_dir,
             )
+            self.transformer_config = transformer_cls.load_config(
+                self.pretrained_model_name_or_path,
+                subfolder="transformer",
+                revision=self.revision,
+                cache_dir=self.cache_dir,
+            )
+        self.transformer_config = FrozenDict(**self.transformer_config)
 
     def _load_vae_config(self) -> None:
         if self.vae_id is not None:
-            self.vae_config = resolve_component_cls(
+            vae_cls = resolve_component_cls(
                 self.vae_id,
                 component_name="_class_name",
                 filename="config.json",
                 revision=self.revision,
                 cache_dir=self.cache_dir,
             )
+            self.vae_config = vae_cls.load_config(self.vae_id, revision=self.revision, cache_dir=self.cache_dir)
         else:
-            self.vae_config = resolve_component_cls(
+            vae_cls = resolve_component_cls(
                 self.pretrained_model_name_or_path,
                 component_name="vae",
                 filename="model_index.json",
                 revision=self.revision,
                 cache_dir=self.cache_dir,
             )
+            self.vae_config = vae_cls.load_config(
+                self.pretrained_model_name_or_path, subfolder="vae", revision=self.revision, cache_dir=self.cache_dir
+            )
+        self.vae_config = FrozenDict(**self.vae_config)

@@ -3,10 +3,15 @@ import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
+from diffusers.utils import get_logger
 
 from .conditions import SUPPORTED_CONDITIONS, ConditionType
-from .constants import DEFAULT_IMAGE_RESOLUTION_BUCKETS, DEFAULT_VIDEO_RESOLUTION_BUCKETS
+from .constants import DEFAULT_IMAGE_RESOLUTION_BUCKETS, DEFAULT_VIDEO_RESOLUTION_BUCKETS, FINETRAINERS_LOG_LEVEL
 from .models import SUPPORTED_MODEL_CONFIGS
+
+
+logger = get_logger("finetrainers")
+logger.setLevel(FINETRAINERS_LOG_LEVEL)
 
 
 class Args:
@@ -34,6 +39,12 @@ class Args:
         storage requirements.
     cache_dir (`str`, defaults to `None`):
         The directory where the downloaded models and datasets will be stored, or loaded from.
+    tokenizer_id (`str`, defaults to `None`):
+        Identifier for the tokenizer model. This is useful when using a different tokenizer than the default from `pretrained_model_name_or_path`.
+    tokenizer_2_id (`str`, defaults to `None`):
+        Identifier for the second tokenizer model. This is useful when using a different tokenizer than the default from `pretrained_model_name_or_path`.
+    tokenizer_3_id (`str`, defaults to `None`):
+        Identifier for the third tokenizer model. This is useful when using a different tokenizer than the default from `pretrained_model_name_or_path`.
     text_encoder_id (`str`, defaults to `None`):
         Identifier for the text encoder model. This is useful when using a different text encoder than the default from `pretrained_model_name_or_path`.
     text_encoder_2_id (`str`, defaults to `None`):
@@ -257,6 +268,9 @@ class Args:
     revision: Optional[str] = None
     variant: Optional[str] = None
     cache_dir: Optional[str] = None
+    tokenizer_id: Optional[str] = None
+    tokenizer_2_id: Optional[str] = None
+    tokenizer_3_id: Optional[str] = None
     text_encoder_id: Optional[str] = None
     text_encoder_2_id: Optional[str] = None
     text_encoder_3_id: Optional[str] = None
@@ -379,6 +393,9 @@ class Args:
                 "revision": self.revision,
                 "variant": self.variant,
                 "cache_dir": self.cache_dir,
+                "tokenizer_id": self.tokenizer_id,
+                "tokenizer_2_id": self.tokenizer_2_id,
+                "tokenizer_3_id": self.tokenizer_3_id,
                 "text_encoder_id": self.text_encoder_id,
                 "text_encoder_2_id": self.text_encoder_2_id,
                 "text_encoder_3_id": self.text_encoder_3_id,
@@ -509,9 +526,7 @@ def parse_arguments() -> Args:
         _add_miscellaneous_arguments(parser)
 
         args, remaining_args = parser.parse_known_args()
-        _add_opt_in_arguments(parser, remaining_args, args)
-
-        args = parser.parse_args()
+        args = _add_opt_in_arguments(parser, remaining_args, args)
         return _map_to_args_type(args)
 
 
@@ -554,6 +569,9 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="The directory where the downloaded models and datasets will be stored.",
     )
+    parser.add_argument("--tokenizer_id", type=str, default=None, help="Identifier for the tokenizer model.")
+    parser.add_argument("--tokenizer_2_id", type=str, default=None, help="Identifier for the second tokenizer model.")
+    parser.add_argument("--tokenizer_3_id", type=str, default=None, help="Identifier for the third tokenizer model.")
     parser.add_argument("--text_encoder_id", type=str, default=None, help="Identifier for the text encoder model.")
     parser.add_argument(
         "--text_encoder_2_id", type=str, default=None, help="Identifier for the second text encoder model."
@@ -1038,7 +1056,7 @@ def _add_miscellaneous_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _add_opt_in_arguments(
     parser: argparse.ArgumentParser, remaining_args: List[str], args: argparse.Namespace
-) -> None:
+) -> Dict[str, Any]:
     condition_subparser = parser.add_subparsers(dest="condition_subparser", help="Condition-specific arguments.")
 
     # Caption dropout arguments
@@ -1055,6 +1073,9 @@ def _add_opt_in_arguments(
             default=0.00,
             help="Probability of dropout for the caption tokens.",
         )
+        args = parser.parse_args(remaining_args, namespace=args)
+
+    return args
 
 
 def _add_helper_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1088,6 +1109,9 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.revision = args.revision
     result_args.variant = args.variant
     result_args.cache_dir = args.cache_dir
+    result_args.tokenizer_id = args.tokenizer_id
+    result_args.tokenizer_2_id = args.tokenizer_2_id
+    result_args.tokenizer_3_id = args.tokenizer_3_id
     result_args.text_encoder_id = args.text_encoder_id
     result_args.text_encoder_2_id = args.text_encoder_2_id
     result_args.text_encoder_3_id = args.text_encoder_3_id
@@ -1241,6 +1265,13 @@ def _validate_training_args(args: Args):
         assert (
             args.target_modules is not None and len(args.target_modules) > 0
         ), "Target modules are required for LoRA training"
+
+    if args.model_name == "ltx_video":
+        if ConditionType.T5 not in args.conditions:
+            logger.warning(
+                "T5 condition is required for training LTXVideo. To not receive this warning please add 't5' to `--conditions`."
+            )
+            args.conditions.append(ConditionType.T5)
 
 
 def _validate_validation_args(args: Args):
