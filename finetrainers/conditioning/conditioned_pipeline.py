@@ -62,7 +62,15 @@ class LTXConditionedPipeline(LTXPipeline):
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         max_sequence_length: int = 128,
+        pose_video=None,
+        image_ref_video=None,
     ):
+        # These are the raw videos
+        if pose_video is None:
+            raise ValueError("pose_video cannot be None.")
+        if image_ref_video is None:
+            raise ValueError("image_ref_video cannot be None.")
+
         if isinstance(callback_on_step_end, (PipelineCallback, MultiPipelineCallbacks)):
             callback_on_step_end_tensor_inputs = callback_on_step_end.tensor_inputs
 

@@ -316,7 +316,11 @@ class Args:
     validation_prompts: List[str] = None
     validation_images: List[str] = None
     validation_videos: List[str] = None
+
+    # Condition
     validation_pose_videos: List[str] = None
+    validation_img_ref_videos: List[str] = None
+    
     validation_heights: List[int] = None
     validation_widths: List[int] = None
     validation_num_frames: List[int] = None
@@ -889,6 +893,13 @@ def _add_validation_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
     parser.add_argument(
+        "--validation_img_ref_videos",
+        type=str,
+        default=None,
+        help="One or more img_ref video or img will just take the first frame and create a video from it path(s)/URLs that is used during validation to verify that the model is learning. Multiple validation paths should be separated by the '--validation_prompt_seperator' string. These should correspond to the order of the validation prompts.",
+    )
+
+    parser.add_argument(
         "--validation_videos",
         type=str,
         default=None,
@@ -1089,7 +1100,10 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     validation_images = args.validation_images.split(args.validation_separator) if args.validation_images else None
     validation_videos = args.validation_videos.split(args.validation_separator) if args.validation_videos else None
     
+    # extend with pose conditioning ...
     validation_pose_videos = args.validation_pose_videos.split(args.validation_separator) if args.validation_pose_videos else None
+    validation_img_ref_videos = args.validation_img_ref_videos.split(args.validation_separator) if args.validation_img_ref_videos else None
+
 
     stripped_validation_prompts = []
     validation_heights = []
@@ -1118,7 +1132,11 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.validation_num_frames = validation_num_frames
     result_args.validation_images = validation_images
     result_args.validation_videos = validation_videos
+
+    # extend with pose conditioning ...
     result_args.validation_pose_videos = validation_pose_videos
+    result_args.validation_img_ref_videos = validation_img_ref_videos
+    
     result_args.num_validation_videos_per_prompt = args.num_validation_videos
     result_args.validation_every_n_epochs = args.validation_epochs
     result_args.validation_every_n_steps = args.validation_steps

@@ -1010,7 +1010,12 @@ class Trainer:
             prompt = self.args.validation_prompts[i]
             image = self.args.validation_images[i]
             video = self.args.validation_videos[i]
-            pose_video = self.args.validation_pose_videos[i]
+            # Condition extension
+
+            if self.pose_condition:
+                pose_video = self.args.validation_pose_videos[i]
+                img_ref_video = self.args.validation_img_ref_videos[i]
+
             height = self.args.validation_heights[i]
             width = self.args.validation_widths[i]
             num_frames = self.args.validation_num_frames[i]
@@ -1019,30 +1024,51 @@ class Trainer:
                 image = load_image(image)
             if video is not None:
                 video = load_video(video)
-            if pose_video is not None:
-                pose_video = load_video(pose_video)
 
+            if self.pose_condition:
+                if pose_video is not None:
+                    pose_video = load_video(pose_video)
+                if img_ref_video is not None:
+                    img_ref_video = load_video(img_ref_video)
+                
             logger.debug(
                 f"Validating sample {i + 1}/{num_validation_samples} on process {accelerator.process_index}. Prompt: {prompt}",
                 main_process_only=False,
             )
             
-            validation_artifacts = self.model_config["validation"](
-                pipeline=pipeline,
-                prompt=prompt,
-                image=image,
-                video=video,
-                pose_video=pose_video,
-                height=height,
-                width=width,
-                num_frames=num_frames,
-                frame_rate=frame_rate,
-                num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
-                generator=torch.Generator(device=accelerator.device).manual_seed(
-                    self.args.seed if self.args.seed is not None else 0
-                ),
-                # todo support passing `fps` for supported pipelines.
-            )
+            if self.pose_condition:
+                validation_artifacts = self.model_config["validation"](
+                    pipeline=pipeline,
+                    prompt=prompt,
+                    image=image,
+                    video=video,
+                    height=height,
+                    width=width,
+                    num_frames=num_frames,
+                    frame_rate=frame_rate,
+                    pose_video=pose_video,
+                    img_ref_video=img_ref_video,
+                    num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
+                    generator=torch.Generator(device=accelerator.device).manual_seed(
+                        self.args.seed if self.args.seed is not None else 0
+                    ),
+                )
+            else:
+                validation_artifacts = self.model_config["validation"](
+                    pipeline=pipeline,
+                    prompt=prompt,
+                    image=image,
+                    video=video,
+                    height=height,
+                    width=width,
+                    num_frames=num_frames,
+                    frame_rate=frame_rate,
+                    num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
+                    generator=torch.Generator(device=accelerator.device).manual_seed(
+                        self.args.seed if self.args.seed is not None else 0
+                    ),
+                    # todo support passing `fps` for supported pipelines.
+                )
 
             prompt_filename = string_to_filename(prompt)[:25]
             artifacts = {
