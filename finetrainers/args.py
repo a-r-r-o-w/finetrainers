@@ -1195,6 +1195,16 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     validation_prompts = args.validation_prompts.split(args.validation_separator) if args.validation_prompts else []
     validation_images = args.validation_images.split(args.validation_separator) if args.validation_images else None
     validation_videos = args.validation_videos.split(args.validation_separator) if args.validation_videos else None
+    validation_images = (
+        [None if len(image.strip()) == 0 else image.strip() for image in validation_images]
+        if validation_images
+        else None
+    )
+    validation_videos = (
+        [None if len(video.strip()) == 0 else video.strip() for video in validation_videos]
+        if validation_videos
+        else None
+    )
     stripped_validation_prompts = []
     validation_heights = []
     validation_widths = []

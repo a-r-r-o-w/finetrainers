@@ -3,9 +3,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
-from diffusers import AutoencoderKLLTXVideo, FlowMatchEulerDiscreteScheduler, LTXPipeline, LTXVideoTransformer3DModel
+from diffusers import (
+    AutoencoderKLLTXVideo,
+    FlowMatchEulerDiscreteScheduler,
+    LTXImageToVideoPipeline,
+    LTXPipeline,
+    LTXVideoTransformer3DModel,
+)
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.utils.import_utils import is_torch_version
+from PIL.Image import Image
 from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Tokenizer
 
 from ... import functional as FF
@@ -313,6 +320,7 @@ class LTXVideoModelSpecification(ModelSpecification):
         self,
         pipeline: LTXPipeline,
         prompt: str,
+        image: Optional[Image] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_frames: Optional[int] = None,
@@ -322,8 +330,12 @@ class LTXVideoModelSpecification(ModelSpecification):
         *args,
         **kwargs,
     ) -> List[Tuple[str, torch.Tensor]]:
+        if image is not None:
+            pipeline = LTXImageToVideoPipeline.from_pipe(pipeline)
+
         generation_kwargs = {
             "prompt": prompt,
+            "image": image,
             "height": height,
             "width": width,
             "num_frames": num_frames,
