@@ -1,16 +1,14 @@
 import sys
+import unittest
 from pathlib import Path
+from typing import Tuple
 
 
 current_file = Path(__file__).resolve()
 root_dir = current_file.parents[3]
 sys.path.append(str(root_dir))
 
-import unittest  # noqa
-from typing import Tuple  # noqa
-
 from finetrainers import Args  # noqa
-
 from ..test_trainers_common import TrainerTestMixin  # noqa
 
 
