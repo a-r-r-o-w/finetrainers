@@ -37,7 +37,7 @@ def main():
 
     args = parser.parse_args()
 
-    generate_video(args.prompt, args.lora_path, args.lora_name, args.output_file, args.fps)
+    generate_video(args.model_path, args.prompt, args.lora_path, args.lora_name, args.output_file, args.fps)
 
 
 if __name__ == "__main__":
