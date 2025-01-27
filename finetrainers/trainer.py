@@ -59,7 +59,7 @@ from .utils.memory_utils import (
     get_memory_statistics,
     make_contiguous,
     reset_memory_stats,
-    synchornize_device,
+    synchronize_device,
 )
 from .utils.model_utils import resolve_vae_cls_from_ckpt_path
 from .utils.optimizer_utils import get_optimizer
@@ -1113,7 +1113,7 @@ class Trainer:
         self.vae = None
         self.scheduler = None
         free_memory()
-        synchornize_device(self.state.accelerator.device)
+        synchronize_device(self.state.accelerator.device)
 
     def _get_and_prepare_pipeline_for_validation(self, final_validation: bool = False) -> DiffusionPipeline:
         accelerator = self.state.accelerator

@@ -61,7 +61,7 @@ def reset_memory_stats(device: torch.device):
         logger.warning("No CUDA, device found. Nothing to reset memory of.")
 
 
-def synchornize_device(device: torch.device):
+def synchronize_device(device: torch.device):
     if torch.cuda.is_available():
         torch.cuda.synchronize(device)
     else:
