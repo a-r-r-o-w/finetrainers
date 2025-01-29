@@ -869,13 +869,6 @@ class Trainer:
 
         if num_validation_samples == 0:
             logger.warning("No validation samples found. Skipping validation.")
-            if accelerator.is_main_process:
-                save_model_card(
-                    args=self.args,
-                    repo_id=self.state.repo_id,
-                    videos=None,
-                    validation_prompts=None,
-                )
             return
 
         self.transformer.eval()

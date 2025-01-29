@@ -1,3 +1,4 @@
+
 import os
 from typing import List, Union
 
@@ -28,19 +29,16 @@ def save_model_card(
                 }
             )
 
-    training_type = "Full" if args.training_type == "full-finetune" else "LoRA"
     model_description = f"""
-# {training_type} Finetune
+# LoRA Finetune
 
 <Gallery />
 
 ## Model description
 
-This is a {training_type.lower()} finetune of model: `{args.pretrained_model_name_or_path}`.
+This is a lora finetune of model: `{args.pretrained_model_name_or_path}`.
 
 The model was trained using [`finetrainers`](https://github.com/a-r-r-o-w/finetrainers).
-
-`id_token` used: {args.id_token} (if it's not `None`, it should be used in the prompts.)
 
 ## Download model
 
@@ -56,7 +54,7 @@ TODO
 
 For more details, including weighting, merging and fusing LoRAs, check the [documentation](https://huggingface.co/docs/diffusers/main/en/using-diffusers/loading_adapters) on loading LoRAs in diffusers.
 """
-    if wandb.run and wandb.run.url:
+    if wandb.run.url:
         model_description += f"""
 Find out the wandb run URL and training configurations [here]({wandb.run.url}).
 """
@@ -72,13 +70,9 @@ Find out the wandb run URL and training configurations [here]({wandb.run.url}).
         "text-to-video",
         "diffusers-training",
         "diffusers",
-        "finetrainers",
+        "lora",
         "template:sd-lora",
     ]
-    if training_type == "Full":
-        tags.append("full-finetune")
-    else:
-        tags.append("lora")
 
     model_card = populate_model_card(model_card, tags=tags)
     model_card.save(os.path.join(args.output_dir, "README.md"))
