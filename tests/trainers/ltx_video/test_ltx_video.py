@@ -13,8 +13,8 @@ from ..test_trainers_common import TrainerTestMixin, parse_resolution_bucket  # 
 
 class LTXVideoTester(unittest.TestCase, TrainerTestMixin):
     MODEL_NAME = "ltx_video"
-    EXPECTED_PRECOMPUTATION_LATENT_KEYS = {"latents"}
-    EXPECTED_PRECOMPUTATION_CONDITION_KEYS = {"prompt_embeds"}
+    EXPECTED_PRECOMPUTATION_LATENT_KEYS = {"height", "latents", "latents_mean", "latents_std", "num_frames", "width"}
+    EXPECTED_PRECOMPUTATION_CONDITION_KEYS = {"prompt_attention_mask", "prompt_embeds"}
 
     def get_training_args(self):
         args = Args()
@@ -31,14 +31,20 @@ class LTXVideoTester(unittest.TestCase, TrainerTestMixin):
 
     @property
     def latent_output_shape(self):
-        return (8, 3, 2, 2)
+        # only tensor object shapes
+        return (16, 3, 4, 4), (), ()
 
     @property
     def condition_output_shape(self):
-        return (226, 32)
+        # only tensor object shapes
+        return (128,), (128, 32)
 
     def populate_shapes(self):
-        for k in self.EXPECTED_PRECOMPUTATION_LATENT_KEYS:
-            self.EXPECTED_LATENT_SHAPES[k] = self.latent_output_shape
-        for k in self.EXPECTED_PRECOMPUTATION_CONDITION_KEYS:
-            self.EXPECTED_CONDITION_SHAPES[k] = self.condition_output_shape
+        i = 0
+        for k in sorted(self.EXPECTED_PRECOMPUTATION_LATENT_KEYS):
+            if k in ["height", "num_frames", "width"]:
+                continue
+            self.EXPECTED_LATENT_SHAPES[k] = self.latent_output_shape[i]
+            i += 1
+        for i, k in enumerate(sorted(self.EXPECTED_PRECOMPUTATION_CONDITION_KEYS)):
+            self.EXPECTED_CONDITION_SHAPES[k] = self.condition_output_shape[i]
