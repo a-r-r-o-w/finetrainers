@@ -1,6 +1,7 @@
 import sys
 import tempfile
 from pathlib import Path
+from typing import Tuple
 
 import torch
 from huggingface_hub import snapshot_download
@@ -17,6 +18,11 @@ from finetrainers.constants import (  # noqa
     PRECOMPUTED_LATENTS_DIR_NAME,
 )
 from finetrainers.utils.file_utils import string_to_filename  # noqa
+
+
+# Copied for now.
+def parse_resolution_bucket(resolution_bucket: str) -> Tuple[int, ...]:
+    return tuple(map(int, resolution_bucket.split("x")))
 
 
 class TrainerTestMixin:

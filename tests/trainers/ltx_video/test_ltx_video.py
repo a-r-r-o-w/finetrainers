@@ -11,8 +11,8 @@ from finetrainers import Args  # noqa
 from ..test_trainers_common import TrainerTestMixin, parse_resolution_bucket  # noqa
 
 
-class CogVideoXTester(unittest.TestCase, TrainerTestMixin):
-    MODEL_NAME = "cogvideox"
+class LTXVideoTester(unittest.TestCase, TrainerTestMixin):
+    MODEL_NAME = "ltx_video"
     EXPECTED_PRECOMPUTATION_LATENT_KEYS = {"latents"}
     EXPECTED_PRECOMPUTATION_CONDITION_KEYS = {"prompt_embeds"}
 
@@ -20,7 +20,7 @@ class CogVideoXTester(unittest.TestCase, TrainerTestMixin):
         args = Args()
         args.model_name = self.MODEL_NAME
         args.training_type = "lora"
-        args.pretrained_model_name_or_path = "finetrainers/dummy-cogvideox"
+        args.pretrained_model_name_or_path = "finetrainers/dummy-ltxvideo"
         args.data_root = ""  # will be set from the tester method.
         args.video_resolution_buckets = [parse_resolution_bucket("9x16x16")]
         args.precompute_conditions = True
