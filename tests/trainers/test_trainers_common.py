@@ -1,16 +1,22 @@
+import sys
 import tempfile
 from pathlib import Path
 
 import torch
 from huggingface_hub import snapshot_download
 
-from finetrainers import Trainer
-from finetrainers.constants import (
+
+current_file = Path(__file__).resolve()
+root_dir = current_file.parents[2]
+sys.path.append(str(root_dir))
+
+from finetrainers import Trainer  # noqa
+from finetrainers.constants import (  # noqa
     PRECOMPUTED_CONDITIONS_DIR_NAME,
     PRECOMPUTED_DIR_NAME,
     PRECOMPUTED_LATENTS_DIR_NAME,
 )
-from finetrainers.utils.file_utils import string_to_filename
+from finetrainers.utils.file_utils import string_to_filename  # noqa
 
 
 class TrainerTestMixin:
@@ -121,7 +127,9 @@ class TrainerTestMixin:
 
             trainer.prepare_dataset()
             trainer.prepare_models()
-            trainer.prepare_precomputations()
+            with self.assertLogs(level="INFO") as captured:
+                trainer.prepare_precomputations()
+            assert any("Precomputed data not found. Running precomputation." in msg for msg in captured.output)
 
             precomputation_dir = self.get_precomputation_dir(training_args)
             conditions_dir = precomputation_dir / PRECOMPUTED_CONDITIONS_DIR_NAME
@@ -131,3 +139,26 @@ class TrainerTestMixin:
             condition_files = list(conditions_dir.glob("*.pt"))
 
             self._verify_shapes(latent_files, condition_files)
+
+    def test_precomputation_txt_format_no_redo(self):
+        training_args = self.get_training_args()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            training_args.data_root = Path(self.download_dataset_txt_format(cache_dir=tmpdir))
+            training_args.video_column = "videos.txt"
+            training_args.caption_column = "prompt.txt"
+
+            training_args.output_dir = tmpdir
+            trainer = Trainer(training_args)
+            training_args = trainer.args
+
+            trainer.prepare_dataset()
+            trainer.prepare_models()
+            trainer.prepare_precomputations()
+
+            with self.assertLogs(level="INFO") as captured:
+                trainer.prepare_precomputations()
+
+            assert any(
+                "Precomputed conditions and latents found. Loading precomputed data" in msg for msg in captured.output
+            )
