@@ -202,7 +202,6 @@ def prepare_latents(
             h = torch.cat(encoded_slices)
         else:
             h = vae._encode(image_or_video)
-        print(f"{h.shape=}")
         return {"latents": h}
 
 
