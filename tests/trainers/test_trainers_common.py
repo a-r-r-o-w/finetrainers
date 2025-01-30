@@ -86,6 +86,7 @@ class TrainerTestMixin:
                     continue
                 expected = self.EXPECTED_LATENT_SHAPES[key]
                 original = tuple(latent[key].shape[1:])
+                print(f"{key=}")
                 assert (
                     original == expected
                 ), f"Latent shape mismatch for key: {key}. expected={expected}, got={original}"

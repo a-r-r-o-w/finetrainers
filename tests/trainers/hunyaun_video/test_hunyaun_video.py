@@ -37,15 +37,15 @@ class HunyuanVideoTester(unittest.TestCase, TrainerTestMixin):
     @property
     def latent_output_shape(self):
         # only tensor object shapes
-        return (16, 3, 4, 4)
+        return (8, 3, 2, 2)
 
     @property
     def condition_output_shape(self):
         # only tensor object shapes
-        return (), (128,), (128, 32)
+        return (), (8,), (256,), (256, 16)
 
     def populate_shapes(self):
         for i, k in enumerate(sorted(self.EXPECTED_PRECOMPUTATION_LATENT_KEYS)):
-            self.EXPECTED_LATENT_SHAPES[k] = self.latent_output_shape[i]
+            self.EXPECTED_LATENT_SHAPES[k] = self.latent_output_shape
         for i, k in enumerate(sorted(self.EXPECTED_PRECOMPUTATION_CONDITION_KEYS)):
             self.EXPECTED_CONDITION_SHAPES[k] = self.condition_output_shape[i]
