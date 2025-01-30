@@ -1,5 +1,4 @@
 accelerate
-bitsandbytes
 diffusers>=0.32.1
 transformers>=4.45.2
 huggingface_hub
@@ -10,7 +9,6 @@ wandb
 pandas
 torch>=2.5.1
 torchvision>=0.20.1
-torchao>=0.7.0
 sentencepiece>=0.2.0
 imageio-ffmpeg>=0.5.1
 numpy>=1.26.4
