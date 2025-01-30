@@ -144,9 +144,12 @@ class Trainer:
         load_components_kwargs = self._get_load_components_kwargs()
         condition_components, latent_components, diffusion_components = {}, {}, {}
         if not self.args.precompute_conditions:
-            condition_components = self.model_config["load_condition_models"](**load_components_kwargs)
-            latent_components = self.model_config["load_latent_models"](**load_components_kwargs)
-            diffusion_components = self.model_config["load_diffusion_models"](**load_components_kwargs)
+            # To download the model files first on the main process (if not already present)
+            # and then load the cached files afterward from the other processes.
+            with self.state.accelerator.main_process_first():
+                condition_components = self.model_config["load_condition_models"](**load_components_kwargs)
+                latent_components = self.model_config["load_latent_models"](**load_components_kwargs)
+                diffusion_components = self.model_config["load_diffusion_models"](**load_components_kwargs)
 
         components = {}
         components.update(condition_components)
@@ -210,7 +213,8 @@ class Trainer:
         logger.info("Precomputed conditions and latents not found. Running precomputation.")
 
         # At this point, no models are loaded, so we need to load and precompute conditions and latents
-        condition_components = self.model_config["load_condition_models"](**self._get_load_components_kwargs())
+        with self.state.accelerator.main_process_first():
+            condition_components = self.model_config["load_condition_models"](**self._get_load_components_kwargs())
         self._set_components(condition_components)
         self._move_components_to_device()
         self._disable_grad_for_components([self.text_encoder, self.text_encoder_2, self.text_encoder_3])
@@ -264,7 +268,8 @@ class Trainer:
         reset_memory_stats(accelerator.device)
 
         # Precompute latents
-        latent_components = self.model_config["load_latent_models"](**self._get_load_components_kwargs())
+        with self.state.accelerator.main_process_first():
+            latent_components = self.model_config["load_latent_models"](**self._get_load_components_kwargs())
         self._set_components(latent_components)
         self._move_components_to_device()
         self._disable_grad_for_components([self.vae])
@@ -325,7 +330,8 @@ class Trainer:
     def prepare_trainable_parameters(self) -> None:
         logger.info("Initializing trainable parameters")
 
-        diffusion_components = self.model_config["load_diffusion_models"](**self._get_load_components_kwargs())
+        with self.state.accelerator.main_process_first():
+            diffusion_components = self.model_config["load_diffusion_models"](**self._get_load_components_kwargs())
         self._set_components(diffusion_components)
 
         components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.vae]
@@ -869,6 +875,13 @@ class Trainer:
 
         if num_validation_samples == 0:
             logger.warning("No validation samples found. Skipping validation.")
+            if accelerator.is_main_process:
+                save_model_card(
+                    args=self.args,
+                    repo_id=self.state.repo_id,
+                    videos=None,
+                    validation_prompts=None,
+                )
             return
 
         self.transformer.eval()
