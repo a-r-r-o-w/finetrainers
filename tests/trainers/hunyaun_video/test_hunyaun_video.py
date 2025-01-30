@@ -11,10 +11,15 @@ from finetrainers import Args  # noqa
 from ..test_trainers_common import TrainerTestMixin, parse_resolution_bucket  # noqa
 
 
-class LTXVideoTester(unittest.TestCase, TrainerTestMixin):
+class HunyuanVideoTester(unittest.TestCase, TrainerTestMixin):
     MODEL_NAME = "hunyuan_video"
     EXPECTED_PRECOMPUTATION_LATENT_KEYS = {"latents"}
-    EXPECTED_PRECOMPUTATION_CONDITION_KEYS = {"pooled_prompt_embeds", "prompt_attention_mask", "prompt_embeds"}
+    EXPECTED_PRECOMPUTATION_CONDITION_KEYS = {
+        "guidance",
+        "pooled_prompt_embeds",
+        "prompt_attention_mask",
+        "prompt_embeds",
+    }
 
     def get_training_args(self):
         args = Args()
