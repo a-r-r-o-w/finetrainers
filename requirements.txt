@@ -10,6 +10,7 @@ wandb
 pandas
 torch>=2.5.1
 torchvision>=0.20.1
+torchdata>=0.10.1
 torchao>=0.7.0
 sentencepiece>=0.2.0
 imageio-ffmpeg>=0.5.1

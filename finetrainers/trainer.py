@@ -518,10 +518,12 @@ class Trainer:
 
         # TODO(aryan): handle per-device batch_size > 1
 
+        global_batch_size = self.args.batch_size * self.state.parallel.world_size
         info = {
             "trainable parameters": self.state.num_trainable_parameters,
             "train steps": self.args.train_steps,
             "per-device batch size": self.args.batch_size,
+            "global batch size": global_batch_size,
             "gradient accumulation steps": self.args.gradient_accumulation_steps,
         }
         logger.info(f"Training configuration: {json.dumps(info, indent=4)}")

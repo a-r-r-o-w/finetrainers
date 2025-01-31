@@ -28,10 +28,8 @@ def main():
         trainer.prepare_dataset()
         trainer.prepare_models()
         trainer.prepare_precomputations()
-        trainer.prepare_trainable_parameters()
         trainer.prepare_optimizer()
         trainer.prepare_for_training()
-        trainer.prepare_trackers()
         trainer.train()
         # trainer.evaluate()
 
