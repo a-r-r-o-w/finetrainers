@@ -59,11 +59,14 @@ class Trainer:
         # Scheduler
         self.scheduler = None
 
+        # Optimizer & LR scheduler
+        self.optimizer = None
+        self.lr_scheduler = None
+
         # Trainer-specific conditions
         self.caption_preprocessing_conditions: List[Processor] = []
         self.caption_postprocessing_conditions: List[Processor] = []
 
-        self.state.model_name = self.args.model_name
         self.state.condition_types = self.args.conditions
 
         self._init_distributed()
@@ -71,13 +74,6 @@ class Trainer:
         self._init_directories_and_repositories()
         self._init_config_options()
         self._init_non_model_conditions()
-
-        # Peform any patches needed for training
-        if len(self.args.layerwise_upcasting_modules) > 0:
-            perform_peft_patches()
-        # TODO(aryan): handle text encoders
-        # if any(["text_encoder" in component_name for component_name in self.args.layerwise_upcasting_modules]):
-        #     perform_text_encoder_patches()
 
         model_specification_cls = get_model_specifiction_cls(self.args.model_name, self.args.training_type)
         self.model_specification: ModelSpecification = model_specification_cls(
@@ -377,7 +373,7 @@ class Trainer:
         # self.state.accelerator.register_save_state_pre_hook(save_model_hook)
         # self.state.accelerator.register_load_state_pre_hook(load_model_hook)
 
-    def prepare_optimizer(self) -> None:
+    def prepare_trainable_parameters(self) -> None:
         logger.info("Initializing trainable parameters")
 
         if self.args.precompute_conditions:
@@ -406,9 +402,6 @@ class Trainer:
                 non_blocking=True,
             )
 
-        if self.args.gradient_checkpointing:
-            self.transformer.enable_gradient_checkpointing()
-
         if self.args.training_type == "lora":
             transformer_lora_config = LoraConfig(
                 r=self.args.rank,
@@ -422,13 +415,10 @@ class Trainer:
 
         # TODO(aryan): it might be nice to add some assertions here to make sure that lora parameters are still in fp32
         # even if layerwise upcasting. Would be nice to have a test as well
-
         self.register_saving_loading_hooks(transformer_lora_config)
 
-        # ============ TODO(aryan): cleanup
-
+        # Setup distributed optimizer and lr scheduler
         logger.info("Initializing optimizer and lr scheduler")
-
         self.state.train_state = TrainState()
 
         # Make sure the trainable params are in float32
@@ -465,21 +455,28 @@ class Trainer:
         self.lr_scheduler = lr_scheduler
 
     def prepare_for_training(self) -> None:
-        if self.state.parallel.context_parallel_enabled:
+        parallel_state = self.state.parallel
+        world_mesh = parallel_state.get_mesh()
+
+        if parallel_state.context_parallel_enabled:
             raise NotImplementedError(
                 "Context parallelism is not supported yet. This will be supported in the future."
             )
 
-        world_mesh = self.state.parallel.get_mesh()
+        # Enable gradient checkpointing
+        if self.args.gradient_checkpointing:
+            # TODO(aryan): support other checkpointing types
+            utils.apply_gradient_checkpointing(self.transformer, checkpointing_type="full")
 
-        if self.state.parallel.data_sharding_enabled:
-            if self.state.parallel.data_replication_enabled:
+        # Enable DDP, FSDP or HSDP
+        if parallel_state.data_sharding_enabled:
+            if parallel_state.data_replication_enabled:
                 logger.info("Applying HSDP to the model")
             else:
                 logger.info("Applying FSDP to the model")
 
             # Apply FSDP or HSDP
-            if self.state.parallel.data_replication_enabled or self.state.parallel.context_parallel_enabled:
+            if parallel_state.data_replication_enabled or parallel_state.context_parallel_enabled:
                 dp_mesh_names = ("dp_replicate", "dp_shard_cp")
             else:
                 dp_mesh_names = ("dp_shard_cp",)
@@ -491,10 +488,10 @@ class Trainer:
                 dp_mesh=world_mesh[dp_mesh_names],
                 param_dtype=param_dtype,
                 reduce_dtype=torch.float32,
-                pp_enabled=self.state.parallel.pipeline_parallel_enabled,
+                pp_enabled=parallel_state.pipeline_parallel_enabled,
                 cpu_offload=False,  # TODO(aryan): needs to be tested and allowed for enabling later
             )
-        elif self.state.parallel.data_replication_enabled:
+        elif parallel_state.data_replication_enabled:
             logger.info("Applying DDP to the model")
 
             if world_mesh.ndim > 1:
@@ -940,6 +937,10 @@ class Trainer:
         # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
         if self.args.allow_tf32 and torch.cuda.is_available():
             torch.backends.cuda.matmul.allow_tf32 = True
+
+        # Peform any patches needed for training
+        if len(self.args.layerwise_upcasting_modules) > 0:
+            perform_peft_patches()
 
     def _init_non_model_conditions(self) -> None:
         if ProcessorType.CAPTION_TEXT_DROPOUT in self.state.condition_types:

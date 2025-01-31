@@ -10,14 +10,7 @@ from torch.distributed._composable.fsdp import CPUOffloadPolicy, MixedPrecisionP
 from torch.distributed._composable.replicate import replicate
 
 from ..logging import logger
-
-
-_DIFFUSERS_TRANSFORMER_BLOCK_NAMES = [
-    "transformer_blocks",
-    "single_transformer_blocks",
-    "temporal_transformer_blocks",
-    "blocks",
-]
+from ._common import DIFFUSERS_TRANSFORMER_BLOCK_NAMES
 
 
 def apply_fsdp(
@@ -36,7 +29,7 @@ def apply_fsdp(
         fsdp_config["offload_policy"] = CPUOffloadPolicy(pin_memory=True)
 
     def apply_fully_shard(blocks):
-        for layer_index, block in blocks:
+        for layer_index, block in enumerate(blocks):
             if pp_enabled:
                 # For PP, do not reshard after forward to avoid per-microbatch
                 # all-gathers, which can be expensive and non-overlapped
@@ -47,7 +40,7 @@ def apply_fsdp(
                 reshard_after_forward = layer_index < len(blocks) - 1
             fully_shard(block, **fsdp_config, reshard_after_forward=reshard_after_forward)
 
-    for transformer_block_name in _DIFFUSERS_TRANSFORMER_BLOCK_NAMES:
+    for transformer_block_name in DIFFUSERS_TRANSFORMER_BLOCK_NAMES:
         blocks = getattr(model, transformer_block_name, None)
         if blocks is not None:
             apply_fully_shard(blocks)

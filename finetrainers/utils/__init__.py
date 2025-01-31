@@ -1,7 +1,8 @@
 import inspect
 from typing import Any, Dict, Optional, Set
 
-from .checkpointing import get_intermediate_ckpt_path, get_latest_ckpt_path_to_resume_from
+from ._rename_this_file_checkpointing import get_intermediate_ckpt_path, get_latest_ckpt_path_to_resume_from
+from .checkpoint_utils import apply_activation_checkpointing
 from .data_utils import determine_batch_size, should_perform_precomputation
 from .diffusion_utils import (
     default_flow_shift,
@@ -19,6 +20,9 @@ from .model_utils import resolve_component_cls
 from .optimizer_utils import get_optimizer, gradient_norm, max_gradient
 from .parallel_utils import apply_ddp, apply_fsdp, clip_grad_norm_, dist_max, dist_mean, enable_determinism
 from .torch_utils import align_device_and_dtype, expand_tensor_dims, get_device_info, synchronize_device, unwrap_model
+
+
+apply_gradient_checkpointing = apply_activation_checkpointing
 
 
 def get_parameter_names(obj: Any, method_name: Optional[str] = None) -> Set[str]:
