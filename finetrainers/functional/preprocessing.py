@@ -4,12 +4,12 @@ from typing import List, Optional, Union
 import torch
 
 
-def dropout_text(text: Union[str, List[str]], dropout_p: float = 0) -> Union[str, List[str]]:
+def dropout_caption(caption: Union[str, List[str]], dropout_p: float = 0) -> Union[str, List[str]]:
     if random.random() >= dropout_p:
-        return text
-    if isinstance(text, str):
+        return caption
+    if isinstance(caption, str):
         return ""
-    return [""] * len(text)
+    return [""] * len(caption)
 
 
 def dropout_embeddings_to_zero(

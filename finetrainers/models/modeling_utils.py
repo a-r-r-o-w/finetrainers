@@ -5,7 +5,7 @@ from diffusers import DiffusionPipeline
 from diffusers.configuration_utils import FrozenDict
 from PIL.Image import Image
 
-from ..conditions import Condition, get_condition_parameters_from_dict
+from ..processors import Processor, get_processor_parameters_from_dict
 from ..typing import SchedulerType, TokenizerType
 from ..utils import get_parameter_names, resolve_component_cls
 
@@ -50,7 +50,7 @@ class ModelSpecification:
         self.transformer_config: Dict[str, Any] = None
         self.vae_config: Dict[str, Any] = None
 
-        self.conditions: Dict[str, Condition] = {}
+        self.conditions: Dict[str, Processor] = {}
 
         self._load_configs()
 
@@ -114,7 +114,8 @@ class ModelSpecification:
     def prepare_latents(
         self,
         vae: Optional[torch.nn.Module] = None,
-        image_or_video: Optional[torch.Tensor] = None,
+        image: Optional[torch.Tensor] = None,
+        video: Optional[torch.Tensor] = None,
         generator: Optional[torch.Generator] = None,
         precompute: bool = False,
         *args,
@@ -168,7 +169,12 @@ class ModelSpecification:
     ) -> None:
         raise NotImplementedError(f"ModelSpecification::save_model is not implemented for {self.__class__.__name__}")
 
-    def _add_condition(self, name: str, condition: Condition) -> None:
+    def apply_tensor_parallel(self) -> torch.nn.Module:
+        raise NotImplementedError(
+            f"ModelSpecification::apply_tensor_parallel is not implemented for {self.__class__.__name__}"
+        )
+
+    def _add_condition(self, name: str, condition: Processor) -> None:
         self.conditions[name] = condition
 
     def _remove_condition(self, name: str) -> None:
@@ -177,13 +183,13 @@ class ModelSpecification:
 
     @staticmethod
     def _prepare_condition(
-        condition: Condition,
+        processor: Processor,
         *args,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
-        accepted_parameters = get_parameter_names(condition, "__call__")
-        condition_parameters = get_condition_parameters_from_dict(accepted_parameters, kwargs)
-        return condition(*args, **condition_parameters)
+        accepted_parameters = get_parameter_names(processor, "__call__")
+        condition_parameters = get_processor_parameters_from_dict(accepted_parameters, kwargs)
+        return processor(*args, **condition_parameters)
 
     def _load_configs(self) -> None:
         self._load_transformer_config()

@@ -78,3 +78,6 @@ COMMON_LLM_START_PHRASES = (
         for continuation in _COMMON_CONTINUATION_WORDS
     ),
 )
+
+SUPPORTED_IMAGE_FILE_EXTENSIONS = ("jpg", "jpeg", "png")
+SUPPORTED_VIDEO_FILE_EXTENSIONS = ("mp4", "mov")

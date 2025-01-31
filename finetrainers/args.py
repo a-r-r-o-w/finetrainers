@@ -5,9 +5,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 from diffusers.utils import get_logger
 
-from .conditions import SUPPORTED_CONDITIONS, ConditionType
 from .constants import DEFAULT_IMAGE_RESOLUTION_BUCKETS, DEFAULT_VIDEO_RESOLUTION_BUCKETS, FINETRAINERS_LOG_LEVEL
 from .models import SUPPORTED_MODEL_CONFIGS
+from .processors import SUPPORTED_CONDITIONS, ProcessorType
 
 
 logger = get_logger("finetrainers")
@@ -160,10 +160,11 @@ class Args:
         List of conditions to use for training. To get a list of conditions, run `python train.py --list_conditions`.
     batch_size (`int`, defaults to `1`):
         Per-device batch size.
-    train_epochs (`int`, defaults to `1`):
-        Number of training epochs.
-    train_steps (`int`, defaults to `None`):
-        Total number of training steps to perform. If provided, overrides `train_epochs`.
+    train_steps (`int`, defaults to `1000`):
+        Total number of training steps to perform.
+    max_data_samples (`int`, defaults to `2**64`):
+        Maximum number of data samples observed during training training. If lesser than that required by `train_steps`,
+        the training will stop early.
     rank (`int`, defaults to `128`):
         The rank for LoRA matrices.
     lora_alpha (`float`, defaults to `64`):
@@ -189,12 +190,8 @@ class Args:
     -------------------
     optimizer (`str`, defaults to `adamw`):
         The optimizer type to use. Choose between ['adam', 'adamw'].
-    use_8bit_bnb (`bool`, defaults to `False`):
-        Whether to use 8bit variant of the `optimizer` using `bitsandbytes`.
     lr (`float`, defaults to `1e-4`):
         Initial learning rate (after the potential warmup period) to use.
-    scale_lr (`bool`, defaults to `False`):
-        Scale the learning rate by the number of GPUs, gradient accumulation steps, and batch size.
     lr_scheduler (`str`, defaults to `cosine_with_restarts`):
         The scheduler type to use. Choose between ['linear', 'cosine', 'cosine_with_restarts', 'polynomial',
         'constant', 'constant_with_warmup'].
@@ -262,6 +259,13 @@ class Args:
         The name of the logger to use for logging training metrics. Choose between ['wandb'].
     """
 
+    # Parallel arguments
+    pp_degree: int = 1
+    dp_degree: int = 1
+    dp_shards: int = -1
+    cp_degree: int = 1
+    tp_degree: int = 1
+
     # Model arguments
     model_name: str = None
     pretrained_model_name_or_path: str = None
@@ -297,6 +301,7 @@ class Args:
     # Dataset arguments
     data_root: str = None
     dataset_file: Optional[str] = None
+    # TODO(aryan): these might not be needed
     video_column: str = None
     caption_column: str = None
     id_token: Optional[str] = None
@@ -327,8 +332,8 @@ class Args:
     seed: int = 42
     conditions: List[str] = []
     batch_size: int = 1
-    train_epochs: int = 1
-    train_steps: int = None
+    train_steps: int = 1000
+    max_data_samples: int = 2**64
     rank: int = 128
     lora_alpha: float = 64
     target_modules: List[str] = ["to_k", "to_q", "to_v", "to_out.0"]
@@ -342,9 +347,7 @@ class Args:
 
     # Optimizer arguments
     optimizer: str = "adamw"
-    use_8bit_bnb: bool = False
     lr: float = 1e-4
-    scale_lr: bool = False
     lr_scheduler: str = "cosine_with_restarts"
     lr_warmup_steps: int = 0
     lr_num_cycles: int = 1
@@ -377,7 +380,8 @@ class Args:
     output_dir: str = None
     logging_dir: Optional[str] = "logs"
     allow_tf32: bool = False
-    nccl_timeout: int = 1800  # 30 minutes
+    init_timeout: int = 300  # 5 minutes
+    nccl_timeout: int = 600  # 10 minutes, considering that validation may be performed
     report_to: str = "wandb"
 
     # Condition-specfic arguments
@@ -387,6 +391,13 @@ class Args:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "parallel_arguments": {
+                "pp_degree": self.pp_degree,
+                "dp_degree": self.dp_degree,
+                "dp_shards": self.dp_shards,
+                "cp_degree": self.cp_degree,
+                "tp_degree": self.tp_degree,
+            },
             "model_arguments": {
                 "model_name": self.model_name,
                 "pretrained_model_name_or_path": self.pretrained_model_name_or_path,
@@ -443,8 +454,8 @@ class Args:
                 "seed": self.seed,
                 "conditions": self.conditions,
                 "batch_size": self.batch_size,
-                "train_epochs": self.train_epochs,
                 "train_steps": self.train_steps,
+                "max_data_samples": self.max_data_samples,
                 "rank": self.rank,
                 "lora_alpha": self.lora_alpha,
                 "target_modules": self.target_modules,
@@ -458,9 +469,7 @@ class Args:
             },
             "optimizer_arguments": {
                 "optimizer": self.optimizer,
-                "use_8bit_bnb": self.use_8bit_bnb,
                 "lr": self.lr,
-                "scale_lr": self.scale_lr,
                 "lr_scheduler": self.lr_scheduler,
                 "lr_warmup_steps": self.lr_warmup_steps,
                 "lr_num_cycles": self.lr_num_cycles,
@@ -490,6 +499,7 @@ class Args:
                 "output_dir": self.output_dir,
                 "logging_dir": self.logging_dir,
                 "allow_tf32": self.allow_tf32,
+                "init_timeout": self.init_timeout,
                 "nccl_timeout": self.nccl_timeout,
                 "report_to": self.report_to,
             },
@@ -516,6 +526,7 @@ def parse_arguments() -> Args:
         _display_helper_messages(args)
         sys.exit(0)
     else:
+        _add_parallel_arguments(parser)
         _add_model_arguments(parser)
         _add_dataset_arguments(parser)
         _add_dataloader_arguments(parser)
@@ -534,6 +545,14 @@ def validate_args(args: Args):
     _validated_model_args(args)
     _validate_training_args(args)
     _validate_validation_args(args)
+
+
+def _add_parallel_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--pp_degree", type=int, default=1, help="Pipeline parallelism degree.")
+    parser.add_argument("--dp_degree", type=int, default=1, help="Number of replicas for data parallelism.")
+    parser.add_argument("--dp_shards", type=int, default=-1, help="Number of shards for data parallelism.")
+    parser.add_argument("--cp_degree", type=int, default=1, help="Context parallelism degree.")
+    parser.add_argument("--tp_degree", type=int, default=1, help="Tensor parallelism degree")
 
 
 def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
@@ -791,12 +810,20 @@ def _add_training_arguments(parser: argparse.ArgumentParser) -> None:
         default=1,
         help="Batch size (per device) for the training dataloader.",
     )
-    parser.add_argument("--train_epochs", type=int, default=1, help="Number of training epochs.")
     parser.add_argument(
         "--train_steps",
         type=int,
-        default=None,
-        help="Total number of training steps to perform. If provided, overrides `--num_train_epochs`.",
+        default=1000,
+        help="Total number of training steps to perform.",
+    )
+    parser.add_argument(
+        "--max_data_samples",
+        type=int,
+        default=2**64,
+        help=(
+            "Maximum number of data samples observed during training. If lesser than that required by `train_steps`, "
+            "the training will stop early."
+        ),
     )
     parser.add_argument("--rank", type=int, default=64, help="The rank for LoRA matrices.")
     parser.add_argument(
@@ -868,11 +895,6 @@ def _add_optimizer_arguments(parser: argparse.ArgumentParser) -> None:
         help="Initial learning rate (after the potential warmup period) to use.",
     )
     parser.add_argument(
-        "--scale_lr",
-        action="store_true",
-        help="Scale the learning rate by the number of GPUs, gradient accumulation steps, and batch size.",
-    )
-    parser.add_argument(
         "--lr_scheduler",
         type=str,
         default="constant",
@@ -905,11 +927,6 @@ def _add_optimizer_arguments(parser: argparse.ArgumentParser) -> None:
         default="adam",
         choices=["adam", "adamw"],
         help=("The optimizer type to use."),
-    )
-    parser.add_argument(
-        "--use_8bit_bnb",
-        action="store_true",
-        help=("Whether to use 8bit variant of the `--optimizer` using `bitsandbytes`."),
     )
     parser.add_argument(
         "--beta1",
@@ -1040,6 +1057,12 @@ def _add_miscellaneous_arguments(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument(
+        "--init_timeout",
+        type=int,
+        default=300,
+        help="Maximum timeout for communication operations during initialization and first training step.",
+    )
+    parser.add_argument(
         "--nccl_timeout",
         type=int,
         default=600,
@@ -1062,7 +1085,7 @@ def _add_opt_in_arguments(
     # Caption dropout arguments
     if any(
         condition_name in args.conditions
-        for condition_name in [ConditionType.CAPTION_TEXT_DROPOUT, ConditionType.CAPTION_EMBEDDING_DROPOUT]
+        for condition_name in [ProcessorType.CAPTION_TEXT_DROPOUT, ProcessorType.CAPTION_EMBEDDING_DROPOUT]
     ):
         caption_dropout_parser = condition_subparser.add_parser(
             "caption_dropout", help="Arguments for caption dropout."
@@ -1102,6 +1125,13 @@ _DTYPE_MAP = {
 
 def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args = Args()
+
+    # Parallel arguments
+    result_args.pp_degree = args.pp_degree
+    result_args.dp_degree = args.dp_degree
+    result_args.dp_shards = args.dp_shards
+    result_args.cp_degree = args.cp_degree
+    result_args.tp_degree = args.tp_degree
 
     # Model arguments
     result_args.model_name = args.model_name
@@ -1162,8 +1192,8 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.seed = args.seed
     result_args.conditions = args.conditions
     result_args.batch_size = args.batch_size
-    result_args.train_epochs = args.train_epochs
     result_args.train_steps = args.train_steps
+    result_args.max_data_samples = args.max_data_samples
     result_args.rank = args.rank
     result_args.lora_alpha = args.lora_alpha
     result_args.target_modules = args.target_modules
@@ -1177,9 +1207,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
 
     # Optimizer arguments
     result_args.optimizer = args.optimizer or "adamw"
-    result_args.use_8bit_bnb = args.use_8bit_bnb
     result_args.lr = args.lr or 1e-4
-    result_args.scale_lr = args.scale_lr
     result_args.lr_scheduler = args.lr_scheduler
     result_args.lr_warmup_steps = args.lr_warmup_steps
     result_args.lr_num_cycles = args.lr_num_cycles
@@ -1247,13 +1275,14 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.output_dir = args.output_dir
     result_args.logging_dir = args.logging_dir
     result_args.allow_tf32 = args.allow_tf32
+    result_args.init_timeout = args.init_timeout
     result_args.nccl_timeout = args.nccl_timeout
     result_args.report_to = args.report_to
 
     # Condition-specific arguments
     if any(
         condition_name in args.conditions
-        for condition_name in [ConditionType.CAPTION_TEXT_DROPOUT, ConditionType.CAPTION_EMBEDDING_DROPOUT]
+        for condition_name in [ProcessorType.CAPTION_TEXT_DROPOUT, ProcessorType.CAPTION_EMBEDDING_DROPOUT]
     ):
         result_args.caption_dropout_p = args.caption_dropout_p
         result_args.caption_dropout_technique = args.caption_dropout_technique
@@ -1277,11 +1306,11 @@ def _validate_training_args(args: Args):
         ), "Target modules are required for LoRA training"
 
     if args.model_name == "ltx_video":
-        if ConditionType.T5 not in args.conditions:
+        if ProcessorType.T5 not in args.conditions:
             logger.warning(
                 "T5 condition is required for training LTXVideo. To not receive this warning please add 't5' to `--conditions`."
             )
-            args.conditions.append(ConditionType.T5)
+            args.conditions.append(ProcessorType.T5)
 
 
 def _validate_validation_args(args: Args):

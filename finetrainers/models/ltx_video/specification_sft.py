@@ -16,7 +16,7 @@ from PIL.Image import Image
 from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Tokenizer
 
 from ... import functional as FF
-from ...conditions import get_condition
+from ...processors import get_condition
 from ...utils import get_non_null_items
 from ..modeling_utils import ModelSpecification
 
@@ -181,9 +181,10 @@ class LTXVideoModelSpecification(ModelSpecification):
             "image_or_video": image_or_video,
         }
 
+    @torch.no_grad()
     def prepare_conditions(
         self,
-        text: str,
+        caption: str,
         tokenizer: T5Tokenizer,
         text_encoder: T5EncoderModel,
         max_sequence_length: int = 128,
@@ -194,7 +195,7 @@ class LTXVideoModelSpecification(ModelSpecification):
         for _, condition in self.conditions.items():
             result = self._prepare_condition(
                 condition,
-                text=text,
+                caption=caption,
                 tokenizer=tokenizer,
                 text_encoder=text_encoder,
                 max_sequence_length=max_sequence_length,
@@ -202,10 +203,12 @@ class LTXVideoModelSpecification(ModelSpecification):
             conditions.update(result)
         return conditions
 
+    @torch.no_grad()
     def prepare_latents(
         self,
         vae: AutoencoderKLLTXVideo,
-        image_or_video: torch.Tensor,
+        image: Optional[torch.Tensor] = None,
+        video: Optional[torch.Tensor] = None,
         generator: Optional[torch.Generator] = None,
         precompute: bool = False,
         *args,
@@ -214,22 +217,25 @@ class LTXVideoModelSpecification(ModelSpecification):
         device = vae.device
         dtype = vae.dtype
 
-        if image_or_video.ndim == 4:
-            image_or_video = image_or_video.unsqueeze(2)
-        assert image_or_video.ndim == 5, f"Expected 5D tensor, got {image_or_video.ndim}D tensor"
+        # TODO(aryan): remove this
+        video = video[:, :49, :, :, :]
 
-        image_or_video = image_or_video.to(device=device, dtype=vae.dtype)
-        image_or_video = image_or_video.permute(0, 2, 1, 3, 4).contiguous()  # [B, F, C, H, W] -> [B, C, F, H, W]
+        if image is not None:
+            video = image.unsqueeze(1)
+
+        assert video.ndim == 5, f"Expected 5D tensor, got {video.ndim}D tensor"
+        video = video.to(device=device, dtype=vae.dtype)
+        video = video.permute(0, 2, 1, 3, 4).contiguous()  # [B, F, C, H, W] -> [B, C, F, H, W]
 
         if not precompute:
-            latents = vae.encode(image_or_video).latent_dist.sample(generator=generator)
+            latents = vae.encode(video).latent_dist.sample(generator=generator)
             latents = latents.to(dtype=dtype)
         else:
-            if vae.use_slicing and image_or_video.shape[0] > 1:
-                encoded_slices = [vae._encode(x_slice) for x_slice in image_or_video.split(1)]
+            if vae.use_slicing and video.shape[0] > 1:
+                encoded_slices = [vae._encode(x_slice) for x_slice in video.split(1)]
                 h = torch.cat(encoded_slices)
             else:
-                h = vae._encode(image_or_video)
+                h = vae._encode(video)
             latents = h
 
         _, _, num_frames, height, width = latents.shape
