@@ -5,7 +5,7 @@ import torch.nn as nn
 from accelerate.logging import get_logger
 from diffusers import AutoencoderKLLTXVideo, FlowMatchEulerDiscreteScheduler, LTXPipeline, LTXVideoTransformer3DModel
 from PIL import Image
-from transformers import T5EncoderModel, T5Tokenizer
+from transformers import AutoTokenizer, T5EncoderModel, T5Tokenizer
 
 
 logger = get_logger("finetrainers")  # pylint: disable=invalid-name
@@ -18,7 +18,14 @@ def load_condition_models(
     cache_dir: Optional[str] = None,
     **kwargs,
 ) -> Dict[str, nn.Module]:
-    tokenizer = T5Tokenizer.from_pretrained(model_id, subfolder="tokenizer", revision=revision, cache_dir=cache_dir)
+    try:
+        tokenizer = T5Tokenizer.from_pretrained(
+            model_id, subfolder="tokenizer", revision=revision, cache_dir=cache_dir
+        )
+    except:  # noqa
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_id, subfolder="tokenizer", revision=revision, cache_dir=cache_dir
+        )
     text_encoder = T5EncoderModel.from_pretrained(
         model_id, subfolder="text_encoder", torch_dtype=text_encoder_dtype, revision=revision, cache_dir=cache_dir
     )
