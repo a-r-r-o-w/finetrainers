@@ -1,6 +1,6 @@
 .PHONY: quality style
 
-check_dirs := finetrainers tests
+check_dirs := finetrainers tests examples
 
 quality:
 	ruff check $(check_dirs)
