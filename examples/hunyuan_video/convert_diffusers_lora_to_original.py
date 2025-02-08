@@ -7,10 +7,10 @@ from safetensors.torch import load_file, save_file
 
 def convert_lora_sd(diffusers_lora_sd):
     double_block_patterns = {
-        "attn.to_out.0": "img_attn.proj",
+        "attn.to_out.0": "img_attn_proj",
         "ff.net.0.proj": "img_mlp.0",
         "ff.net.2": "img_mlp.2",
-        "attn.to_add_out": "txt_attn.proj",
+        "attn.to_add_out": "txt_attn_proj",
         "ff_context.net.0.proj": "txt_mlp.0",
         "ff_context.net.2": "txt_mlp.2",
     }
@@ -30,7 +30,7 @@ def convert_lora_sd(diffusers_lora_sd):
 
                 to_qkv_A = torch.cat([to_q_A, to_k_A, to_v_A], dim=0)
                 qkv_A_key = key.replace("transformer_blocks", prefix + "double_blocks").replace(
-                    "attn.to_q", "img_attn.qkv"
+                    "attn.to_q", "img_attn_qkv"
                 )
                 converted_lora_sd[qkv_A_key] = to_qkv_A
 
@@ -52,7 +52,7 @@ def convert_lora_sd(diffusers_lora_sd):
 
                 to_qkv_A = torch.cat([to_q_A, to_k_A, to_v_A], dim=0)
                 qkv_A_key = key.replace("transformer_blocks", prefix + "double_blocks").replace(
-                    "attn.add_q_proj", "txt_attn.qkv"
+                    "attn.add_q_proj", "txt_attn_qkv"
                 )
                 converted_lora_sd[qkv_A_key] = to_qkv_A
 
