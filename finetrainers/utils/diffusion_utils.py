@@ -133,7 +133,7 @@ def prepare_loss_weights(
 def prepare_target(
     scheduler: Union[CogVideoXDDIMScheduler, FlowMatchEulerDiscreteScheduler],
     noise: torch.Tensor,
-    latents: torch.Tensor,
+    latents: torch.Tensor
 ) -> torch.Tensor:
     if isinstance(scheduler, FlowMatchEulerDiscreteScheduler):
         target = noise - latents

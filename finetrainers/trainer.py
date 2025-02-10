@@ -702,6 +702,10 @@ class Trainer:
                             if "pooled_prompt_embeds" in text_conditions:
                                 text_conditions["pooled_prompt_embeds"].fill_(0)
 
+                    # TODO: Mochi only does: sigmas = torch.rand(latents.shape[0])
+                    # It doesn't rely on `sigmas` configured in the scheduler. To handle that, should
+                    # Mochi implement its own `prepare_sigmas()` similar to how 
+                    # `calculate_noisy_latents()` is implemented?
                     sigmas = prepare_sigmas(
                         scheduler=self.scheduler,
                         sigmas=scheduler_sigmas,
@@ -714,7 +718,11 @@ class Trainer:
                         device=accelerator.device,
                         generator=self.state.generator,
                     )
-                    timesteps = (sigmas * 1000.0).long()
+                    timesteps = (sigmas * self.scheduler.config.num_train_timesteps).long()
+                    # TODO: This is for Mochi-1. Only the negation is the change here. Since that is a one-liner, I wonder
+                    # if it's fine to do: `if is_mochi: ...`. Or would it be better to have something like:
+                    # `prepare_timesteps()`?
+                    # timesteps = (1 - sigmas) * self.scheduler.config.num_train_timesteps
 
                     noise = torch.randn(
                         latent_conditions["latents"].shape,
@@ -755,8 +763,12 @@ class Trainer:
                         **latent_conditions,
                         **text_conditions,
                     )
+
+                    # TODO: Revisit the targets if needed for Mochi.
                     target = prepare_target(
-                        scheduler=self.scheduler, noise=noise, latents=latent_conditions["latents"]
+                        scheduler=self.scheduler,
+                        noise=noise,
+                        latents=latent_conditions["latents"]
                     )
 
                     loss = weights.float() * (pred["latents"].float() - target.float()).pow(2)
