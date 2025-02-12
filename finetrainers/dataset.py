@@ -60,6 +60,8 @@ class ImageOrVideoDataset(Dataset):
         self.id_token = f"{id_token.strip()} " if id_token else ""
         self.resolution_buckets = resolution_buckets
 
+        self.max_num_frames = max(self.resolution_buckets, key=lambda x: x[0])[0]
+
         # Four methods of loading data are supported.
         #   - Using a CSV: caption_column and video_column must be some column in the CSV. One could
         #     make use of other columns too, such as a motion score or aesthetic score, by modifying the
@@ -139,7 +141,10 @@ class ImageOrVideoDataset(Dataset):
         if video_path.suffix.lower() in [".png", ".jpg", ".jpeg"]:
             video = self._preprocess_image(video_path)
         else:
-            video = self._preprocess_video(video_path)
+            try:
+                video = self._preprocess_video(video_path)
+            except:
+                raise ValueError(f"Exception while preprocessing {video_path}.")
 
         return {
             "prompt": prompt,
@@ -196,8 +201,12 @@ class ImageOrVideoDataset(Dataset):
         with open(self.dataset_file, "r", encoding="utf-8") as file:
             data = json.load(file)
 
-        prompts = [entry[self.caption_column] for entry in data]
-        video_paths = [self.data_root.joinpath(entry[self.video_column].strip()) for entry in data]
+        prompts = []
+        video_paths = []
+
+        for entry in data:
+            prompts.append(entry[self.caption_column])
+            video_paths.append(self.data_root.joinpath(entry[self.video_column].strip()))
 
         if any(not path.is_file() for path in video_paths):
             raise ValueError(
@@ -249,8 +258,6 @@ class ImageOrVideoDatasetWithResizing(ImageOrVideoDataset):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.max_num_frames = max(self.resolution_buckets, key=lambda x: x[0])[0]
-
     def _preprocess_image(self, path: Path) -> torch.Tensor:
         # TODO(aryan): Support alpha channel in future by whitening background
         image = TTF.Image.open(path.as_posix()).convert("RGB")
@@ -294,7 +301,6 @@ class ImageOrVideoDatasetWithResizeAndRectangleCrop(ImageOrVideoDataset):
         super().__init__(*args, **kwargs)
 
         self.video_reshape_mode = video_reshape_mode
-        self.max_num_frames = max(self.resolution_buckets, key=lambda x: x[0])[0]
 
     def _resize_for_rectangle_crop(self, arr, image_size):
         reshape_mode = self.video_reshape_mode

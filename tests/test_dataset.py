@@ -2,26 +2,25 @@
 
 import sys
 
+import finetrainers
 
 def test_video_dataset():
-    from cogvideox.dataset import VideoDataset
+    from finetrainers.dataset import ImageOrVideoDataset
 
-    dataset_dirs = VideoDataset(
+    dataset_dirs = ImageOrVideoDataset(
         data_root="assets/tests/",
         caption_column="prompts.txt",
         video_column="videos.txt",
-        max_num_frames=49,
+        resolution_buckets=[(49, 480, 720)],
         id_token=None,
-        random_flip=None,
     )
-    dataset_csv = VideoDataset(
+    dataset_csv = ImageOrVideoDataset(
         data_root="assets/tests/",
         dataset_file="assets/tests/metadata.csv",
         caption_column="caption",
         video_column="video",
-        max_num_frames=49,
+        resolution_buckets=[(49, 480, 720)],
         id_token=None,
-        random_flip=None,
     )
 
     assert len(dataset_dirs) == 1
@@ -33,29 +32,27 @@ def test_video_dataset():
 
 
 def test_video_dataset_with_resizing():
-    from cogvideox.dataset import VideoDatasetWithResizing
+    from finetrainers.dataset import ImageOrVideoDatasetWithResizing
 
-    dataset_dirs = VideoDatasetWithResizing(
+    dataset_dirs = ImageOrVideoDatasetWithResizing(
         data_root="assets/tests/",
         caption_column="prompts.txt",
         video_column="videos.txt",
-        max_num_frames=49,
+        resolution_buckets=[(49, 480, 720)],
         id_token=None,
-        random_flip=None,
     )
-    dataset_csv = VideoDatasetWithResizing(
+    dataset_csv = ImageOrVideoDatasetWithResizing(
         data_root="assets/tests/",
         dataset_file="assets/tests/metadata.csv",
         caption_column="caption",
         video_column="video",
-        max_num_frames=49,
+        resolution_buckets=[(49, 480, 720)],
         id_token=None,
-        random_flip=None,
     )
 
     assert len(dataset_dirs) == 1
     assert len(dataset_csv) == 1
-    assert dataset_dirs[0]["video"].shape == (48, 3, 480, 720)  # Changes due to T2V frame bucket sampling
+    assert dataset_dirs[0]["video"].shape == (49, 3, 480, 720)  # Changes due to T2V frame bucket sampling
     assert (dataset_dirs[0]["video"] == dataset_csv[0]["video"]).all()
 
     print(dataset_dirs[0]["video"].shape)
@@ -63,16 +60,15 @@ def test_video_dataset_with_resizing():
 
 def test_video_dataset_with_bucket_sampler():
     import torch
-    from cogvideox.dataset import BucketSampler, VideoDatasetWithResizing
+    from finetrainers.dataset import BucketSampler, ImageOrVideoDatasetWithResizing
     from torch.utils.data import DataLoader
 
-    dataset_dirs = VideoDatasetWithResizing(
+    dataset_dirs = ImageOrVideoDatasetWithResizing(
         data_root="assets/tests/",
         caption_column="prompts_multi.txt",
         video_column="videos_multi.txt",
-        max_num_frames=49,
+        resolution_buckets=[(49, 480, 720)],
         id_token=None,
-        random_flip=None,
     )
     sampler = BucketSampler(dataset_dirs, batch_size=8)
 
@@ -87,15 +83,33 @@ def test_video_dataset_with_bucket_sampler():
 
     for captions, videos in dataloader:
         if not first:
-            assert len(captions) == 8 and isinstance(captions[0], str)
-            assert videos.shape == (8, 48, 3, 480, 720)
+            assert len(captions) == 2 and isinstance(captions[0], str)
+            assert videos.shape == (2, 49, 3, 480, 720)
             first = True
         else:
-            assert len(captions) == 8 and isinstance(captions[0], str)
-            assert videos.shape == (8, 48, 3, 256, 360)
+            assert len(captions) == 2 and isinstance(captions[0], str)
+            assert videos.shape == (2, 49, 3, 256, 360)
             break
 
+def test_load_json_dataset():
+    from finetrainers.dataset import ImageOrVideoDataset
+    
+    dataset_json = ImageOrVideoDataset(
+        data_root="assets/tests/",
+        dataset_file="assets/tests/dummy_json_dataset.json",
+        caption_column="caption",
+        video_column="path",
+        resolution_buckets=[(49, 480, 720)],
+        id_token=None,
+    )
 
+    assert len(dataset_json.video_paths) == 2
+    assert len(dataset_json.prompts) == 2
+    assert str(dataset_json.video_paths[0]) == "assets/tests/videos/hiker.mp4"
+    assert dataset_json.prompts[0] == "This is a test caption"
+    assert str(dataset_json.video_paths[1]) == "assets/tests/videos/hiker_tiny.mp4"
+    assert dataset_json.prompts[1] == "This is another test caption"
+  
 if __name__ == "__main__":
     sys.path.append("./training")
 
