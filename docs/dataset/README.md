@@ -1,5 +1,7 @@
 ## Dataset Format
 
+For a more elaborate set of tooling related curating small and high-quality video datasets for fine-tuning, refer to [this blog post](https://huggingface.co/blog/vid_ds_scripts) and [repository](https://github.com/huggingface/video-dataset-scripts).
+
 Dataset loading format support is very limited at the moment. This will be improved in the future. For now, we support the following formats:
 
 #### Two file format
