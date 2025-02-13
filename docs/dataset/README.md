@@ -1,4 +1,8 @@
-## Dataset Format
+# Dataset
+
+TODO(aryan): requires rewrite. Also need to handle `caption_column` correctly. Need ot mention that `file_name` is a must for CSV/JSON/JSONL formats for `datasets` to be able to map correctly.
+
+## Training Dataset Format
 
 Dataset loading format support is very limited at the moment. This will be improved in the future. For now, we support the following formats:
 
@@ -105,3 +109,40 @@ For this format, you would specify arguments as follows:
 > For example, to finetune with `512x512` resolution images, one must specify `--video_resolution_buckets 1x512x512` and point to the image files correctly.
 
 If you are using LLM-captioned videos, it is common to see many unwanted starting phrases like "In this video, ...", "This video features ...", etc. To remove a simple subset of these phrases, you can specify `--remove_common_llm_caption_prefixes` when starting training.
+
+## Validation Dataset Format
+
+TODO(aryan): explain things here.
+
+Supported dataset formats: CSV, JSON, PARQUET, ARROW
+
+- Must contain "caption" as a column. If an image must be provided for validation (for example, image-to-video inference), then the "image_path" field must be provided. If a video must be provided for validation (for example, video-to-video inference), then the "video_path" field must be provided. Other fields like "num_inference_steps", "height", "width", "num_frames", and "frame_rate" can be provided too but are optional.
+
+CSV Example:
+
+TODO(aryan)
+
+----------------
+
+JSON Example:
+
+- Must contain "data" field, which should be a list of dictionaries. Each dictionary corresponds to one validation video that will be generated with the selected configuration of generation parameters.
+
+```json
+{
+  "data": [
+    {
+      "caption": "A black and white animated scene unfolds with an anthropomorphic goat surrounded by musical notes and symbols, suggesting a playful environment. Mickey Mouse appears, leaning forward in curiosity as the goat remains still. The goat then engages with Mickey, who bends down to converse or react. The dynamics shift as Mickey grabs the goat, potentially in surprise or playfulness, amidst a minimalistic background. The scene captures the evolving relationship between the two characters in a whimsical, animated setting, emphasizing their interactions and emotions.",
+      "image_path": "",
+      "video_path": "/raid/aryan/finetrainers-dummy-dataset-disney/a3c275fc2eb0a67168a7c58a6a9adb14.mp4",
+      "num_inference_steps": 50,
+      "height": 480,
+      "width": 768,
+      "num_frames": 49,
+      "frame_rate": 25
+    }
+  ]
+}
+```
+
+----------------

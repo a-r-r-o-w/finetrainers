@@ -1,5 +1,5 @@
 import inspect
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from ._rename_this_file_checkpointing import get_intermediate_ckpt_path, get_latest_ckpt_path_to_resume_from
 from .checkpoint_utils import apply_activation_checkpointing
@@ -18,8 +18,15 @@ from .hub_utils import save_model_card
 from .memory_utils import bytes_to_gigabytes, free_memory, get_memory_statistics, make_contiguous
 from .model_utils import resolve_component_cls
 from .optimizer_utils import get_optimizer, gradient_norm, max_gradient
-from .parallel_utils import apply_ddp, apply_fsdp, clip_grad_norm_, dist_max, dist_mean, enable_determinism
-from .torch_utils import align_device_and_dtype, expand_tensor_dims, get_device_info, synchronize_device, unwrap_model
+from .torch_utils import (
+    align_device_and_dtype,
+    clip_grad_norm_,
+    enable_determinism,
+    expand_tensor_dims,
+    get_device_info,
+    synchronize_device,
+    unwrap_model,
+)
 
 
 apply_gradient_checkpointing = apply_activation_checkpointing
@@ -31,5 +38,10 @@ def get_parameter_names(obj: Any, method_name: Optional[str] = None) -> Set[str]
     return {name for name, _ in inspect.signature(obj).parameters.items()}
 
 
-def get_non_null_items(d: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: v for k, v in d.items() if v is not None}
+def get_non_null_items(
+    x: Union[List[Any], Tuple[Any], Dict[str, Any]]
+) -> Union[List[Any], Tuple[Any], Dict[str, Any]]:
+    if isinstance(x, dict):
+        return {k: v for k, v in x.items() if v is not None}
+    if isinstance(x, (list, tuple)):
+        return type(x)(v for v in x if v is not None)

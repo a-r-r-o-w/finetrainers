@@ -9,9 +9,14 @@ from ..logging import logger
 
 class DPDataLoader(torchdata.stateful_dataloader.StatefulDataLoader, torch.distributed.checkpoint.stateful.Stateful):
     def __init__(
-        self, rank: int, dataset: torch.utils.data.IterableDataset, batch_size: int = 1, num_workers: int = 0
+        self,
+        rank: int,
+        dataset: torch.utils.data.IterableDataset,
+        batch_size: int = 1,
+        num_workers: int = 0,
+        collate_fn=None,
     ) -> None:
-        super().__init__(dataset, batch_size=batch_size, num_workers=num_workers)
+        super().__init__(dataset, batch_size=batch_size, num_workers=num_workers, collate_fn=collate_fn)
 
         self._dp_rank = rank
         self._rank_id = f"dp_rank_{rank}"

@@ -6,6 +6,7 @@ import datasets.distributed
 import datasets.exceptions
 import torch
 import torch.distributed.checkpoint.stateful
+from diffusers.utils import load_image, load_video
 
 from .. import constants
 from ..logging import logger
@@ -318,6 +319,60 @@ class VideoWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
 
     def state_dict(self):
         return {"sample_index": self._sample_index}
+
+
+class ValidationDataset(torch.utils.data.IterableDataset):
+    def __init__(self, filename: str):
+        super().__init__()
+
+        self.filename = pathlib.Path(filename)
+
+        if not self.filename.exists():
+            raise FileNotFoundError(f"File {self.filename.as_posix()} does not exist")
+
+        if self.filename.suffix == ".csv":
+            data = datasets.load_dataset("csv", data_files=self.filename.as_posix(), split="train")
+        elif self.filename.suffix == ".json":
+            data = datasets.load_dataset("json", data_files=self.filename.as_posix(), split="train", field="data")
+        elif self.filename.suffix == ".parquet":
+            data = datasets.load_dataset("parquet", data_files=self.filename.as_posix(), split="train")
+        elif self.filename.suffix == ".arrow":
+            data = datasets.load_dataset("arrow", data_files=self.filename.as_posix(), split="train")
+        else:
+            _SUPPORTED_FILE_FORMATS = [".csv", ".json", ".parquet", ".arrow"]
+            raise ValueError(
+                f"Unsupported file format {self.filename.suffix} for validation dataset. Supported formats are: {_SUPPORTED_FILE_FORMATS}"
+            )
+
+        self._data = data.to_iterable_dataset()
+
+    def __iter__(self):
+        for sample in self._data:
+            # For consistency reasons, we mandate that "caption" is always present in the validation dataset.
+            # However, since the model specifications use "prompt", we create an alias here.
+            sample["prompt"] = sample["caption"]
+
+            # Load image or video if the path is provided
+            # TODO(aryan): need to handle custom columns here for control conditions
+            sample["image"] = None
+            sample["video"] = None
+
+            if sample.get("image_path", None) is not None:
+                image_path = pathlib.Path(sample["image_path"])
+                if not image_path.is_file():
+                    logger.warning(f"Image file {image_path.as_posix()} does not exist.")
+                else:
+                    sample["image"] = load_image(sample["image_path"])
+
+            if sample.get("video_path", None) is not None:
+                video_path = pathlib.Path(sample["video_path"])
+                if not video_path.is_file():
+                    logger.warning(f"Video file {video_path.as_posix()} does not exist.")
+                else:
+                    sample["video"] = load_video(sample["video_path"])
+
+            sample = {k: v for k, v in sample.items() if v is not None}
+            yield sample
 
 
 # TODO(aryan): maybe write a test for this

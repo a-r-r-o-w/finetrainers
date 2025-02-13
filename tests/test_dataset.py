@@ -19,6 +19,7 @@ from finetrainers.data import (  # noqa
     VideoCaptionFileDataset,
     VideoFolderDataset,
     VideoWebDataset,
+    ValidationDataset,
 )
 from finetrainers.data.utils import find_files  # noqa
 
@@ -232,3 +233,28 @@ class DatasetUtilsFastTests(unittest.TestCase):
             self.assertIn(file2.name, files)
             self.assertNotIn(dir1.name, files)
             self.assertNotIn(dir2.name, files)
+
+
+class ValidationDatasetFastTests(unittest.TestCase):
+    def setUp(self):
+        num_data_files = 3
+
+        self.tmpdir = tempfile.TemporaryDirectory()
+        metadata_filename = pathlib.Path(self.tmpdir.name) / "metadata.csv"
+
+        with open(metadata_filename, "w") as f:
+            f.write("caption,image_path,video_path\n")
+            for i in range(num_data_files):
+                Image.new("RGB", (64, 64)).save((pathlib.Path(self.tmpdir.name) / f"{i}.jpg").as_posix())
+                f.write(f"test caption,{self.tmpdir.name}/{i}.jpg,\n")
+
+        self.dataset = ValidationDataset(metadata_filename.as_posix())
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_getitem(self):
+        for i, data in enumerate(self.dataset):
+            self.assertEqual(data["image_path"], f"{self.tmpdir.name}/{i}.jpg")
+            self.assertIsInstance(data["image"], Image.Image)
+            self.assertEqual(data["image"].size, (64, 64))

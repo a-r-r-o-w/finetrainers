@@ -8,6 +8,7 @@ from diffusers.utils import get_logger
 from .constants import DEFAULT_IMAGE_RESOLUTION_BUCKETS, DEFAULT_VIDEO_RESOLUTION_BUCKETS, FINETRAINERS_LOG_LEVEL
 from .models import SUPPORTED_MODEL_CONFIGS
 from .processors import SUPPORTED_CONDITIONS, ProcessorType
+from .utils import get_non_null_items
 
 
 logger = get_logger("finetrainers")
@@ -213,29 +214,21 @@ class Args:
 
     VALIDATION ARGUMENTS
     --------------------
-    validation_prompts (`List[str]`, defaults to `None`):
-        List of prompts to use for validation. If not provided, a random prompt will be selected from the training
-        dataset.
-    validation_images (`List[str]`, defaults to `None`):
-        List of image paths to use for validation.
-    validation_videos (`List[str]`, defaults to `None`):
-        List of video paths to use for validation.
-    validation_heights (`List[int]`, defaults to `None`):
-        List of heights for the validation videos.
-    validation_widths (`List[int]`, defaults to `None`):
-        List of widths for the validation videos.
-    validation_num_frames (`List[int]`, defaults to `None`):
-        List of number of frames for the validation videos.
-    num_validation_videos_per_prompt (`int`, defaults to `1`):
-        Number of videos to use for validation per prompt.
-    validation_every_n_epochs (`int`, defaults to `None`):
-        Perform validation every `n` training epochs.
-    validation_every_n_steps (`int`, defaults to `None`):
-        Perform validation every `n` training steps.
+    validation_dataset_file (`str`, defaults to `None`):
+        Path to a CSV/JSON/PARQUET/ARROW file containing information for validation. The file must contain atleast the
+        "caption" column. Other columns such as "image_path" and "video_path" can be provided too. If provided, "image_path"
+        will be used to load a PIL.Image.Image and set the "image" key in the sample dictionary. Similarly, "video_path"
+        will be used to load a List[PIL.Image.Image] and set the "video" key in the sample dictionary.
+        The validation dataset file may contain other attributes specific to inference/validation such as:
+            - "height" and "width" and "num_frames": Resolution
+            - "num_inference_steps": Number of inference steps
+            - "guidance_scale": Classifier-free Guidance Scale
+            - ... (any number of additional attributes can be provided. The ModelSpecification::validate method will be
+              invoked with the sample dictionary to validate the sample.)
+    validation_steps (`int`, defaults to `500`):
+        Number of training steps after which a validation step is performed.
     enable_model_cpu_offload (`bool`, defaults to `False`):
         Whether or not to offload different modeling components to CPU during validation.
-    validation_frame_rate (`int`, defaults to `25`):
-        Frame rate to use for the validation videos. This value is defaulted to 25, as used in LTX Video pipeline.
 
     MISCELLANEOUS ARGUMENTS
     -----------------------
@@ -251,6 +244,8 @@ class Args:
         The directory where the model checkpoints and logs will be stored.
     logging_dir (`str`, defaults to `logs`):
         The directory where the logs will be stored.
+    logging_steps (`int`, defaults to `1`):
+        Training logs will be tracked every `logging_steps` steps.
     allow_tf32 (`bool`, defaults to `False`):
         Whether or not to allow the use of TF32 matmul on compatible hardware.
     nccl_timeout (`int`, defaults to `1800`):
@@ -360,17 +355,9 @@ class Args:
     max_grad_norm: float = 1.0
 
     # Validation arguments
-    validation_prompts: List[str] = None
-    validation_images: List[str] = None
-    validation_videos: List[str] = None
-    validation_heights: List[int] = None
-    validation_widths: List[int] = None
-    validation_num_frames: List[int] = None
-    num_validation_videos_per_prompt: int = 1
-    validation_every_n_epochs: Optional[int] = None
-    validation_every_n_steps: Optional[int] = None
+    validation_dataset_file: Optional[str] = None
+    validation_steps: int = 500
     enable_model_cpu_offload: bool = False
-    validation_frame_rate: int = 25
 
     # Miscellaneous arguments
     tracker_name: str = "finetrainers"
@@ -379,6 +366,7 @@ class Args:
     hub_model_id: Optional[str] = None
     output_dir: str = None
     logging_dir: Optional[str] = "logs"
+    logging_steps: int = 1
     allow_tf32: bool = False
     init_timeout: int = 300  # 5 minutes
     nccl_timeout: int = 600  # 10 minutes, considering that validation may be performed
@@ -390,125 +378,148 @@ class Args:
     caption_dropout_technique: str = "empty"
 
     def to_dict(self) -> Dict[str, Any]:
+        parallel_arguments = {
+            "pp_degree": self.pp_degree,
+            "dp_degree": self.dp_degree,
+            "dp_shards": self.dp_shards,
+            "cp_degree": self.cp_degree,
+            "tp_degree": self.tp_degree,
+        }
+
+        model_arguments = {
+            "model_name": self.model_name,
+            "pretrained_model_name_or_path": self.pretrained_model_name_or_path,
+            "revision": self.revision,
+            "variant": self.variant,
+            "cache_dir": self.cache_dir,
+            "tokenizer_id": self.tokenizer_id,
+            "tokenizer_2_id": self.tokenizer_2_id,
+            "tokenizer_3_id": self.tokenizer_3_id,
+            "text_encoder_id": self.text_encoder_id,
+            "text_encoder_2_id": self.text_encoder_2_id,
+            "text_encoder_3_id": self.text_encoder_3_id,
+            "transformer_id": self.transformer_id,
+            "vae_id": self.vae_id,
+            "text_encoder_dtype": self.text_encoder_dtype,
+            "text_encoder_2_dtype": self.text_encoder_2_dtype,
+            "text_encoder_3_dtype": self.text_encoder_3_dtype,
+            "transformer_dtype": self.transformer_dtype,
+            "vae_dtype": self.vae_dtype,
+            "layerwise_upcasting_modules": self.layerwise_upcasting_modules,
+            "layerwise_upcasting_storage_dtype": self.layerwise_upcasting_storage_dtype,
+            "layerwise_upcasting_skip_modules_pattern": self.layerwise_upcasting_skip_modules_pattern,
+        }
+        model_arguments = get_non_null_items(model_arguments)
+
+        dataset_arguments = {
+            "data_root": self.data_root,
+            "dataset_file": self.dataset_file,
+            "video_column": self.video_column,
+            "caption_column": self.caption_column,
+            "id_token": self.id_token,
+            "image_resolution_buckets": self.image_resolution_buckets,
+            "video_resolution_buckets": self.video_resolution_buckets,
+            "video_reshape_mode": self.video_reshape_mode,
+            "precompute_conditions": self.precompute_conditions,
+            "remove_common_llm_caption_prefixes": self.remove_common_llm_caption_prefixes,
+        }
+        dataset_arguments = get_non_null_items(dataset_arguments)
+
+        dataloader_arguments = {
+            "dataloader_num_workers": self.dataloader_num_workers,
+            "pin_memory": self.pin_memory,
+        }
+
+        diffusion_arguments = {
+            "flow_resolution_shifting": self.flow_resolution_shifting,
+            "flow_base_seq_len": self.flow_base_seq_len,
+            "flow_max_seq_len": self.flow_max_seq_len,
+            "flow_base_shift": self.flow_base_shift,
+            "flow_max_shift": self.flow_max_shift,
+            "flow_shift": self.flow_shift,
+            "flow_weighting_scheme": self.flow_weighting_scheme,
+            "flow_logit_mean": self.flow_logit_mean,
+            "flow_logit_std": self.flow_logit_std,
+            "flow_mode_scale": self.flow_mode_scale,
+        }
+
+        training_arguments = {
+            "training_type": self.training_type,
+            "seed": self.seed,
+            "conditions": self.conditions,
+            "batch_size": self.batch_size,
+            "train_steps": self.train_steps,
+            "max_data_samples": self.max_data_samples,
+            "gradient_accumulation_steps": self.gradient_accumulation_steps,
+            "gradient_checkpointing": self.gradient_checkpointing,
+            "checkpointing_steps": self.checkpointing_steps,
+            "checkpointing_limit": self.checkpointing_limit,
+            "resume_from_checkpoint": self.resume_from_checkpoint,
+            "enable_slicing": self.enable_slicing,
+            "enable_tiling": self.enable_tiling,
+        }
+        if training_arguments["training_type"] in ["lora"]:
+            training_arguments.update(
+                {"rank": self.rank, "lora_alpha": self.lora_alpha, "target_modules": self.target_modules}
+            )
+        training_arguments = get_non_null_items(training_arguments)
+
+        optimizer_arguments = {
+            "optimizer": self.optimizer,
+            "lr": self.lr,
+            "lr_scheduler": self.lr_scheduler,
+            "lr_warmup_steps": self.lr_warmup_steps,
+            "lr_num_cycles": self.lr_num_cycles,
+            "lr_power": self.lr_power,
+            "beta1": self.beta1,
+            "beta2": self.beta2,
+            "beta3": self.beta3,
+            "weight_decay": self.weight_decay,
+            "epsilon": self.epsilon,
+            "max_grad_norm": self.max_grad_norm,
+        }
+        optimizer_arguments = get_non_null_items(optimizer_arguments)
+
+        validation_arguments = {
+            "validation_dataset_file": self.validation_dataset_file,
+            "validation_steps": self.validation_steps,
+            "enable_model_cpu_offload": self.enable_model_cpu_offload,
+        }
+        validation_arguments = get_non_null_items(validation_arguments)
+
+        miscellaneous_arguments = {
+            "tracker_name": self.tracker_name,
+            "push_to_hub": self.push_to_hub,
+            "hub_token": self.hub_token,
+            "hub_model_id": self.hub_model_id,
+            "output_dir": self.output_dir,
+            "logging_dir": self.logging_dir,
+            "logging_steps": self.logging_steps,
+            "allow_tf32": self.allow_tf32,
+            "init_timeout": self.init_timeout,
+            "nccl_timeout": self.nccl_timeout,
+            "report_to": self.report_to,
+        }
+        miscellaneous_arguments = get_non_null_items(miscellaneous_arguments)
+
+        condition_arguments = {
+            "text": {
+                "caption_dropout_p": self.caption_dropout_p,
+                "caption_dropout_technique": self.caption_dropout_technique,
+            },
+        }
+
         return {
-            "parallel_arguments": {
-                "pp_degree": self.pp_degree,
-                "dp_degree": self.dp_degree,
-                "dp_shards": self.dp_shards,
-                "cp_degree": self.cp_degree,
-                "tp_degree": self.tp_degree,
-            },
-            "model_arguments": {
-                "model_name": self.model_name,
-                "pretrained_model_name_or_path": self.pretrained_model_name_or_path,
-                "revision": self.revision,
-                "variant": self.variant,
-                "cache_dir": self.cache_dir,
-                "tokenizer_id": self.tokenizer_id,
-                "tokenizer_2_id": self.tokenizer_2_id,
-                "tokenizer_3_id": self.tokenizer_3_id,
-                "text_encoder_id": self.text_encoder_id,
-                "text_encoder_2_id": self.text_encoder_2_id,
-                "text_encoder_3_id": self.text_encoder_3_id,
-                "transformer_id": self.transformer_id,
-                "vae_id": self.vae_id,
-                "text_encoder_dtype": self.text_encoder_dtype,
-                "text_encoder_2_dtype": self.text_encoder_2_dtype,
-                "text_encoder_3_dtype": self.text_encoder_3_dtype,
-                "transformer_dtype": self.transformer_dtype,
-                "vae_dtype": self.vae_dtype,
-                "layerwise_upcasting_modules": self.layerwise_upcasting_modules,
-                "layerwise_upcasting_storage_dtype": self.layerwise_upcasting_storage_dtype,
-                "layerwise_upcasting_skip_modules_pattern": self.layerwise_upcasting_skip_modules_pattern,
-            },
-            "dataset_arguments": {
-                "data_root": self.data_root,
-                "dataset_file": self.dataset_file,
-                "video_column": self.video_column,
-                "caption_column": self.caption_column,
-                "id_token": self.id_token,
-                "image_resolution_buckets": self.image_resolution_buckets,
-                "video_resolution_buckets": self.video_resolution_buckets,
-                "video_reshape_mode": self.video_reshape_mode,
-                "precompute_conditions": self.precompute_conditions,
-                "remove_common_llm_caption_prefixes": self.remove_common_llm_caption_prefixes,
-            },
-            "dataloader_arguments": {
-                "dataloader_num_workers": self.dataloader_num_workers,
-                "pin_memory": self.pin_memory,
-            },
-            "diffusion_arguments": {
-                "flow_resolution_shifting": self.flow_resolution_shifting,
-                "flow_base_seq_len": self.flow_base_seq_len,
-                "flow_max_seq_len": self.flow_max_seq_len,
-                "flow_base_shift": self.flow_base_shift,
-                "flow_max_shift": self.flow_max_shift,
-                "flow_shift": self.flow_shift,
-                "flow_weighting_scheme": self.flow_weighting_scheme,
-                "flow_logit_mean": self.flow_logit_mean,
-                "flow_logit_std": self.flow_logit_std,
-                "flow_mode_scale": self.flow_mode_scale,
-            },
-            "training_arguments": {
-                "training_type": self.training_type,
-                "seed": self.seed,
-                "conditions": self.conditions,
-                "batch_size": self.batch_size,
-                "train_steps": self.train_steps,
-                "max_data_samples": self.max_data_samples,
-                "rank": self.rank,
-                "lora_alpha": self.lora_alpha,
-                "target_modules": self.target_modules,
-                "gradient_accumulation_steps": self.gradient_accumulation_steps,
-                "gradient_checkpointing": self.gradient_checkpointing,
-                "checkpointing_steps": self.checkpointing_steps,
-                "checkpointing_limit": self.checkpointing_limit,
-                "resume_from_checkpoint": self.resume_from_checkpoint,
-                "enable_slicing": self.enable_slicing,
-                "enable_tiling": self.enable_tiling,
-            },
-            "optimizer_arguments": {
-                "optimizer": self.optimizer,
-                "lr": self.lr,
-                "lr_scheduler": self.lr_scheduler,
-                "lr_warmup_steps": self.lr_warmup_steps,
-                "lr_num_cycles": self.lr_num_cycles,
-                "lr_power": self.lr_power,
-                "beta1": self.beta1,
-                "beta2": self.beta2,
-                "beta3": self.beta3,
-                "weight_decay": self.weight_decay,
-                "epsilon": self.epsilon,
-                "max_grad_norm": self.max_grad_norm,
-            },
-            "validation_arguments": {
-                "validation_prompts": self.validation_prompts,
-                "validation_images": self.validation_images,
-                "validation_videos": self.validation_videos,
-                "num_validation_videos_per_prompt": self.num_validation_videos_per_prompt,
-                "validation_every_n_epochs": self.validation_every_n_epochs,
-                "validation_every_n_steps": self.validation_every_n_steps,
-                "enable_model_cpu_offload": self.enable_model_cpu_offload,
-                "validation_frame_rate": self.validation_frame_rate,
-            },
-            "miscellaneous_arguments": {
-                "tracker_name": self.tracker_name,
-                "push_to_hub": self.push_to_hub,
-                "hub_token": self.hub_token,
-                "hub_model_id": self.hub_model_id,
-                "output_dir": self.output_dir,
-                "logging_dir": self.logging_dir,
-                "allow_tf32": self.allow_tf32,
-                "init_timeout": self.init_timeout,
-                "nccl_timeout": self.nccl_timeout,
-                "report_to": self.report_to,
-            },
-            "condition_arguments": {
-                "text": {
-                    "caption_dropout_p": self.caption_dropout_p,
-                    "caption_dropout_technique": self.caption_dropout_technique,
-                },
-            },
+            "parallel_arguments": parallel_arguments,
+            "model_arguments": model_arguments,
+            "dataset_arguments": dataset_arguments,
+            "dataloader_arguments": dataloader_arguments,
+            "diffusion_arguments": diffusion_arguments,
+            "training_arguments": training_arguments,
+            "optimizer_arguments": optimizer_arguments,
+            "validation_arguments": validation_arguments,
+            "miscellaneous_arguments": miscellaneous_arguments,
+            "condition_arguments": condition_arguments,
         }
 
 
@@ -963,52 +974,16 @@ def _add_optimizer_arguments(parser: argparse.ArgumentParser) -> None:
 
 def _add_validation_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
-        "--validation_prompts",
+        "--validation_dataset_file",
         type=str,
         default=None,
-        help="One or more prompt(s) that is used during validation to verify that the model is learning. Multiple validation prompts should be separated by the '--validation_prompt_seperator' string.",
-    )
-    parser.add_argument(
-        "--validation_images",
-        type=str,
-        default=None,
-        help="One or more image path(s)/URLs that is used during validation to verify that the model is learning. Multiple validation paths should be separated by the '--validation_prompt_seperator' string. These should correspond to the order of the validation prompts.",
-    )
-    parser.add_argument(
-        "--validation_videos",
-        type=str,
-        default=None,
-        help="One or more video path(s)/URLs that is used during validation to verify that the model is learning. Multiple validation paths should be separated by the '--validation_prompt_seperator' string. These should correspond to the order of the validation prompts.",
-    )
-    parser.add_argument(
-        "--validation_separator",
-        type=str,
-        default=":::",
-        help="String that separates multiple validation prompts",
-    )
-    parser.add_argument(
-        "--num_validation_videos",
-        type=int,
-        default=1,
-        help="Number of videos that should be generated during validation per `validation_prompt`.",
-    )
-    parser.add_argument(
-        "--validation_epochs",
-        type=int,
-        default=None,
-        help="Run validation every X training epochs. Validation consists of running the validation prompt `args.num_validation_videos` times.",
+        help="Path to the validation dataset file. See the documentation of finetrainers.args.Args for more information.",
     )
     parser.add_argument(
         "--validation_steps",
         type=int,
-        default=None,
-        help="Run validation every X training steps. Validation consists of running the validation prompt `args.num_validation_videos` times.",
-    )
-    parser.add_argument(
-        "--validation_frame_rate",
-        type=int,
-        default=25,
-        help="Frame rate to use for the validation videos.",
+        default=500,
+        help="Number of training steps after which a validation step is performed.",
     )
     parser.add_argument(
         "--enable_model_cpu_offload",
@@ -1048,6 +1023,7 @@ def _add_miscellaneous_arguments(parser: argparse.ArgumentParser) -> None:
         default="logs",
         help="Directory where logs are stored.",
     )
+    parser.add_argument("--logging_steps", type=int, default=1, help="Log training metrics every X steps.")
     parser.add_argument(
         "--allow_tf32",
         action="store_true",
@@ -1220,52 +1196,9 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.max_grad_norm = args.max_grad_norm
 
     # Validation arguments
-    validation_prompts = args.validation_prompts.split(args.validation_separator) if args.validation_prompts else []
-    validation_images = args.validation_images.split(args.validation_separator) if args.validation_images else None
-    validation_videos = args.validation_videos.split(args.validation_separator) if args.validation_videos else None
-    validation_images = (
-        [None if len(image.strip()) == 0 else image.strip() for image in validation_images]
-        if validation_images
-        else None
-    )
-    validation_videos = (
-        [None if len(video.strip()) == 0 else video.strip() for video in validation_videos]
-        if validation_videos
-        else None
-    )
-    stripped_validation_prompts = []
-    validation_heights = []
-    validation_widths = []
-    validation_num_frames = []
-    for prompt in validation_prompts:
-        prompt: str
-        prompt = prompt.strip()
-        actual_prompt, separator, resolution = prompt.rpartition("@@@")
-        stripped_validation_prompts.append(actual_prompt)
-        num_frames, height, width = None, None, None
-        if len(resolution) > 0:
-            num_frames, height, width = map(int, resolution.split("x"))
-        validation_num_frames.append(num_frames)
-        validation_heights.append(height)
-        validation_widths.append(width)
-
-    if validation_images is None:
-        validation_images = [None] * len(validation_prompts)
-    if validation_videos is None:
-        validation_videos = [None] * len(validation_prompts)
-
-    result_args.validation_prompts = stripped_validation_prompts
-    result_args.validation_heights = validation_heights
-    result_args.validation_widths = validation_widths
-    result_args.validation_num_frames = validation_num_frames
-    result_args.validation_images = validation_images
-    result_args.validation_videos = validation_videos
-
-    result_args.num_validation_videos_per_prompt = args.num_validation_videos
-    result_args.validation_every_n_epochs = args.validation_epochs
-    result_args.validation_every_n_steps = args.validation_steps
+    result_args.validation_dataset_file = args.validation_dataset_file
+    result_args.validation_steps = args.validation_steps
     result_args.enable_model_cpu_offload = args.enable_model_cpu_offload
-    result_args.validation_frame_rate = args.validation_frame_rate
 
     # Miscellaneous arguments
     result_args.tracker_name = args.tracker_name
@@ -1274,6 +1207,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.hub_model_id = args.hub_model_id
     result_args.output_dir = args.output_dir
     result_args.logging_dir = args.logging_dir
+    result_args.logging_steps = args.logging_steps
     result_args.allow_tf32 = args.allow_tf32
     result_args.init_timeout = args.init_timeout
     result_args.nccl_timeout = args.nccl_timeout
@@ -1314,21 +1248,8 @@ def _validate_training_args(args: Args):
 
 
 def _validate_validation_args(args: Args):
-    assert args.validation_prompts is not None, "Validation prompts are required for validation"
-    if args.validation_images is not None:
-        assert len(args.validation_images) == len(
-            args.validation_prompts
-        ), "Validation images and prompts should be of same length"
-    if args.validation_videos is not None:
-        assert len(args.validation_videos) == len(
-            args.validation_prompts
-        ), "Validation videos and prompts should be of same length"
-    assert len(args.validation_prompts) == len(
-        args.validation_heights
-    ), "Validation prompts and heights should be of same length"
-    assert len(args.validation_prompts) == len(
-        args.validation_widths
-    ), "Validation prompts and widths should be of same length"
+    if args.dp_shards > 1 and args.enable_model_cpu_offload:
+        raise ValueError("Model CPU offload is not supported with FSDP at the moment.")
 
 
 def _display_helper_messages(args: argparse.Namespace):

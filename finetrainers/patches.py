@@ -16,9 +16,6 @@ def perform_peft_patches() -> None:
 
 
 def _perform_patch_move_adapter_to_device_of_base_layer() -> None:
-    # We don't patch the method for torch.float32 and torch.bfloat16 because it is okay to train with them. If the model weights
-    # are in torch.float16, torch.float8_e4m3fn or torch.float8_e5m2, we need to patch this method to avoid conversion of
-    # LoRA weights from higher precision dtype.
     BaseTunerLayer._move_adapter_to_device_of_base_layer = _patched_move_adapter_to_device_of_base_layer(
         BaseTunerLayer._move_adapter_to_device_of_base_layer
     )

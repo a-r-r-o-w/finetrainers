@@ -2,33 +2,30 @@ import datetime
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import datasets.distributed
 import diffusers
 import torch
 import torch.backends
 import transformers
-from accelerate.utils import gather_object
+import wandb
 from diffusers import DiffusionPipeline
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.training_utils import cast_training_params
-from diffusers.utils import export_to_video, load_image, load_video
+from diffusers.utils import export_to_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig
 from tqdm import tqdm
 
-import wandb
-
-from . import data, optimizer, utils
+from . import data, optimizer, parallel, utils
 from .args import Args, validate_args
 from .hooks import apply_layerwise_upcasting
 from .logging import logger
 from .models import ModelSpecification, get_model_specifiction_cls
 from .patches import perform_peft_patches
 from .processors import Processor, ProcessorType, get_condition
-from .state import ParallelState, State, TrainState
-from .trackers import initialize_trackers
+from .state import State, TrainState
 
 
 class Trainer:
@@ -99,7 +96,7 @@ class Trainer:
         logger.info("Initializing dataset and dataloader")
 
         # TODO(aryan): allow configurability
-        parallel_state = self.state.parallel
+        parallel_state = self.state.parallel_state
         dataset = data.initialize_dataset(self.args.data_root, dataset_type="video", streaming=True, infinite=True)
         dataset._data = datasets.distributed.split_dataset_by_node(
             dataset._data, parallel_state.rank, parallel_state._world_size
@@ -132,7 +129,7 @@ class Trainer:
             if self.args.enable_tiling:
                 self.vae.enable_tiling()
 
-        if self.state.parallel.pipeline_parallel_enabled:
+        if self.state.parallel_state.pipeline_parallel_enabled:
             raise NotImplementedError(
                 "Pipeline parallelism is not supported yet. This will be supported in the future."
             )
@@ -376,19 +373,21 @@ class Trainer:
     def prepare_trainable_parameters(self) -> None:
         logger.info("Initializing trainable parameters")
 
+        parallel_state = self.state.parallel_state
+
         if self.args.precompute_conditions:
             diffusion_components = self.model_specification.load_diffusion_models()
             self._set_components(diffusion_components)
 
         components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.vae]
-        self._disable_grad_for_components(components)
+        self._disable_grad_for_models(components)
 
         if self.args.training_type == "full-finetune":
             logger.info("Finetuning transformer with no additional parameters")
-            self._enable_grad_for_components([self.transformer])
+            self._enable_grad_for_models([self.transformer])
         else:
             logger.info("Finetuning transformer with PEFT parameters")
-            self._disable_grad_for_components([self.transformer])
+            self._disable_grad_for_models([self.transformer])
 
         # Layerwise upcasting must be applied before adding the LoRA adapter.
         # If we don't perform this before moving to device, we might OOM on the GPU. So, best to do it on
@@ -402,6 +401,7 @@ class Trainer:
                 non_blocking=True,
             )
 
+        transformer_lora_config = None
         if self.args.training_type == "lora":
             transformer_lora_config = LoraConfig(
                 r=self.args.rank,
@@ -410,28 +410,30 @@ class Trainer:
                 target_modules=self.args.target_modules,
             )
             self.transformer.add_adapter(transformer_lora_config)
-        else:
-            transformer_lora_config = None
 
         # TODO(aryan): it might be nice to add some assertions here to make sure that lora parameters are still in fp32
         # even if layerwise upcasting. Would be nice to have a test as well
         self.register_saving_loading_hooks(transformer_lora_config)
 
-        # Setup distributed optimizer and lr scheduler
-        logger.info("Initializing optimizer and lr scheduler")
-        self.state.train_state = TrainState()
-
-        # Make sure the trainable params are in float32
+        # Make sure the trainable params are in float32 if data sharding is not enabled. For FSDP, we need all
+        # parameters to be of the same dtype.
         if self.args.training_type == "lora":
-            # TODO(aryan): handle lora parameters since optimizer expects nn.Module
-            raise NotImplementedError
-            cast_training_params([self.transformer], dtype=torch.float32)
+            casting_dtype = torch.float32 if not parallel_state.data_sharding_enabled else self.args.transformer_dtype
+            cast_training_params([self.transformer], dtype=casting_dtype)
 
+        # For training LoRAs, we can be a little more optimal. Currently, the OptimizerWrapper only accepts torch::nn::Module.
+        # This causes us to loop over all the parameters (even ones that don't require gradients, as in LoRA) at each optimizer
+        # step. This is OK (see https://github.com/pytorch/pytorch/blob/2f40f789dafeaa62c4e4b90dbf4a900ff6da2ca4/torch/optim/sgd.py#L85-L99)
+        # but can be optimized a bit by maybe creating a simple wrapper module encompassing the actual parameters that require
+        # gradients. TODO(aryan): look into it in the future.
         model_parts = [self.transformer]
         self.state.num_trainable_parameters = sum(
             p.numel() for m in model_parts for p in m.parameters() if p.requires_grad
         )
 
+        # Setup distributed optimizer and lr scheduler
+        logger.info("Initializing optimizer and lr scheduler")
+        self.state.train_state = TrainState()
         optim = optimizer.get_optimizer(
             name=self.args.optimizer,
             model_parts=model_parts,
@@ -455,7 +457,7 @@ class Trainer:
         self.lr_scheduler = lr_scheduler
 
     def prepare_for_training(self) -> None:
-        parallel_state = self.state.parallel
+        parallel_state = self.state.parallel_state
         world_mesh = parallel_state.get_mesh()
 
         if parallel_state.context_parallel_enabled:
@@ -481,13 +483,12 @@ class Trainer:
             else:
                 dp_mesh_names = ("dp_shard_cp",)
 
-            param_dtype = torch.float32 if self.args.training_type == "lora" else self.args.transformer_dtype
-
-            utils.apply_fsdp(
+            parallel.apply_fsdp2(
                 model=self.transformer,
                 dp_mesh=world_mesh[dp_mesh_names],
-                param_dtype=param_dtype,
+                param_dtype=self.args.transformer_dtype,
                 reduce_dtype=torch.float32,
+                output_dtype=None,
                 pp_enabled=parallel_state.pipeline_parallel_enabled,
                 cpu_offload=False,  # TODO(aryan): needs to be tested and allowed for enabling later
             )
@@ -497,7 +498,7 @@ class Trainer:
             if world_mesh.ndim > 1:
                 raise ValueError("DDP not supported for > 1D parallelism")
 
-            utils.apply_ddp(model=self.transformer, dp_mesh=world_mesh)
+            parallel.apply_ddp(model=self.transformer, dp_mesh=world_mesh)
 
         self._move_components_to_device()
 
@@ -515,7 +516,7 @@ class Trainer:
 
         # TODO(aryan): handle per-device batch_size > 1
 
-        global_batch_size = self.args.batch_size * self.state.parallel.world_size
+        global_batch_size = self.args.batch_size * self.state.parallel_state.world_size
         info = {
             "trainable parameters": self.state.num_trainable_parameters,
             "train steps": self.args.train_steps,
@@ -526,6 +527,9 @@ class Trainer:
         logger.info(f"Training configuration: {json.dumps(info, indent=4)}")
 
         train_state = self.state.train_state
+        parallel_state = self.state.parallel_state
+        device = parallel_state.device
+
         train_state.global_step = 0
         train_state.observed_data_samples = 0
         # first_epoch = 0
@@ -545,9 +549,6 @@ class Trainer:
         # )
         # if resume_from_checkpoint_path:
         #     self.state.accelerator.load_state(resume_from_checkpoint_path)
-
-        parallel_state = self.state.parallel
-        device = parallel_state.device
 
         progress_bar = tqdm(
             range(0, self.args.train_steps),
@@ -576,15 +577,15 @@ class Trainer:
         while (
             train_state.step < self.args.train_steps and train_state.observed_data_samples < self.args.max_data_samples
         ):
-            logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
-            self.optimizer.zero_grad()
-
             batch = next(data_iterator)
             batch_size = len(batch["caption"])
 
             train_state.step += 1
             # TODO(aryan): this is not correct. We need to handle PP and DP properly
             train_state.observed_data_samples += batch_size * parallel_state._world_size
+
+            logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
+            self.optimizer.zero_grad()
 
             if not self.args.precompute_conditions:
                 latent_model_conditions = self.model_specification.prepare_latents(
@@ -684,8 +685,8 @@ class Trainer:
                 loss = loss.detach()
                 dp_cp_mesh = parallel_state.get_mesh()["dp_cp"]
                 global_avg_loss, global_max_loss = (
-                    utils.dist_mean(loss, dp_cp_mesh),
-                    utils.dist_max(loss, dp_cp_mesh),
+                    parallel.dist_mean(loss, dp_cp_mesh),
+                    parallel.dist_max(loss, dp_cp_mesh),
                 )
             else:
                 global_avg_loss = global_max_loss = loss.detach().item()
@@ -694,13 +695,17 @@ class Trainer:
             logs["global_max_loss"] = global_max_loss
             progress_bar.update(1)
             progress_bar.set_postfix(logs)
-            self.tracker.log(logs, step=train_state.step)
+
+            if train_state.step % self.args.logging_steps == 0:
+                parallel_state.log(logs, step=train_state.step)
 
             train_state.log_steps.append(train_state.step)
             train_state.global_avg_losses.append(global_avg_loss)
             train_state.global_max_losses.append(global_max_loss)
 
-            # TODO(aryan): handle validation and checkpointing
+            # TODO(aryan): handle checkpointing
+            if train_state.step % self.args.validation_steps == 0:
+                self.validate(step=train_state.step, final_validation=False)
 
         parallel_state.wait_for_everyone()
 
@@ -716,7 +721,7 @@ class Trainer:
             pass
 
         parallel_state.wait_for_everyone()
-        # self.validate(step=train_state.step, final_validation=True)
+        self.validate(step=train_state.step, final_validation=True)
 
         if parallel_state.is_main_process:
             if self.args.push_to_hub:
@@ -728,140 +733,121 @@ class Trainer:
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory after training end: {json.dumps(memory_statistics, indent=4)}")
 
-        self.tracker.finish()
         parallel_state.destroy()
 
     def validate(self, step: int, final_validation: bool = False) -> None:
         logger.info("Starting validation")
 
-        accelerator = self.state.accelerator
-        num_validation_samples = len(self.args.validation_prompts)
-
-        if num_validation_samples == 0:
-            logger.warning("No validation samples found. Skipping validation.")
-            return
-
-        self.transformer.eval()
+        # 1. Load validation dataset
+        parallel_state = self.state.parallel_state
+        dataset = data.ValidationDataset(self.args.validation_dataset_file)
+        dataset._data = datasets.distributed.split_dataset_by_node(
+            dataset._data, parallel_state.rank, parallel_state.world_size
+        )
+        validation_dataloader = data.DPDataLoader(
+            parallel_state.rank,
+            dataset,
+            batch_size=1,
+            num_workers=self.args.dataloader_num_workers,
+            collate_fn=lambda items: items,
+        )
+        main_process_prompts_to_filenames = {}  # Used to save model card
+        all_processes_artifacts = []  # Used to gather artifacts from all processes
 
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory before validation start: {json.dumps(memory_statistics, indent=4)}")
 
+        self.transformer.eval()
         pipeline = self._get_and_prepare_pipeline_for_validation(final_validation=final_validation)
 
-        all_processes_artifacts = []
-        prompts_to_filenames = {}
-        for i in range(num_validation_samples):
-            # Skip current validation on all processes but one
-            if i % accelerator.num_processes != accelerator.process_index:
-                continue
+        # 2. Run validation
+        for validation_data in validation_dataloader:
+            logger.debug(f"Validating {validation_data=} on rank={parallel_state.rank}.")
 
-            prompt = self.args.validation_prompts[i]
-            image = self.args.validation_images[i]
-            video = self.args.validation_videos[i]
-            height = self.args.validation_heights[i]
-            width = self.args.validation_widths[i]
-            num_frames = self.args.validation_num_frames[i]
-            frame_rate = self.args.validation_frame_rate
-            if image is not None:
-                image = load_image(image)
-            if video is not None:
-                video = load_video(video)
-
-            logger.debug(
-                f"Validating sample {i + 1}/{num_validation_samples} on process {accelerator.process_index}. Prompt: {prompt}",
-                main_process_only=False,
-            )
+            validation_data = validation_data[0]
             validation_artifacts = self.model_specification.validation(
                 pipeline=pipeline,
-                prompt=prompt,
-                image=image,
-                video=video,
-                height=height,
-                width=width,
-                num_frames=num_frames,
-                frame_rate=frame_rate,
-                num_videos_per_prompt=self.args.num_validation_videos_per_prompt,
-                generator=torch.Generator(device=accelerator.device).manual_seed(
+                generator=torch.Generator(device=parallel_state.device).manual_seed(
                     self.args.seed if self.args.seed is not None else 0
                 ),
-                # TODO: support passing `fps` for supported pipelines
+                **validation_data,
             )
 
-            prompt_filename = utils.string_to_filename(prompt)[:25]
+            PROMPT = validation_data["prompt"]
+            IMAGE = validation_data.get("image", None)
+            VIDEO = validation_data.get("video", None)
+            EXPORT_FPS = validation_data.get("export_fps", 30)
+
+            # 2.1. If there are any initial images or videos, they will be logged to keep track of them as
+            # conditioning for generation.
+            prompt_filename = utils.string_to_filename(PROMPT)[:25]
             artifacts = {
-                "image": {"type": "image", "value": image},
-                "video": {"type": "video", "value": video},
+                "image": data.ImageArtifact(value=IMAGE),
+                "video": data.VideoArtifact(value=VIDEO),
             }
-            for i, (artifact_type, artifact_value) in enumerate(validation_artifacts):
-                if artifact_value:
-                    artifacts.update({f"artifact_{i}": {"type": artifact_type, "value": artifact_value}})
-            logger.debug(
-                f"Validation artifacts on process {accelerator.process_index}: {list(artifacts.keys())}",
-                main_process_only=False,
-            )
 
-            for index, (key, value) in enumerate(list(artifacts.items())):
-                artifact_type = value["type"]
-                artifact_value = value["value"]
-                if artifact_type not in ["image", "video"] or artifact_value is None:
+            # 2.2. Track the artifacts generated from validation
+            for i, validation_artifact in enumerate(validation_artifacts):
+                if validation_artifact.value is None:
                     continue
+                artifacts.update({f"artifact_{i}": validation_artifact})
 
-                extension = "png" if artifact_type == "image" else "mp4"
+            # 2.3. Save the artifacts to the output directory and create appropriate logging objects
+            # TODO(aryan): Currently, we only support WandB so we've hardcoded it here. Needs to be revisited.
+            for index, (key, artifact) in enumerate(list(artifacts.items())):
+                assert isinstance(artifact, (data.ImageArtifact, data.VideoArtifact))
                 filename = "validation-" if not final_validation else "final-"
-                filename += f"{step}-{accelerator.process_index}-{index}-{prompt_filename}.{extension}"
-                if accelerator.is_main_process and extension == "mp4":
-                    prompts_to_filenames[prompt] = filename
-                filename = os.path.join(self.args.output_dir, filename)
+                filename += f"{step}-{parallel_state.rank}-{index}-{prompt_filename}.{artifact.file_extension}"
+                output_filename = os.path.join(self.args.output_dir, filename)
 
-                if artifact_type == "image" and artifact_value:
-                    logger.debug(f"Saving image to {filename}")
-                    artifact_value.save(filename)
-                    artifact_value = wandb.Image(filename)
-                elif artifact_type == "video" and artifact_value:
-                    logger.debug(f"Saving video to {filename}")
-                    # TODO: this should be configurable here as well as in validation runs where we call the pipeline that has `fps`.
-                    export_to_video(artifact_value, filename, fps=frame_rate)
-                    artifact_value = wandb.Video(filename, caption=prompt)
+                if parallel_state.is_main_process and artifact.file_extension == "mp4":
+                    main_process_prompts_to_filenames[PROMPT] = filename
 
-                all_processes_artifacts.append(artifact_value)
+                if artifact.type == "image" and artifact.value is not None:
+                    logger.debug(f"Saving image to {output_filename}")
+                    artifact.value.save(output_filename)
+                    all_processes_artifacts.append(wandb.Image(output_filename, caption=PROMPT))
+                elif artifact.type == "video" and artifact.value is not None:
+                    logger.debug(f"Saving video to {output_filename}")
+                    export_to_video(artifact.value, output_filename, fps=EXPORT_FPS)
+                    all_processes_artifacts.append(wandb.Video(output_filename, caption=PROMPT))
 
-        all_artifacts = gather_object(all_processes_artifacts)
-
-        if accelerator.is_main_process:
-            tracker_key = "final" if final_validation else "validation"
-            for tracker in accelerator.trackers:
-                if tracker.name == "wandb":
-                    artifact_log_dict = {}
-
-                    image_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Image)]
-                    if len(image_artifacts) > 0:
-                        artifact_log_dict["images"] = image_artifacts
-                    video_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Video)]
-                    if len(video_artifacts) > 0:
-                        artifact_log_dict["videos"] = video_artifacts
-                    tracker.log({tracker_key: artifact_log_dict}, step=step)
-
-            if self.args.push_to_hub and final_validation:
-                video_filenames = list(prompts_to_filenames.values())
-                prompts = list(prompts_to_filenames.keys())
-                utils.save_model_card(
-                    args=self.args,
-                    repo_id=self.state.repo_id,
-                    videos=video_filenames,
-                    validation_prompts=prompts,
-                )
+        parallel_state.wait_for_everyone()
 
         # Remove all hooks that might have been added during pipeline initialization to the models
         pipeline.remove_all_hooks()
         del pipeline
 
-        accelerator.wait_for_everyone()
-
         utils.free_memory()
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
-        torch.cuda.reset_peak_memory_stats(accelerator.device)
+        torch.cuda.reset_peak_memory_stats(parallel_state.device)
 
+        # Gather artifacts from all processes. We also need to flatten them since each process returns a list of artifacts.
+        all_artifacts = [None] * parallel_state.world_size
+        torch.distributed.all_gather_object(all_artifacts, all_processes_artifacts)
+        all_artifacts = [artifact for artifacts in all_artifacts for artifact in artifacts]
+
+        if parallel_state.is_main_process:
+            tracker_key = "final" if final_validation else "validation"
+            artifact_log_dict = {}
+
+            image_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Image)]
+            if len(image_artifacts) > 0:
+                artifact_log_dict["images"] = image_artifacts
+            video_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Video)]
+            if len(video_artifacts) > 0:
+                artifact_log_dict["videos"] = video_artifacts
+            parallel_state.log({tracker_key: artifact_log_dict}, step=step)
+
+            if self.args.push_to_hub and final_validation:
+                video_filenames = list(main_process_prompts_to_filenames.values())
+                prompts = list(main_process_prompts_to_filenames.keys())
+                utils.save_model_card(
+                    args=self.args, repo_id=self.state.repo_id, videos=video_filenames, validation_prompts=prompts
+                )
+
+        parallel_state.wait_for_everyone()
         if not final_validation:
             self.transformer.train()
 
@@ -877,13 +863,13 @@ class Trainer:
         device = torch.device(f"{device_type}:{local_rank}")
         device_module.set_device(device)
 
-        self.state.parallel = ParallelState(
+        self.state.parallel_state = parallel.FinetrainersParallelState(
             world_size=world_size,
-            pipeline_parallel_degree=self.args.pp_degree,
-            data_parallel_degree=self.args.dp_degree,
-            data_parallel_shards=self.args.dp_shards,
-            context_parallel_degree=self.args.cp_degree,
-            tensor_parallel_degree=self.args.tp_degree,
+            pp_degree=self.args.pp_degree,
+            dp_degree=self.args.dp_degree,
+            dp_shards=self.args.dp_shards,
+            cp_degree=self.args.cp_degree,
+            tp_degree=self.args.tp_degree,
         )
 
         backend = "nccl"
@@ -891,9 +877,9 @@ class Trainer:
 
         torch.distributed.init_process_group(backend, timeout=timeout)
 
-        world_mesh = self.state.parallel.get_mesh(device_type)
+        world_mesh = self.state.parallel_state.get_mesh(device_type)
 
-        if self.state.parallel.data_parallel_enabled:
+        if self.state.parallel_state.data_parallel_enabled:
             self.state.dp_mesh = world_mesh["dp"]
             self.state.dp_degree = self.state.dp_mesh.size()
             self.state.dp_rank = self.state.dp_mesh.get_local_rank()
@@ -901,7 +887,7 @@ class Trainer:
             self.state.dp_degree = 1
             self.state.dp_rank = 0
 
-        if self.state.parallel.pipeline_parallel_enabled:
+        if self.state.parallel_state.pipeline_parallel_enabled:
             self.state.pp_mesh = world_mesh["pp"]
 
         if self.args.seed is not None:
@@ -919,12 +905,12 @@ class Trainer:
 
         trackers = ["wandb"]
         experiment_name = self.args.tracker_name or "finetrainers-experiment"
-        self.tracker = initialize_trackers(
-            trackers, experiment_name, config=self._get_training_info(), log_dir=self.args.logging_dir
+        self.state.parallel_state.initialize_trackers(
+            trackers, experiment_name=experiment_name, config=self._get_training_info(), log_dir=self.args.logging_dir
         )
 
     def _init_directories_and_repositories(self) -> None:
-        if self.state.parallel.is_main_process:
+        if self.state.parallel_state.is_main_process:
             self.args.output_dir = Path(self.args.output_dir)
             self.args.output_dir.mkdir(parents=True, exist_ok=True)
             self.state.output_dir = Path(self.args.output_dir)
@@ -955,11 +941,12 @@ class Trainer:
             )
             self.state.condition_types.remove(ProcessorType.CAPTION_EMBEDDING_DROPOUT)
 
-    def _move_components_to_device(self) -> None:
-        components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.transformer, self.vae]
+    def _move_components_to_device(self, components: Optional[List[torch.nn.Module]] = None) -> None:
+        if components is None:
+            components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.transformer, self.vae]
+        components = utils.get_non_null_items(components)
         for component in components:
-            if component is not None:
-                component.to(self.state.parallel.device)
+            component.to(self.state.parallel_state.device)
 
     def _set_components(self, components: Dict[str, Any]) -> None:
         # Set models
@@ -989,9 +976,11 @@ class Trainer:
         utils.synchronize_device()
 
     def _get_and_prepare_pipeline_for_validation(self, final_validation: bool = False) -> DiffusionPipeline:
-        parallel_state = self.state.parallel
+        parallel_state = self.state.parallel_state
+        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "vae"]
 
         if not final_validation:
+            module_names.remove("transformer")
             pipeline = self.model_specification.load_pipeline(
                 tokenizer=self.tokenizer,
                 tokenizer_2=self.tokenizer_2,
@@ -1007,7 +996,6 @@ class Trainer:
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
                 training=True,
-                device=parallel_state.device,
             )
         else:
             self._delete_components()
@@ -1030,42 +1018,30 @@ class Trainer:
             if self.args.training_type == "lora":
                 pipeline.load_lora_weights(self.args.output_dir)
 
+        components = [getattr(pipeline, module_name, None) for module_name in module_names]
+        self._move_components_to_device(components)
         return pipeline
 
-    def _disable_grad_for_components(self, components: List[torch.nn.Module]):
-        for component in components:
-            if component is not None:
-                component.requires_grad_(False)
+    def _disable_grad_for_models(self, models: List[torch.nn.Module]):
+        for model in models:
+            if model is not None:
+                model.requires_grad_(False)
 
-    def _enable_grad_for_components(self, components: List[torch.nn.Module]):
-        for component in components:
-            if component is not None:
-                component.requires_grad_(True)
+    def _enable_grad_for_models(self, models: List[torch.nn.Module]):
+        for model in models:
+            if model is not None:
+                model.requires_grad_(True)
 
-    def _get_training_info(self) -> dict:
-        args = self.args.to_dict()
+    def _get_training_info(self) -> Dict[str, Any]:
+        info = self.args.to_dict()
 
-        training_args = args.get("training_arguments", {})
-        training_type = training_args.get("training_type", "")
-
-        # LoRA/non-LoRA stuff
-        if training_type == "full-finetune":
-            filtered_training_args = {
-                k: v for k, v in training_args.items() if k not in {"rank", "lora_alpha", "target_modules"}
-            }
-        else:
-            filtered_training_args = training_args
-
-        # Diffusion/flow stuff
-        diffusion_args = args.get("diffusion_arguments", {})
-        scheduler_name = self.scheduler.__class__.__name__
+        # Removing flow matching arguments when not using flow-matching objective
+        diffusion_args = info.get("diffusion_arguments", {})
+        scheduler_name = self.scheduler.__class__.__name__ if self.scheduler is not None else ""
         if scheduler_name != "FlowMatchEulerDiscreteScheduler":
             filtered_diffusion_args = {k: v for k, v in diffusion_args.items() if "flow" not in k}
         else:
             filtered_diffusion_args = diffusion_args
 
-        # Rest of the stuff
-        updated_training_info = args.copy()
-        updated_training_info["training_arguments"] = filtered_training_args
-        updated_training_info["diffusion_arguments"] = filtered_diffusion_args
-        return updated_training_info
+        info.update({"diffusion_arguments": filtered_diffusion_args})
+        return info

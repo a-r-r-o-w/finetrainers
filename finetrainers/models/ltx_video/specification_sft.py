@@ -15,8 +15,10 @@ from diffusers.utils.import_utils import is_torch_version
 from PIL.Image import Image
 from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Tokenizer
 
+from ... import data
 from ... import functional as FF
 from ...processors import get_condition
+from ...typing import ArtifactType
 from ...utils import get_non_null_items
 from ..modeling_utils import ModelSpecification
 
@@ -138,7 +140,6 @@ class LTXVideoModelSpecification(ModelSpecification):
         enable_tiling: bool = False,
         enable_model_cpu_offload: bool = False,
         training: bool = False,
-        device: Optional[torch.device] = None,
         *args,
         **kwargs,
     ) -> LTXPipeline:
@@ -166,8 +167,6 @@ class LTXVideoModelSpecification(ModelSpecification):
             pipe.vae.enable_tiling()
         if enable_model_cpu_offload:
             pipe.enable_model_cpu_offload()
-        else:
-            pipe.to(device)
 
         return pipe
 
@@ -331,11 +330,10 @@ class LTXVideoModelSpecification(ModelSpecification):
         width: Optional[int] = None,
         num_frames: Optional[int] = None,
         frame_rate: int = 25,
-        num_videos_per_prompt: int = 1,
         generator: Optional[torch.Generator] = None,
         *args,
         **kwargs,
-    ) -> List[Tuple[str, torch.Tensor]]:
+    ) -> List[ArtifactType]:
         if image is not None:
             pipeline = LTXImageToVideoPipeline.from_pipe(pipeline)
 
@@ -346,14 +344,13 @@ class LTXVideoModelSpecification(ModelSpecification):
             "width": width,
             "num_frames": num_frames,
             "frame_rate": frame_rate,
-            "num_videos_per_prompt": num_videos_per_prompt,
             "generator": generator,
             "return_dict": True,
             "output_type": "pil",
         }
         generation_kwargs = get_non_null_items(generation_kwargs)
         video = pipeline(**generation_kwargs).frames[0]
-        return [("video", video)]
+        return [data.VideoArtifact(value=video)]
 
     def save_lora_weights(self, directory: str, transformer_layers: List[torch.nn.Parameter]) -> None:
         LTXPipeline.save_lora_weights(directory, transformer_layers)

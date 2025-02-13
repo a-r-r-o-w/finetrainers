@@ -1,3 +1,4 @@
+import pathlib
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
@@ -21,6 +22,9 @@ class WandbTracker(BaseTracker):
         import wandb
 
         self.wandb = wandb
+
+        # WandB does not create a directory if it does not exist and instead starts using the system temp directory.
+        pathlib.Path(log_dir).mkdir(parents=True, exist_ok=True)
 
         self.run = wandb.init(project=experiment_name, dir=log_dir, config=config)
         logger.info("WandB logging enabled")
@@ -70,13 +74,16 @@ def initialize_trackers(
     if any(tracker_name not in _SUPPORTED_TRACKERS for tracker_name in set(trackers)):
         raise ValueError(f"Unsupported tracker(s) provided. Supported trackers: {_SUPPORTED_TRACKERS}")
 
-    trackers = []
+    tracker_instances = []
     for tracker_name in set(trackers):
         if tracker_name == Trackers.NONE:
             tracker = BaseTracker()
         elif tracker_name == Trackers.WANDB:
             tracker = WandbTracker(experiment_name, log_dir, config)
-        trackers.append(tracker)
+        tracker_instances.append(tracker)
 
-    trackers = SequentialTracker(trackers)
-    return trackers
+    tracker = SequentialTracker(tracker_instances)
+    return tracker
+
+
+TrackerType = Union[BaseTracker, SequentialTracker, WandbTracker]

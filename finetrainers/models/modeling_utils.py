@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
 from diffusers import DiffusionPipeline
@@ -6,11 +6,17 @@ from diffusers.configuration_utils import FrozenDict
 from PIL.Image import Image
 
 from ..processors import Processor, get_processor_parameters_from_dict
-from ..typing import SchedulerType, TokenizerType
+from ..typing import ArtifactType, SchedulerType, TokenizerType
 from ..utils import get_parameter_names, resolve_component_cls
 
 
 class ModelSpecification:
+    r"""
+    The ModelSpecification class is an interface to be used for Diffusion training recipes. It provides
+    loose structure about how to organize the code for training. The trainer implementations will
+    make use of this interface to load models, prepare conditions, prepare latents, forward pass, etc.
+    """
+
     def __init__(
         self,
         pretrained_model_name_or_path: Optional[str] = None,
@@ -84,7 +90,6 @@ class ModelSpecification:
         enable_tiling: bool = False,
         enable_model_cpu_offload: bool = False,
         training: bool = False,
-        device: Optional[torch.device] = None,
         *args,
         **kwargs,
     ) -> DiffusionPipeline:
@@ -138,10 +143,10 @@ class ModelSpecification:
         video: Optional[List[Image]] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
-        num_images_per_prompt: int = 1,
-        num_videos_per_prompt: int = 1,
+        num_frames: Optional[int] = None,
+        frame_rate: Optional[int] = None,
         generator: Optional[torch.Generator] = None,
-    ) -> List[Tuple[str, Union[Image, List[Image]]]]:
+    ) -> List[ArtifactType]:
         raise NotImplementedError(f"ModelSpecification::validation is not implemented for {self.__class__.__name__}")
 
     def save_lora_weights(
