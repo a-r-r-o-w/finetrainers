@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from typing import Any, Dict, List
 
 from ..trackers import TrackerType, initialize_trackers
@@ -24,6 +25,10 @@ class BaseParallelState:
 
     def wait_for_everyone(self):
         raise NotImplementedError("Method `wait_for_everyone` must be implemented by subclass.")
+
+    @contextmanager
+    def main_process_first(self):
+        raise NotImplementedError("Method `main_process_first` must be implemented by subclass.")
 
     def destroy(self):
         raise NotImplementedError("Method `destroy` must be implemented by subclass.")

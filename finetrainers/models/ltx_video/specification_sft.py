@@ -1,6 +1,6 @@
 import random
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from diffusers import (
@@ -10,13 +10,12 @@ from diffusers import (
     LTXPipeline,
     LTXVideoTransformer3DModel,
 )
-from diffusers.models.modeling_outputs import Transformer2DModelOutput
-from diffusers.utils.import_utils import is_torch_version
 from PIL.Image import Image
 from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Tokenizer
 
 from ... import data
 from ... import functional as FF
+from ...parallel import ParallelBackend
 from ...processors import get_condition
 from ...typing import ArtifactType
 from ...utils import get_non_null_items
@@ -51,8 +50,6 @@ class LTXVideoModelSpecification(ModelSpecification):
             revision=revision,
             cache_dir=cache_dir,
         )
-
-        LTXVideoTransformer3DModel.forward = _patched_LTXVideoTransformer3Dforward
 
     def load_condition_models(self, condition_types: List[str], *args, **kwargs) -> Dict[str, torch.nn.Module]:
         if self.tokenizer_id is not None:
@@ -369,6 +366,19 @@ class LTXVideoModelSpecification(ModelSpecification):
         if scheduler is not None:
             scheduler.save_pretrained((directory / "scheduler").as_posix())
 
+    def apply_tensor_parallel(
+        self,
+        backend: ParallelBackend,
+        device_mesh: torch.distributed.DeviceMesh,
+        transformer: LTXVideoTransformer3DModel,
+        *args,
+        **kwargs,
+    ) -> None:
+        if backend == ParallelBackend.PTD:
+            _apply_tensor_parallel_ptd(device_mesh, transformer)
+        else:
+            raise NotImplementedError(f"Parallel backend {backend} is not supported for LTXVideoModelSpecification")
+
     @staticmethod
     def _normalize_latents(
         latents: torch.Tensor, latents_mean: torch.Tensor, latents_std: torch.Tensor, scaling_factor: float = 1.0
@@ -403,93 +413,46 @@ class LTXVideoModelSpecification(ModelSpecification):
         return latents
 
 
-def _patched_LTXVideoTransformer3Dforward(
-    self,
-    hidden_states: torch.Tensor,
-    encoder_hidden_states: torch.Tensor,
-    timestep: torch.LongTensor,
-    encoder_attention_mask: torch.Tensor,
-    num_frames: int,
-    height: int,
-    width: int,
-    rope_interpolation_scale: Optional[Tuple[float, float, float]] = None,
-    return_dict: bool = True,
-    *args,
-    **kwargs,
-) -> torch.Tensor:
-    image_rotary_emb = self.rope(hidden_states, num_frames, height, width, rope_interpolation_scale)
+def _apply_tensor_parallel_ptd(
+    device_mesh: torch.distributed.device_mesh.DeviceMesh, transformer: LTXVideoTransformer3DModel
+) -> None:
+    from torch.distributed.tensor.parallel import parallelize_module
+    from torch.distributed.tensor.parallel.style import ColwiseParallel, RowwiseParallel
 
-    # convert encoder_attention_mask to a bias the same way we do for attention_mask
-    if encoder_attention_mask is not None and encoder_attention_mask.ndim == 2:
-        encoder_attention_mask = (1 - encoder_attention_mask.to(hidden_states.dtype)) * -10000.0
-        encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
+    transformer_plan = {
+        # ===== Condition embeddings =====
+        # "time_embed.emb.timestep_embedder.linear_1": ColwiseParallel(),
+        # "time_embed.emb.timestep_embedder.linear_2": RowwiseParallel(output_layouts=Shard(-1)),
+        # "time_embed.linear": ColwiseParallel(input_layouts=Shard(-1), output_layouts=Replicate()),
+        # "time_embed": PrepareModuleOutput(output_layouts=(Replicate(), Shard(-1)), desired_output_layouts=(Replicate(), Replicate())),
+        # "caption_projection.linear_1": ColwiseParallel(),
+        # "caption_projection.linear_2": RowwiseParallel(),
+        # "rope": PrepareModuleOutput(output_layouts=(Replicate(), Replicate()), desired_output_layouts=(Shard(1), Shard(1)), use_local_output=False),
+        # ===== =====
+    }
 
-    batch_size = hidden_states.size(0)
+    for block in transformer.transformer_blocks:
+        block_plan = {}
 
-    # ===== This is modified compared to Diffusers =====
-    # This is done because the Diffusers pipeline will pass in a 1D tensor for timestep
-    if timestep.ndim == 1:
-        timestep = timestep.view(-1, 1, 1).expand(-1, *hidden_states.shape[1:-1], -1)
-    # ==================================================
+        # ===== Attention =====
+        # 8 all-to-all, 3 all-reduce
+        # block_plan["attn1.to_q"] = ColwiseParallel(use_local_output=False)
+        # block_plan["attn1.to_k"] = ColwiseParallel(use_local_output=False)
+        # block_plan["attn1.to_v"] = ColwiseParallel(use_local_output=False)
+        # block_plan["attn1.norm_q"] = SequenceParallel()
+        # block_plan["attn1.norm_k"] = SequenceParallel()
+        # block_plan["attn1.to_out.0"] = RowwiseParallel(input_layouts=Shard(1))
+        # block_plan["attn2.to_q"] = ColwiseParallel(use_local_output=False)
+        # block_plan["attn2.to_k"] = ColwiseParallel(use_local_output=False)
+        # block_plan["attn2.to_v"] = ColwiseParallel(use_local_output=False)
+        # block_plan["attn2.norm_q"] = SequenceParallel()
+        # block_plan["attn2.norm_k"] = SequenceParallel()
+        # block_plan["attn2.to_out.0"] = RowwiseParallel(input_layouts=Shard(1))
+        # ===== =====
 
-    temb, embedded_timestep = self.time_embed(
-        timestep.flatten(),
-        batch_size=batch_size,
-        hidden_dtype=hidden_states.dtype,
-    )
+        block_plan["ff.net.0.proj"] = ColwiseParallel()
+        block_plan["ff.net.2"] = RowwiseParallel()
 
-    # ===== This is modified compared to Diffusers =====
-    # temb = temb.view(batch_size, -1, temb.size(-1))
-    # embedded_timestep = embedded_timestep.view(batch_size, -1, embedded_timestep.size(-1))
-    # ==================================================
-    # This is done to make it possible to use per-token timestep embedding
-    temb = temb.view(batch_size, *hidden_states.shape[1:-1], temb.size(-1))
-    embedded_timestep = embedded_timestep.view(batch_size, *hidden_states.shape[1:-1], embedded_timestep.size(-1))
-    # ==================================================
+        parallelize_module(block, device_mesh, block_plan)
 
-    hidden_states = self.proj_in(hidden_states)
-
-    encoder_hidden_states = self.caption_projection(encoder_hidden_states)
-    encoder_hidden_states = encoder_hidden_states.view(batch_size, -1, hidden_states.size(-1))
-
-    for block in self.transformer_blocks:
-        if torch.is_grad_enabled() and self.gradient_checkpointing:
-
-            def create_custom_forward(module, return_dict=None):
-                def custom_forward(*inputs):
-                    if return_dict is not None:
-                        return module(*inputs, return_dict=return_dict)
-                    else:
-                        return module(*inputs)
-
-                return custom_forward
-
-            ckpt_kwargs: Dict[str, Any] = {"use_reentrant": False} if is_torch_version(">=", "1.11.0") else {}
-            hidden_states = torch.utils.checkpoint.checkpoint(
-                create_custom_forward(block),
-                hidden_states,
-                encoder_hidden_states,
-                temb,
-                image_rotary_emb,
-                encoder_attention_mask,
-                **ckpt_kwargs,
-            )
-        else:
-            hidden_states = block(
-                hidden_states=hidden_states,
-                encoder_hidden_states=encoder_hidden_states,
-                temb=temb,
-                image_rotary_emb=image_rotary_emb,
-                encoder_attention_mask=encoder_attention_mask,
-            )
-
-    scale_shift_values = self.scale_shift_table[None, None] + embedded_timestep[:, :, None]
-    shift, scale = scale_shift_values[:, :, 0], scale_shift_values[:, :, 1]
-
-    hidden_states = self.norm_out(hidden_states)
-    hidden_states = hidden_states * (1 + scale) + shift
-    output = self.proj_out(hidden_states)
-
-    if not return_dict:
-        return (output,)
-    return Transformer2DModelOutput(sample=output)
+    parallelize_module(transformer, device_mesh, transformer_plan)

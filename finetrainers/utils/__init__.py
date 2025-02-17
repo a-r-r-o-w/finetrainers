@@ -24,6 +24,7 @@ from .torch_utils import (
     enable_determinism,
     expand_tensor_dims,
     get_device_info,
+    set_requires_grad,
     synchronize_device,
     unwrap_model,
 )

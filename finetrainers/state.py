@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 import torch
 import torch.distributed.checkpoint.stateful
 
-from .parallel import FinetrainersParallelState
+from .parallel import PytorchDTensorParallelState
 from .utils import get_device_info
 
 
@@ -52,11 +52,7 @@ class TrainState(torch.distributed.checkpoint.stateful.Stateful):
 @dataclass
 class State:
     # Parallel state
-    parallel_state: FinetrainersParallelState = None
-    dp_mesh: torch.distributed.DeviceMesh = None
-    pp_mesh: torch.distributed.DeviceMesh = None
-    dp_degree: int = None
-    dp_rank: int = None
+    parallel_state: PytorchDTensorParallelState = None
 
     # Training state
     train_state: TrainState = None

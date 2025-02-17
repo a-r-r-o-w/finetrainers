@@ -1,15 +1,15 @@
 from enum import Enum
 
 from .base import BaseParallelState
-from .finetrainers import FinetrainersParallelState
+from .ptd import PytorchDTensorParallelState
 from .utils import apply_ddp, apply_fsdp2, dist_max, dist_mean
 
 
 class ParallelBackend(str, Enum):
-    FINETRAINERS = "finetrainers"
+    PTD = "ptd"
 
 
 def get_parallel_state_cls(backend: ParallelBackend) -> BaseParallelState:
-    if backend == ParallelBackend.FINETRAINERS:
-        return FinetrainersParallelState
+    if backend == ParallelBackend.PTD:
+        return PytorchDTensorParallelState
     raise ValueError(f"Unknown parallel backend: {backend}")

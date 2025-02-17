@@ -114,6 +114,10 @@ If you are using LLM-captioned videos, it is common to see many unwanted startin
 
 TODO(aryan): explain things here.
 
+> [!IMPORTANT]
+>
+> When using `dp_shards > 1` or `tp_degree > 1`, you must make sure that the number of data samples contained
+
 Supported dataset formats: CSV, JSON, PARQUET, ARROW
 
 - Must contain "caption" as a column. If an image must be provided for validation (for example, image-to-video inference), then the "image_path" field must be provided. If a video must be provided for validation (for example, video-to-video inference), then the "video_path" field must be provided. Other fields like "num_inference_steps", "height", "width", "num_frames", and "frame_rate" can be provided too but are optional.

@@ -1,4 +1,3 @@
-import datetime
 import json
 import os
 from pathlib import Path
@@ -18,12 +17,11 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig
 from tqdm import tqdm
 
-from . import data, optimizer, parallel, utils
+from . import data, optimizer, parallel, patches, utils
 from .args import Args, validate_args
 from .hooks import apply_layerwise_upcasting
 from .logging import logger
 from .models import ModelSpecification, get_model_specifiction_cls
-from .patches import perform_peft_patches
 from .processors import Processor, ProcessorType, get_condition
 from .state import State, TrainState
 
@@ -72,6 +70,10 @@ class Trainer:
         self._init_config_options()
         self._init_non_model_conditions()
 
+        # Perform any patches that might be necessary for training to work as expected
+        patches.perform_patches_for_training(self.args, self.state.parallel_state)
+
+        # Initialize the model specification
         model_specification_cls = get_model_specifiction_cls(self.args.model_name, self.args.training_type)
         self.model_specification: ModelSpecification = model_specification_cls(
             pretrained_model_name_or_path=self.args.pretrained_model_name_or_path,
@@ -95,17 +97,23 @@ class Trainer:
     def prepare_dataset(self) -> None:
         logger.info("Initializing dataset and dataloader")
 
-        # TODO(aryan): allow configurability
         parallel_state = self.state.parallel_state
+        world_mesh = parallel_state.get_mesh()
+
+        if "dp" in world_mesh.mesh_dim_names:
+            dp_mesh = world_mesh["dp"]
+            local_rank, dp_world_size = dp_mesh.local_rank, dp_mesh.size()
+        else:
+            local_rank, dp_world_size = 0, 1
+
+        # TODO(aryan): allow configurability
         dataset = data.initialize_dataset(self.args.data_root, dataset_type="video", streaming=True, infinite=True)
-        dataset._data = datasets.distributed.split_dataset_by_node(
-            dataset._data, parallel_state.rank, parallel_state._world_size
-        )
+        dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, local_rank, dp_world_size)
         self.dataset = dataset
 
         # TODO(aryan): support batch size > 1
         self.dataloader = data.DPDataLoader(
-            parallel_state.rank, dataset, batch_size=1, num_workers=self.args.dataloader_num_workers
+            local_rank, dataset, batch_size=1, num_workers=self.args.dataloader_num_workers
         )
 
     def prepare_models(self) -> None:
@@ -459,16 +467,25 @@ class Trainer:
     def prepare_for_training(self) -> None:
         parallel_state = self.state.parallel_state
         world_mesh = parallel_state.get_mesh()
+        model_specification = self.model_specification
 
         if parallel_state.context_parallel_enabled:
             raise NotImplementedError(
                 "Context parallelism is not supported yet. This will be supported in the future."
             )
 
+        if parallel_state.tensor_parallel_enabled:
+            # TODO(aryan): handle fp8 from TorchAO here
+            model_specification.apply_tensor_parallel(
+                backend=parallel.ParallelBackend.PTD,
+                device_mesh=parallel_state.get_mesh()["tp"],
+                transformer=self.transformer,
+            )
+
         # Enable gradient checkpointing
         if self.args.gradient_checkpointing:
             # TODO(aryan): support other checkpointing types
-            utils.apply_gradient_checkpointing(self.transformer, checkpointing_type="full")
+            utils.apply_activation_checkpointing(self.transformer, checkpointing_type="full")
 
         # Enable DDP, FSDP or HSDP
         if parallel_state.data_sharding_enabled:
@@ -515,7 +532,6 @@ class Trainer:
             self.model_specification.save_model(self.args.output_dir, scheduler=self.scheduler)
 
         # TODO(aryan): handle per-device batch_size > 1
-
         global_batch_size = self.args.batch_size * self.state.parallel_state.world_size
         info = {
             "trainable parameters": self.state.num_trainable_parameters,
@@ -665,18 +681,19 @@ class Trainer:
 
             # Clip gradients
             model_parts = [self.transformer]
-            grad_norm = utils.clip_grad_norm_(
+            grad_norm = utils.torch_utils._clip_grad_norm_while_handling_failing_dtensor_cases(
                 [p for m in model_parts for p in m.parameters()],
                 self.args.max_grad_norm,
                 foreach=True,
-                pp_mesh=self.state.pp_mesh if parallel_state.pipeline_parallel_enabled else None,
+                pp_mesh=parallel_state.get_mesh()["pp"] if parallel_state.pipeline_parallel_enabled else None,
             )
 
             self.optimizer.step()
             self.lr_scheduler.step()
 
             logs = {}
-            logs["grad_norm"] = grad_norm.detach().item()
+            if grad_norm is not None:
+                logs["grad_norm"] = grad_norm if isinstance(grad_norm, float) else grad_norm.detach().item()
             if (
                 parallel_state.data_replication_enabled
                 or parallel_state.data_sharding_enabled
@@ -740,37 +757,49 @@ class Trainer:
 
         # 1. Load validation dataset
         parallel_state = self.state.parallel_state
+        world_mesh = parallel_state.get_mesh()
+
+        if "dp" in world_mesh.mesh_dim_names:
+            dp_mesh = world_mesh["dp"]
+            local_rank, dp_world_size = dp_mesh.local_rank, dp_mesh.size()
+        else:
+            local_rank, dp_world_size = 0, 1
+
         dataset = data.ValidationDataset(self.args.validation_dataset_file)
-        dataset._data = datasets.distributed.split_dataset_by_node(
-            dataset._data, parallel_state.rank, parallel_state.world_size
-        )
+        dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, local_rank, dp_world_size)
         validation_dataloader = data.DPDataLoader(
-            parallel_state.rank,
+            local_rank,
             dataset,
             batch_size=1,
             num_workers=self.args.dataloader_num_workers,
             collate_fn=lambda items: items,
         )
+        data_iterator = iter(validation_dataloader)
         main_process_prompts_to_filenames = {}  # Used to save model card
         all_processes_artifacts = []  # Used to gather artifacts from all processes
 
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory before validation start: {json.dumps(memory_statistics, indent=4)}")
 
-        self.transformer.eval()
-        pipeline = self._get_and_prepare_pipeline_for_validation(final_validation=final_validation)
+        seed = self.args.seed if self.args.seed is not None else 0
+        generator = torch.Generator(device=parallel_state.device).manual_seed(seed)
+        pipeline = self._init_pipeline(final_validation=final_validation)
 
         # 2. Run validation
-        for validation_data in validation_dataloader:
+        # TODO(aryan): when running validation with FSDP, if the number of data points is not divisible by dp_shards, we
+        # will hang indefinitely. Either pad the dataset or raise an error early on during initialization if the dataset
+        # size is not divisible by dp_shards.
+        self.transformer.eval()
+        while True:
+            validation_data = next(data_iterator, None)
+            if validation_data is None:
+                break
+
             logger.debug(f"Validating {validation_data=} on rank={parallel_state.rank}.")
 
             validation_data = validation_data[0]
             validation_artifacts = self.model_specification.validation(
-                pipeline=pipeline,
-                generator=torch.Generator(device=parallel_state.device).manual_seed(
-                    self.args.seed if self.args.seed is not None else 0
-                ),
-                **validation_data,
+                pipeline=pipeline, generator=generator, **validation_data
             )
 
             PROMPT = validation_data["prompt"]
@@ -782,8 +811,8 @@ class Trainer:
             # conditioning for generation.
             prompt_filename = utils.string_to_filename(PROMPT)[:25]
             artifacts = {
-                "image": data.ImageArtifact(value=IMAGE),
-                "video": data.VideoArtifact(value=VIDEO),
+                "input_image": data.ImageArtifact(value=IMAGE),
+                "input_video": data.VideoArtifact(value=VIDEO),
             }
 
             # 2.2. Track the artifacts generated from validation
@@ -812,6 +841,7 @@ class Trainer:
                     export_to_video(artifact.value, output_filename, fps=EXPORT_FPS)
                     all_processes_artifacts.append(wandb.Video(output_filename, caption=PROMPT))
 
+        # 3. Cleanup & log artifacts
         parallel_state.wait_for_everyone()
 
         # Remove all hooks that might have been added during pipeline initialization to the models
@@ -856,41 +886,22 @@ class Trainer:
 
     def _init_distributed(self) -> None:
         # TODO: Accelerate disables native_amp for MPS. Probably need to do the same with implementation.
-        local_rank = int(os.environ["LOCAL_RANK"])
         world_size = int(os.environ["WORLD_SIZE"])
-        device_type, device_module = utils.get_device_info()
 
-        device = torch.device(f"{device_type}:{local_rank}")
-        device_module.set_device(device)
-
-        self.state.parallel_state = parallel.FinetrainersParallelState(
+        # TODO(aryan): handle other backends
+        self.state.parallel_state = parallel.PytorchDTensorParallelState(
             world_size=world_size,
             pp_degree=self.args.pp_degree,
             dp_degree=self.args.dp_degree,
             dp_shards=self.args.dp_shards,
             cp_degree=self.args.cp_degree,
             tp_degree=self.args.tp_degree,
+            backend="nccl",
+            timeout=self.args.init_timeout,
         )
 
-        backend = "nccl"
-        timeout = datetime.timedelta(seconds=self.args.init_timeout)
-
-        torch.distributed.init_process_group(backend, timeout=timeout)
-
-        world_mesh = self.state.parallel_state.get_mesh(device_type)
-
-        if self.state.parallel_state.data_parallel_enabled:
-            self.state.dp_mesh = world_mesh["dp"]
-            self.state.dp_degree = self.state.dp_mesh.size()
-            self.state.dp_rank = self.state.dp_mesh.get_local_rank()
-        else:
-            self.state.dp_degree = 1
-            self.state.dp_rank = 0
-
-        if self.state.parallel_state.pipeline_parallel_enabled:
-            self.state.pp_mesh = world_mesh["pp"]
-
         if self.args.seed is not None:
+            world_mesh = self.state.parallel_state.get_mesh()
             utils.enable_determinism(self.args.seed, world_mesh)
 
     def _init_logging(self) -> None:
@@ -923,10 +934,6 @@ class Trainer:
         # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
         if self.args.allow_tf32 and torch.cuda.is_available():
             torch.backends.cuda.matmul.allow_tf32 = True
-
-        # Peform any patches needed for training
-        if len(self.args.layerwise_upcasting_modules) > 0:
-            perform_peft_patches()
 
     def _init_non_model_conditions(self) -> None:
         if ProcessorType.CAPTION_TEXT_DROPOUT in self.state.condition_types:
@@ -975,7 +982,7 @@ class Trainer:
         utils.free_memory()
         utils.synchronize_device()
 
-    def _get_and_prepare_pipeline_for_validation(self, final_validation: bool = False) -> DiffusionPipeline:
+    def _init_pipeline(self, final_validation: bool = False) -> DiffusionPipeline:
         parallel_state = self.state.parallel_state
         module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "vae"]
 
@@ -998,6 +1005,7 @@ class Trainer:
                 training=True,
             )
         else:
+            # TODO(aryan): this branch does not work yet, needs to be implemented
             self._delete_components()
 
             # Load the transformer weights from the final checkpoint if performing full-finetune
@@ -1023,14 +1031,10 @@ class Trainer:
         return pipeline
 
     def _disable_grad_for_models(self, models: List[torch.nn.Module]):
-        for model in models:
-            if model is not None:
-                model.requires_grad_(False)
+        utils.set_requires_grad(models, False)
 
     def _enable_grad_for_models(self, models: List[torch.nn.Module]):
-        for model in models:
-            if model is not None:
-                model.requires_grad_(True)
+        utils.set_requires_grad(models, True)
 
     def _get_training_info(self) -> Dict[str, Any]:
         info = self.args.to_dict()

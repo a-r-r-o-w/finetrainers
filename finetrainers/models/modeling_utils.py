@@ -5,6 +5,7 @@ from diffusers import DiffusionPipeline
 from diffusers.configuration_utils import FrozenDict
 from PIL.Image import Image
 
+from ..parallel import ParallelBackend
 from ..processors import Processor, get_processor_parameters_from_dict
 from ..typing import ArtifactType, SchedulerType, TokenizerType
 from ..utils import get_parameter_names, resolve_component_cls
@@ -174,7 +175,16 @@ class ModelSpecification:
     ) -> None:
         raise NotImplementedError(f"ModelSpecification::save_model is not implemented for {self.__class__.__name__}")
 
-    def apply_tensor_parallel(self) -> torch.nn.Module:
+    def apply_tensor_parallel(
+        self,
+        backend: ParallelBackend,
+        device_mesh: torch.distributed.DeviceMesh,
+        text_encoder: torch.nn.Module,
+        text_encoder_2: torch.nn.Module,
+        text_encoder_3: torch.nn.Module,
+        transformer: torch.nn.Module,
+        vae: torch.nn.Module,
+    ) -> None:
         raise NotImplementedError(
             f"ModelSpecification::apply_tensor_parallel is not implemented for {self.__class__.__name__}"
         )

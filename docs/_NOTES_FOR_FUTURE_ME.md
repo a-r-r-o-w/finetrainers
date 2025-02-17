@@ -16,3 +16,4 @@ FSDP dump:
 
 DTensor:
 - https://github.com/pytorch/pytorch/issues/88838
+- https://github.com/pytorch/pytorch/blob/main/test/distributed/tensor/parallel/test_parallelize_api.py
