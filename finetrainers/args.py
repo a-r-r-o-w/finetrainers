@@ -7,6 +7,7 @@ from diffusers.utils import get_logger
 
 from .constants import DEFAULT_IMAGE_RESOLUTION_BUCKETS, DEFAULT_VIDEO_RESOLUTION_BUCKETS, FINETRAINERS_LOG_LEVEL
 from .models import SUPPORTED_MODEL_CONFIGS
+from .parallel import ParallelBackend
 from .processors import SUPPORTED_CONDITIONS, ProcessorType
 from .utils import get_non_null_items
 
@@ -25,6 +26,19 @@ class Args:
     good training configs for a model after extensive testing.
     TODO(aryan): add `python train.py --memory_requirements --model_name <model_name>` to show
     memory requirements per model, per training type with sensible training settings.
+
+    PARALLEL ARGUMENTS
+    ------------------
+    parallel_backend (`str`, defaults to `accelerate`):
+        The parallel backend to use for training. Choose between ['accelerate', 'ptd'].
+    pp_degree (`int`, defaults to `1`):
+        The degree of pipeline parallelism.
+    dp_degree (`int`, defaults to `1`):
+        The degree of data parallelism (number of model replicas).
+    dp_shards (`int`, defaults to `-1`):
+        The number of data parallel shards (number of model partitions).
+    cp_degree (`int`, defaults to `1`):
+        The degree of context parallelism.
 
     MODEL ARGUMENTS
     ---------------
@@ -255,6 +269,7 @@ class Args:
     """
 
     # Parallel arguments
+    parallel_backend = ParallelBackend.ACCELERATE
     pp_degree: int = 1
     dp_degree: int = 1
     dp_shards: int = -1
@@ -559,6 +574,13 @@ def validate_args(args: Args):
 
 
 def _add_parallel_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--parallel_backend",
+        type=str,
+        default=ParallelBackend.ACCELERATE,
+        choices=[ParallelBackend.ACCELERATE, ParallelBackend.PTD],
+        help="The parallel backend to use for training.",
+    )
     parser.add_argument("--pp_degree", type=int, default=1, help="Pipeline parallelism degree.")
     parser.add_argument("--dp_degree", type=int, default=1, help="Number of replicas for data parallelism.")
     parser.add_argument("--dp_shards", type=int, default=-1, help="Number of shards for data parallelism.")
@@ -1103,6 +1125,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args = Args()
 
     # Parallel arguments
+    result_args.parallel_backend = args.parallel_backend
     result_args.pp_degree = args.pp_degree
     result_args.dp_degree = args.dp_degree
     result_args.dp_shards = args.dp_shards

@@ -1,6 +1,8 @@
 from contextlib import contextmanager
 from typing import Any, Dict, List
 
+import torch
+
 from ..trackers import TrackerType, initialize_trackers
 
 
@@ -9,7 +11,13 @@ class BaseParallelState:
     Base class that contains properties and methods that should be implemented by different parallel backends.
     """
 
-    def get_mesh(self, device_type: str = "cuda"):
+    def apply_ddp(self, *args, **kwargs) -> torch.nn.Module:
+        raise NotImplementedError("Method `apply_ddp` must be implemented by subclass.")
+
+    def prepare_dataset(self, *args, **kwargs) -> Any:
+        raise NotImplementedError("Method `prepare_dataset` must be implemented by subclass.")
+
+    def get_mesh(self):
         raise NotImplementedError("Method `get_mesh` must be implemented by subclass.")
 
     def initialize_trackers(

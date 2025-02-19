@@ -25,11 +25,10 @@ def main():
         args = parse_arguments()
         trainer = Trainer(args)
 
-        trainer.prepare_dataset()
         trainer.prepare_models()
-        trainer.prepare_precomputations()
         trainer.prepare_trainable_parameters()
         trainer.prepare_for_training()
+        trainer.prepare_dataset()
         trainer.train()
         # trainer.evaluate()
 

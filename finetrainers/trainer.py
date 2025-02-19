@@ -66,12 +66,11 @@ class Trainer:
 
         self._init_distributed()
         self._init_logging()
-        self._init_directories_and_repositories()
         self._init_config_options()
         self._init_non_model_conditions()
 
         # Perform any patches that might be necessary for training to work as expected
-        patches.perform_patches_for_training(self.args, self.state.parallel_state)
+        patches.perform_patches_for_training(self.args, self.state.parallel_backend)
 
         # Initialize the model specification
         model_specification_cls = get_model_specifiction_cls(self.args.model_name, self.args.training_type)
@@ -92,28 +91,6 @@ class Trainer:
             vae_dtype=self.args.vae_dtype,
             revision=self.args.revision,
             cache_dir=self.args.cache_dir,
-        )
-
-    def prepare_dataset(self) -> None:
-        logger.info("Initializing dataset and dataloader")
-
-        parallel_state = self.state.parallel_state
-        world_mesh = parallel_state.get_mesh()
-
-        if "dp" in world_mesh.mesh_dim_names:
-            dp_mesh = world_mesh["dp"]
-            local_rank, dp_world_size = dp_mesh.local_rank, dp_mesh.size()
-        else:
-            local_rank, dp_world_size = 0, 1
-
-        # TODO(aryan): allow configurability
-        dataset = data.initialize_dataset(self.args.data_root, dataset_type="video", streaming=True, infinite=True)
-        dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, local_rank, dp_world_size)
-        self.dataset = dataset
-
-        # TODO(aryan): support batch size > 1
-        self.dataloader = data.DPDataLoader(
-            local_rank, dataset, batch_size=1, num_workers=self.args.dataloader_num_workers
         )
 
     def prepare_models(self) -> None:
@@ -137,251 +114,15 @@ class Trainer:
             if self.args.enable_tiling:
                 self.vae.enable_tiling()
 
-        if self.state.parallel_state.pipeline_parallel_enabled:
+        if self.state.parallel_backend.pipeline_parallel_enabled:
             raise NotImplementedError(
                 "Pipeline parallelism is not supported yet. This will be supported in the future."
             )
 
-    def prepare_precomputations(self) -> None:
-        if not self.args.precompute_conditions:
-            return
-
-        # logger.info("Initializing precomputations")
-
-        # if self.args.batch_size != 1:
-        #     raise ValueError("Precomputation is only supported with batch size 1. This will be supported in future.")
-
-        # def collate_fn(batch):
-        #     latent_model_conditions = [x["latent_model_conditions"] for x in batch]
-        #     condition_model_conditions = [x["condition_model_conditions"] for x in batch]
-        #     batched_latent_model_conditions = {}
-        #     batched_condition_model_conditions = {}
-        #     for key in list(latent_model_conditions[0].keys()):
-        #         if torch.is_tensor(latent_model_conditions[0][key]):
-        #             batched_latent_model_conditions[key] = torch.cat([x[key] for x in latent_model_conditions], dim=0)
-        #         else:
-        #             # TODO(aryan): implement batch sampler for precomputed latents
-        #             batched_latent_model_conditions[key] = [x[key] for x in latent_model_conditions][0]
-        #     for key in list(condition_model_conditions[0].keys()):
-        #         if torch.is_tensor(condition_model_conditions[0][key]):
-        #             batched_condition_model_conditions[key] = torch.cat(
-        #                 [x[key] for x in condition_model_conditions], dim=0
-        #             )
-        #         else:
-        #             # TODO(aryan): implement batch sampler for precomputed latents
-        #             batched_condition_model_conditions[key] = [x[key] for x in condition_model_conditions][0]
-        #     return {
-        #         "latent_model_conditions": batched_latent_model_conditions,
-        #         "condition_model_conditions": batched_condition_model_conditions,
-        #     }
-
-        # cleaned_model_id = utils.string_to_filename(self.args.pretrained_model_name_or_path)
-        # precomputation_dir = (
-        #     Path(self.args.data_root) / f"{self.args.model_name}_{cleaned_model_id}_{PRECOMPUTED_DIR_NAME}"
-        # )
-        # should_precompute = utils.should_perform_precomputation(precomputation_dir)
-        # if not should_precompute:
-        #     logger.info("Precomputed conditions and latents found. Loading precomputed data.")
-        #     self.dataloader = torch.utils.data.DataLoader(
-        #         PrecomputedDataset(
-        #             data_root=self.args.data_root, model_name=self.args.model_name, cleaned_model_id=cleaned_model_id
-        #         ),
-        #         batch_size=self.args.batch_size,
-        #         shuffle=True,
-        #         collate_fn=collate_fn,
-        #         num_workers=self.args.dataloader_num_workers,
-        #         pin_memory=self.args.pin_memory,
-        #     )
-        #     return
-
-        # logger.info("Precomputed conditions and latents not found. Running precomputation.")
-
-        # # At this point, no models are loaded, so we need to load and precompute conditions and latents
-        # condition_components = self.model_specification.load_condition_models(self.state.condition_types)
-        # self._set_components(condition_components)
-        # self._move_components_to_device()
-        # self._disable_grad_for_components([self.text_encoder, self.text_encoder_2, self.text_encoder_3])
-
-        # if self.args.caption_dropout_p > 0 and self.args.caption_dropout_technique == "empty":
-        #     logger.warning(
-        #         "Caption dropout is not supported with precomputation yet. This will be supported in the future."
-        #     )
-
-        # conditions_dir = precomputation_dir / PRECOMPUTED_CONDITIONS_DIR_NAME
-        # latents_dir = precomputation_dir / PRECOMPUTED_LATENTS_DIR_NAME
-        # conditions_dir.mkdir(parents=True, exist_ok=True)
-        # latents_dir.mkdir(parents=True, exist_ok=True)
-
-        # accelerator = self.state.accelerator
-
-        # # Precompute conditions
-        # progress_bar = tqdm(
-        #     range(0, (len(self.dataset) + accelerator.num_processes - 1) // accelerator.num_processes),
-        #     desc="Precomputing conditions",
-        #     disable=not accelerator.is_local_main_process,
-        # )
-        # index = 0
-        # for i, data in enumerate(self.dataset):
-        #     if i % accelerator.num_processes != accelerator.process_index:
-        #         continue
-
-        #     logger.debug(
-        #         f"Precomputing conditions for batch {i + 1}/{len(self.dataset)} on process {accelerator.process_index}"
-        #     )
-
-        #     condition_model_conditions = self.model_specification.prepare_conditions(
-        #         tokenizer=self.tokenizer,
-        #         tokenizer_2=self.tokenizer_2,
-        #         tokenizer_3=self.tokenizer_3,
-        #         text_encoder=self.text_encoder,
-        #         text_encoder_2=self.text_encoder_2,
-        #         text_encoder_3=self.text_encoder_3,
-        #         **data,
-        #     )
-        #     filename = conditions_dir / f"conditions-{accelerator.process_index}-{index}.pt"
-        #     torch.save(condition_model_conditions, filename.as_posix())
-        #     index += 1
-        #     progress_bar.update(1)
-        # self._delete_components()
-
-        # memory_statistics = utils.get_memory_statistics()
-        # logger.info(f"Memory after precomputing conditions: {json.dumps(memory_statistics, indent=4)}")
-        # torch.cuda.reset_peak_memory_stats(accelerator.device)
-
-        # # Precompute latents
-        # latent_components = self.model_specification.load_latent_models()
-        # self._set_components(latent_components)
-        # self._move_components_to_device()
-        # self._disable_grad_for_components([self.vae])
-
-        # if self.vae is not None:
-        #     if self.args.enable_slicing:
-        #         self.vae.enable_slicing()
-        #     if self.args.enable_tiling:
-        #         self.vae.enable_tiling()
-
-        # progress_bar = tqdm(
-        #     range(0, (len(self.dataset) + accelerator.num_processes - 1) // accelerator.num_processes),
-        #     desc="Precomputing latents",
-        #     disable=not accelerator.is_local_main_process,
-        # )
-        # index = 0
-        # for i, data in enumerate(self.dataset):
-        #     if i % accelerator.num_processes != accelerator.process_index:
-        #         continue
-
-        #     logger.debug(
-        #         f"Precomputing latents for batch {i + 1}/{len(self.dataset)} on process {accelerator.process_index}"
-        #     )
-
-        #     image_or_video_key = "video" if "video" in data else "image"
-        #     image_or_video = data[image_or_video_key].unsqueeze(0)
-        #     latent_conditions = self.model_specification.prepare_latents(
-        #         vae=self.vae,
-        #         image_or_video=image_or_video,
-        #         generator=self.state.generator,
-        #         precompute=True,
-        #     )
-        #     filename = latents_dir / f"latents-{accelerator.process_index}-{index}.pt"
-        #     torch.save(latent_conditions, filename.as_posix())
-        #     index += 1
-        #     progress_bar.update(1)
-        # self._delete_components()
-
-        # accelerator.wait_for_everyone()
-        # logger.info("Precomputation complete")
-
-        # memory_statistics = utils.get_memory_statistics()
-        # logger.info(f"Memory after precomputing latents: {json.dumps(memory_statistics, indent=4)}")
-        # torch.cuda.reset_peak_memory_stats(accelerator.device)
-
-        # # Update dataloader to use precomputed conditions and latents
-        # self.dataloader = torch.utils.data.DataLoader(
-        #     PrecomputedDataset(
-        #         data_root=self.args.data_root, model_name=self.args.model_name, cleaned_model_id=cleaned_model_id
-        #     ),
-        #     batch_size=self.args.batch_size,
-        #     shuffle=True,
-        #     collate_fn=collate_fn,
-        #     num_workers=self.args.dataloader_num_workers,
-        #     pin_memory=self.args.pin_memory,
-        # )
-
-    def register_saving_loading_hooks(self, transformer_lora_config):
-        pass
-        # # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
-        # def save_model_hook(models, weights, output_dir):
-        #     if self.state.accelerator.is_main_process:
-        #         transformer_lora_layers_to_save = None
-
-        #         for model in models:
-        #             if isinstance(
-        #                 utils.unwrap_model(self.state.accelerator, model),
-        #                 type(utils.unwrap_model(self.state.accelerator, self.transformer)),
-        #             ):
-        #                 model = utils.unwrap_model(self.state.accelerator, model)
-        #                 if self.args.training_type == "lora":
-        #                     transformer_lora_layers_to_save = get_peft_model_state_dict(model)
-        #             else:
-        #                 raise ValueError(f"Unexpected save model: {model.__class__}")
-
-        #             # make sure to pop weight so that corresponding model is not saved again
-        #             if weights:
-        #                 weights.pop()
-
-        #         if self.args.training_type == "lora":
-        #             self.model_specification.save_lora_weights(output_dir, transformer_lora_layers_to_save)
-        #         else:
-        #             self.model_specification.save_model(output_dir, transformer=model, scheduler=self.scheduler)
-
-        # def load_model_hook(models, input_dir):
-        #     if not self.state.accelerator.distributed_type == DistributedType.DEEPSPEED:
-        #         while len(models) > 0:
-        #             model = models.pop()
-        #             if isinstance(
-        #                 utils.unwrap_model(self.state.accelerator, model),
-        #                 type(utils.unwrap_model(self.state.accelerator, self.transformer)),
-        #             ):
-        #                 transformer_ = utils.unwrap_model(self.state.accelerator, model)
-        #             else:
-        #                 raise ValueError(
-        #                     f"Unexpected save model: {utils.unwrap_model(self.state.accelerator, model).__class__}"
-        #                 )
-        #     else:
-        #         transformer_cls_ = utils.unwrap_model(self.state.accelerator, self.transformer).__class__
-
-        #         if self.args.training_type == "lora":
-        #             transformer_ = transformer_cls_.from_pretrained(
-        #                 self.args.pretrained_model_name_or_path, subfolder="transformer"
-        #             )
-        #             transformer_.add_adapter(transformer_lora_config)
-        #             lora_state_dict = self.model_specification.pipeline_cls.lora_state_dict(input_dir)
-        #             transformer_state_dict = {
-        #                 f'{k.replace("transformer.", "")}': v
-        #                 for k, v in lora_state_dict.items()
-        #                 if k.startswith("transformer.")
-        #             }
-        #             incompatible_keys = set_peft_model_state_dict(
-        #                 transformer_, transformer_state_dict, adapter_name="default"
-        #             )
-        #             if incompatible_keys is not None:
-        #                 # check only for unexpected keys
-        #                 unexpected_keys = getattr(incompatible_keys, "unexpected_keys", None)
-        #                 if unexpected_keys:
-        #                     logger.warning(
-        #                         f"Loading adapter weights from state_dict led to unexpected keys not found in the model: "
-        #                         f" {unexpected_keys}. "
-        #                     )
-        #         else:
-        #             transformer_ = transformer_cls_.from_pretrained(os.path.join(input_dir, "transformer"))
-
-        # self.state.accelerator.register_save_state_pre_hook(save_model_hook)
-        # self.state.accelerator.register_load_state_pre_hook(load_model_hook)
-
     def prepare_trainable_parameters(self) -> None:
         logger.info("Initializing trainable parameters")
 
-        parallel_state = self.state.parallel_state
+        parallel_backend = self.state.parallel_backend
 
         if self.args.precompute_conditions:
             diffusion_components = self.model_specification.load_diffusion_models()
@@ -419,14 +160,16 @@ class Trainer:
             )
             self.transformer.add_adapter(transformer_lora_config)
 
-        # TODO(aryan): it might be nice to add some assertions here to make sure that lora parameters are still in fp32
-        # even if layerwise upcasting. Would be nice to have a test as well
-        self.register_saving_loading_hooks(transformer_lora_config)
+        # # TODO(aryan): it might be nice to add some assertions here to make sure that lora parameters are still in fp32
+        # # even if layerwise upcasting. Would be nice to have a test as well
+        # self.register_saving_loading_hooks(transformer_lora_config)
 
         # Make sure the trainable params are in float32 if data sharding is not enabled. For FSDP, we need all
         # parameters to be of the same dtype.
         if self.args.training_type == "lora":
-            casting_dtype = torch.float32 if not parallel_state.data_sharding_enabled else self.args.transformer_dtype
+            casting_dtype = (
+                torch.float32 if not parallel_backend.data_sharding_enabled else self.args.transformer_dtype
+            )
             cast_training_params([self.transformer], dtype=casting_dtype)
 
         # For training LoRAs, we can be a little more optimal. Currently, the OptimizerWrapper only accepts torch::nn::Module.
@@ -465,20 +208,21 @@ class Trainer:
         self.lr_scheduler = lr_scheduler
 
     def prepare_for_training(self) -> None:
-        parallel_state = self.state.parallel_state
-        world_mesh = parallel_state.get_mesh()
+        # 1. Apply parallelism
+        parallel_backend = self.state.parallel_backend
+        world_mesh = parallel_backend.get_mesh()
         model_specification = self.model_specification
 
-        if parallel_state.context_parallel_enabled:
+        if parallel_backend.context_parallel_enabled:
             raise NotImplementedError(
                 "Context parallelism is not supported yet. This will be supported in the future."
             )
 
-        if parallel_state.tensor_parallel_enabled:
+        if parallel_backend.tensor_parallel_enabled:
             # TODO(aryan): handle fp8 from TorchAO here
             model_specification.apply_tensor_parallel(
                 backend=parallel.ParallelBackend.PTD,
-                device_mesh=parallel_state.get_mesh()["tp"],
+                device_mesh=parallel_backend.get_mesh()["tp"],
                 transformer=self.transformer,
             )
 
@@ -488,36 +232,60 @@ class Trainer:
             utils.apply_activation_checkpointing(self.transformer, checkpointing_type="full")
 
         # Enable DDP, FSDP or HSDP
-        if parallel_state.data_sharding_enabled:
-            if parallel_state.data_replication_enabled:
+        if parallel_backend.data_sharding_enabled:
+            # TODO(aryan): remove this when supported
+            if self.args.parallel_backend == "accelerate":
+                raise NotImplementedError("Data sharding is not supported with Accelerate yet.")
+
+            if parallel_backend.data_replication_enabled:
                 logger.info("Applying HSDP to the model")
             else:
                 logger.info("Applying FSDP to the model")
 
             # Apply FSDP or HSDP
-            if parallel_state.data_replication_enabled or parallel_state.context_parallel_enabled:
+            if parallel_backend.data_replication_enabled or parallel_backend.context_parallel_enabled:
                 dp_mesh_names = ("dp_replicate", "dp_shard_cp")
             else:
                 dp_mesh_names = ("dp_shard_cp",)
 
-            parallel.apply_fsdp2(
+            parallel.apply_fsdp2_ptd(
                 model=self.transformer,
                 dp_mesh=world_mesh[dp_mesh_names],
                 param_dtype=self.args.transformer_dtype,
                 reduce_dtype=torch.float32,
                 output_dtype=None,
-                pp_enabled=parallel_state.pipeline_parallel_enabled,
+                pp_enabled=parallel_backend.pipeline_parallel_enabled,
                 cpu_offload=False,  # TODO(aryan): needs to be tested and allowed for enabling later
             )
-        elif parallel_state.data_replication_enabled:
+        elif parallel_backend.data_replication_enabled:
             logger.info("Applying DDP to the model")
 
             if world_mesh.ndim > 1:
                 raise ValueError("DDP not supported for > 1D parallelism")
 
-            parallel.apply_ddp(model=self.transformer, dp_mesh=world_mesh)
+            parallel_backend.apply_ddp(self.transformer, world_mesh)
 
         self._move_components_to_device()
+
+        # 2. Initialize trackers
+        self._init_trackers()
+
+        # 3. Initialize directories and repositories
+        self._init_directories_and_repositories()
+
+    def prepare_dataset(self) -> None:
+        logger.info("Initializing dataset and dataloader")
+
+        # TODO(aryan): allow configurability
+        dataset = data.initialize_dataset(self.args.data_root, dataset_type="video", streaming=True, infinite=True)
+
+        # TODO(aryan): support batch size > 1
+        self.dataset, self.dataloader = self.state.parallel_backend.prepare_dataset(
+            dataset,
+            batch_size=self.args.batch_size,
+            num_workers=self.args.dataloader_num_workers,
+            pin_memory=self.args.pin_memory,
+        )
 
     def train(self) -> None:
         logger.info("Starting training")
@@ -532,7 +300,7 @@ class Trainer:
             self.model_specification.save_model(self.args.output_dir, scheduler=self.scheduler)
 
         # TODO(aryan): handle per-device batch_size > 1
-        global_batch_size = self.args.batch_size * self.state.parallel_state.world_size
+        global_batch_size = self.args.batch_size * self.state.parallel_backend.world_size
         info = {
             "trainable parameters": self.state.num_trainable_parameters,
             "train steps": self.args.train_steps,
@@ -543,8 +311,8 @@ class Trainer:
         logger.info(f"Training configuration: {json.dumps(info, indent=4)}")
 
         train_state = self.state.train_state
-        parallel_state = self.state.parallel_state
-        device = parallel_state.device
+        parallel_backend = self.state.parallel_backend
+        device = parallel_backend.device
 
         train_state.global_step = 0
         train_state.observed_data_samples = 0
@@ -570,7 +338,7 @@ class Trainer:
             range(0, self.args.train_steps),
             initial=initial_global_step,
             desc="Training steps",
-            disable=not parallel_state.is_local_main_process,
+            disable=not parallel_backend.is_local_main_process,
         )
 
         generator = torch.Generator(device=device)
@@ -598,7 +366,7 @@ class Trainer:
 
             train_state.step += 1
             # TODO(aryan): this is not correct. We need to handle PP and DP properly
-            train_state.observed_data_samples += batch_size * parallel_state._world_size
+            train_state.observed_data_samples += batch_size * parallel_backend._world_size
 
             logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
             self.optimizer.zero_grad()
@@ -648,7 +416,7 @@ class Trainer:
                 generator=self.state.generator,
             )
 
-            if parallel_state.pipeline_parallel_enabled:
+            if parallel_backend.pipeline_parallel_enabled:
                 raise NotImplementedError(
                     "Pipeline parallelism is not supported yet. This will be supported in the future."
                 )
@@ -685,7 +453,7 @@ class Trainer:
                 [p for m in model_parts for p in m.parameters()],
                 self.args.max_grad_norm,
                 foreach=True,
-                pp_mesh=parallel_state.get_mesh()["pp"] if parallel_state.pipeline_parallel_enabled else None,
+                pp_mesh=parallel_backend.get_mesh()["pp"] if parallel_backend.pipeline_parallel_enabled else None,
             )
 
             self.optimizer.step()
@@ -695,12 +463,12 @@ class Trainer:
             if grad_norm is not None:
                 logs["grad_norm"] = grad_norm if isinstance(grad_norm, float) else grad_norm.detach().item()
             if (
-                parallel_state.data_replication_enabled
-                or parallel_state.data_sharding_enabled
-                or parallel_state.context_parallel_enabled
+                parallel_backend.data_replication_enabled
+                or parallel_backend.data_sharding_enabled
+                or parallel_backend.context_parallel_enabled
             ):
                 loss = loss.detach()
-                dp_cp_mesh = parallel_state.get_mesh()["dp_cp"]
+                dp_cp_mesh = parallel_backend.get_mesh()["dp_cp"]
                 global_avg_loss, global_max_loss = (
                     parallel.dist_mean(loss, dp_cp_mesh),
                     parallel.dist_max(loss, dp_cp_mesh),
@@ -714,7 +482,7 @@ class Trainer:
             progress_bar.set_postfix(logs)
 
             if train_state.step % self.args.logging_steps == 0:
-                parallel_state.log(logs, step=train_state.step)
+                parallel_backend.log(logs, step=train_state.step)
 
             train_state.log_steps.append(train_state.step)
             train_state.global_avg_losses.append(global_avg_loss)
@@ -724,9 +492,9 @@ class Trainer:
             if train_state.step % self.args.validation_steps == 0:
                 self.validate(step=train_state.step, final_validation=False)
 
-        parallel_state.wait_for_everyone()
+        parallel_backend.wait_for_everyone()
 
-        if parallel_state.is_main_process:
+        if parallel_backend.is_main_process:
             # TODO(aryan): handle compiled models by unwrapping and exporting model
             # transformer = utils.unwrap_model(accelerator, self.transformer)
 
@@ -737,10 +505,10 @@ class Trainer:
             #     self.model_specification.save_model(self.args.output_dir, transformer=transformer)
             pass
 
-        parallel_state.wait_for_everyone()
+        parallel_backend.wait_for_everyone()
         self.validate(step=train_state.step, final_validation=True)
 
-        if parallel_state.is_main_process:
+        if parallel_backend.is_main_process:
             if self.args.push_to_hub:
                 upload_folder(
                     repo_id=self.state.repo_id, folder_path=self.args.output_dir, ignore_patterns=["checkpoint-*"]
@@ -750,14 +518,14 @@ class Trainer:
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory after training end: {json.dumps(memory_statistics, indent=4)}")
 
-        parallel_state.destroy()
+        parallel_backend.destroy()
 
     def validate(self, step: int, final_validation: bool = False) -> None:
         logger.info("Starting validation")
 
         # 1. Load validation dataset
-        parallel_state = self.state.parallel_state
-        world_mesh = parallel_state.get_mesh()
+        parallel_backend = self.state.parallel_backend
+        world_mesh = parallel_backend.get_mesh()
 
         if "dp" in world_mesh.mesh_dim_names:
             dp_mesh = world_mesh["dp"]
@@ -782,7 +550,7 @@ class Trainer:
         logger.info(f"Memory before validation start: {json.dumps(memory_statistics, indent=4)}")
 
         seed = self.args.seed if self.args.seed is not None else 0
-        generator = torch.Generator(device=parallel_state.device).manual_seed(seed)
+        generator = torch.Generator(device=parallel_backend.device).manual_seed(seed)
         pipeline = self._init_pipeline(final_validation=final_validation)
 
         # 2. Run validation
@@ -795,7 +563,7 @@ class Trainer:
             if validation_data is None:
                 break
 
-            logger.debug(f"Validating {validation_data=} on rank={parallel_state.rank}.")
+            logger.debug(f"Validating {validation_data=} on rank={parallel_backend.rank}.")
 
             validation_data = validation_data[0]
             validation_artifacts = self.model_specification.validation(
@@ -826,10 +594,10 @@ class Trainer:
             for index, (key, artifact) in enumerate(list(artifacts.items())):
                 assert isinstance(artifact, (data.ImageArtifact, data.VideoArtifact))
                 filename = "validation-" if not final_validation else "final-"
-                filename += f"{step}-{parallel_state.rank}-{index}-{prompt_filename}.{artifact.file_extension}"
+                filename += f"{step}-{parallel_backend.rank}-{index}-{prompt_filename}.{artifact.file_extension}"
                 output_filename = os.path.join(self.args.output_dir, filename)
 
-                if parallel_state.is_main_process and artifact.file_extension == "mp4":
+                if parallel_backend.is_main_process and artifact.file_extension == "mp4":
                     main_process_prompts_to_filenames[PROMPT] = filename
 
                 if artifact.type == "image" and artifact.value is not None:
@@ -842,7 +610,7 @@ class Trainer:
                     all_processes_artifacts.append(wandb.Video(output_filename, caption=PROMPT))
 
         # 3. Cleanup & log artifacts
-        parallel_state.wait_for_everyone()
+        parallel_backend.wait_for_everyone()
 
         # Remove all hooks that might have been added during pipeline initialization to the models
         pipeline.remove_all_hooks()
@@ -851,14 +619,15 @@ class Trainer:
         utils.free_memory()
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
-        torch.cuda.reset_peak_memory_stats(parallel_state.device)
+        torch.cuda.reset_peak_memory_stats(parallel_backend.device)
 
         # Gather artifacts from all processes. We also need to flatten them since each process returns a list of artifacts.
-        all_artifacts = [None] * parallel_state.world_size
+        # TODO(aryan): probably should only all gather from dp mesh process group
+        all_artifacts = [None] * parallel_backend.world_size
         torch.distributed.all_gather_object(all_artifacts, all_processes_artifacts)
         all_artifacts = [artifact for artifacts in all_artifacts for artifact in artifacts]
 
-        if parallel_state.is_main_process:
+        if parallel_backend.is_main_process:
             tracker_key = "final" if final_validation else "validation"
             artifact_log_dict = {}
 
@@ -868,7 +637,7 @@ class Trainer:
             video_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Video)]
             if len(video_artifacts) > 0:
                 artifact_log_dict["videos"] = video_artifacts
-            parallel_state.log({tracker_key: artifact_log_dict}, step=step)
+            parallel_backend.log({tracker_key: artifact_log_dict}, step=step)
 
             if self.args.push_to_hub and final_validation:
                 video_filenames = list(main_process_prompts_to_filenames.values())
@@ -877,7 +646,7 @@ class Trainer:
                     args=self.args, repo_id=self.state.repo_id, videos=video_filenames, validation_prompts=prompts
                 )
 
-        parallel_state.wait_for_everyone()
+        parallel_backend.wait_for_everyone()
         if not final_validation:
             self.transformer.train()
 
@@ -889,7 +658,8 @@ class Trainer:
         world_size = int(os.environ["WORLD_SIZE"])
 
         # TODO(aryan): handle other backends
-        self.state.parallel_state = parallel.PytorchDTensorParallelState(
+        backend_cls: parallel.ParallelBackendType = parallel.get_parallel_backend_cls(self.args.parallel_backend)
+        self.state.parallel_backend = backend_cls(
             world_size=world_size,
             pp_degree=self.args.pp_degree,
             dp_degree=self.args.dp_degree,
@@ -898,10 +668,13 @@ class Trainer:
             tp_degree=self.args.tp_degree,
             backend="nccl",
             timeout=self.args.init_timeout,
+            logging_dir=self.args.logging_dir,
+            output_dir=self.args.output_dir,
+            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
         )
 
         if self.args.seed is not None:
-            world_mesh = self.state.parallel_state.get_mesh()
+            world_mesh = self.state.parallel_backend.get_mesh()
             utils.enable_determinism(self.args.seed, world_mesh)
 
     def _init_logging(self) -> None:
@@ -914,14 +687,16 @@ class Trainer:
 
         logger.info("Initialized FineTrainers")
 
+    def _init_trackers(self) -> None:
+        # TODO(aryan): handle multiple trackers
         trackers = ["wandb"]
         experiment_name = self.args.tracker_name or "finetrainers-experiment"
-        self.state.parallel_state.initialize_trackers(
+        self.state.parallel_backend.initialize_trackers(
             trackers, experiment_name=experiment_name, config=self._get_training_info(), log_dir=self.args.logging_dir
         )
 
     def _init_directories_and_repositories(self) -> None:
-        if self.state.parallel_state.is_main_process:
+        if self.state.parallel_backend.is_main_process:
             self.args.output_dir = Path(self.args.output_dir)
             self.args.output_dir.mkdir(parents=True, exist_ok=True)
             self.state.output_dir = Path(self.args.output_dir)
@@ -953,7 +728,7 @@ class Trainer:
             components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.transformer, self.vae]
         components = utils.get_non_null_items(components)
         for component in components:
-            component.to(self.state.parallel_state.device)
+            component.to(self.state.parallel_backend.device)
 
     def _set_components(self, components: Dict[str, Any]) -> None:
         # Set models
@@ -983,7 +758,7 @@ class Trainer:
         utils.synchronize_device()
 
     def _init_pipeline(self, final_validation: bool = False) -> DiffusionPipeline:
-        parallel_state = self.state.parallel_state
+        parallel_backend = self.state.parallel_backend
         module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "vae"]
 
         if not final_validation:
@@ -1019,7 +794,7 @@ class Trainer:
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
                 training=False,
-                device=parallel_state.device,
+                device=parallel_backend.device,
             )
 
             # Load the LoRA weights if performing LoRA finetuning

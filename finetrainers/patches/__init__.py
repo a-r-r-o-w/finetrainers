@@ -2,15 +2,15 @@ from typing import TYPE_CHECKING
 
 from ..args import Args
 from ..models import ModelType, TrainingType
-from ..parallel import BaseParallelState
+from ..parallel import ParallelBackendType
 
 
-def perform_patches_for_training(args: Args, parallel_state: BaseParallelState) -> None:
+def perform_patches_for_training(args: Args, parallel_backend: ParallelBackendType) -> None:
     if args.model_name == ModelType.LTX_VIDEO:
         from .models.ltx_video import patch
 
         patch.patch_transformer_forward()
-        if parallel_state.tensor_parallel_enabled:
+        if parallel_backend.tensor_parallel_enabled:
             patch.patch_apply_rotary_emb_for_tp_compatibility()
 
     if args.training_type == TrainingType.LORA and len(args.layerwise_upcasting_modules) > 0:

@@ -1,13 +1,26 @@
+from typing import Optional
+
 import torch
 import torch.distributed._functional_collectives as funcol
 import torch.distributed.tensor
+from diffusers.utils import is_accelerate_available
 from torch.distributed._composable.fsdp import CPUOffloadPolicy, MixedPrecisionPolicy, fully_shard
 from torch.distributed._composable.replicate import replicate
 
 from ..utils._common import DIFFUSERS_TRANSFORMER_BLOCK_NAMES
 
 
-def apply_fsdp2(
+if is_accelerate_available():
+    from accelerate import Accelerator
+    from accelerate.utils import (
+        DataLoaderConfiguration,
+        DistributedDataParallelKwargs,
+        InitProcessGroupKwargs,
+        ProjectConfiguration,
+    )
+
+
+def apply_fsdp2_ptd(
     model: torch.nn.Module,
     dp_mesh: torch.distributed.device_mesh.DeviceMesh,
     param_dtype: torch.dtype,
@@ -43,7 +56,30 @@ def apply_fsdp2(
     fully_shard(model, **fsdp_config, reshard_after_forward=not pp_enabled)
 
 
-def apply_ddp(model: torch.nn.Module, dp_mesh: torch.distributed.device_mesh.DeviceMesh) -> None:
+def apply_ddp_accelerate(
+    model: torch.nn.Module,
+    project_config: Optional[ProjectConfiguration] = None,
+    ddp_kwargs: Optional[DistributedDataParallelKwargs] = None,
+    init_process_group_kwargs: Optional[InitProcessGroupKwargs] = None,
+    dataloader_config: Optional[DataLoaderConfiguration] = None,
+    gradient_accumulation_steps: Optional[int] = None,
+    accelerator: Optional[Accelerator] = None,
+) -> torch.nn.Module:
+    if accelerator is None:
+        accelerator = Accelerator(
+            project_config=project_config,
+            dataloader_config=dataloader_config,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            log_with=None,
+            kwargs_handlers=[ddp_kwargs, init_process_group_kwargs],
+        )
+        if torch.backends.mps.is_available():
+            accelerator.native_amp = False
+    accelerator.prepare_model(model)
+    return accelerator, model
+
+
+def apply_ddp_ptd(model: torch.nn.Module, dp_mesh: torch.distributed.device_mesh.DeviceMesh) -> None:
     replicate(model, device_mesh=dp_mesh, bucket_cap_mb=100)
 
 

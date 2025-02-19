@@ -1,11 +1,16 @@
 import datetime
 import os
+import pathlib
+from typing import Optional, Tuple
 
+import datasets.distributed
 import torch
 
+from ..data import DPDataLoader
 from ..logging import logger
 from ..utils import get_device_info
 from .base import BaseParallelState
+from .utils import apply_ddp_ptd
 
 
 _device_type, _device_module = get_device_info()
@@ -22,6 +27,9 @@ class PytorchDTensorParallelState(BaseParallelState):
         tp_degree: int = 1,
         backend: str = "nccl",
         timeout: int = 180,
+        logging_dir: Optional[str] = None,
+        output_dir: Optional[str] = None,
+        gradient_accumulation_steps: Optional[int] = None,
     ) -> None:
         super().__init__()
 
@@ -31,6 +39,10 @@ class PytorchDTensorParallelState(BaseParallelState):
         self._dp_shards = dp_shards
         self._cp_degree = cp_degree
         self._tp_degree = tp_degree
+        self._output_dir = pathlib.Path(output_dir) if output_dir is not None else None
+        self._logging_dir = (
+            self._output_dir / logging_dir if output_dir is not None and logging_dir is not None else None
+        )
         self._backend = backend
         self._timeout = timeout
 
@@ -46,7 +58,8 @@ class PytorchDTensorParallelState(BaseParallelState):
                 f"World size {world_size} must be divisible by the product of all parallel degrees and data parallel shards."
             )
 
-        self._init_dist()
+        torch.distributed.init_process_group(backend=self._backend, timeout=datetime.timedelta(seconds=self._timeout))
+        _device_module.set_device(self.local_rank)
 
         logger.info(
             f"Initialized parallel state with:\n"
@@ -58,15 +71,36 @@ class PytorchDTensorParallelState(BaseParallelState):
             f"  - Data parallel shards: {dp_shards}\n"
         )
 
-        self.mesh = None
+        self._mesh: torch.distributed.DeviceMesh = None
 
-    def _init_dist(self):
-        torch.distributed.init_process_group(backend=self._backend, timeout=datetime.timedelta(seconds=self._timeout))
-        _device_module.set_device(self.local_rank)
+    def apply_ddp(
+        self, model: torch.nn.Module, device_mesh: Optional[torch.distributed.DeviceMesh] = None
+    ) -> torch.nn.Module:
+        if device_mesh is None:
+            device_mesh = self.get_mesh()
+        apply_ddp_ptd(model, device_mesh)
+        logger.debug("Applied PytorchDTensorParallel::apply_ddp to model.")
+        return model
+
+    def prepare_dataset(
+        self,
+        dataset: torch.utils.data.IterableDataset,
+        batch_size: int = 1,
+        num_workers: int = 0,
+        pin_memory: bool = False,
+    ) -> Tuple[torch.utils.data.IterableDataset, DPDataLoader]:
+        world_mesh = self.get_mesh()
+        dp_mesh = world_mesh
+        if "dp" in world_mesh.mesh_dim_names:
+            dp_mesh = world_mesh["dp"]
+        dp_world_size = dp_mesh.size()
+        dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, self.local_rank, dp_world_size)
+        dataloader = DPDataLoader(self.local_rank, dataset, batch_size=batch_size, num_workers=num_workers)
+        return dataset, dataloader
 
     def get_mesh(self) -> torch.distributed.DeviceMesh:
-        if self.mesh is not None:
-            return self.mesh
+        if self._mesh is not None:
+            return self._mesh
 
         mesh_list = [
             ("pp", self._pp_degree),
@@ -76,15 +110,13 @@ class PytorchDTensorParallelState(BaseParallelState):
             ("tp", self._tp_degree),
         ]
         mesh_list = [(name, degree) for name, degree in mesh_list if degree > 1]
-        logger.info(f"Creating device mesh with {dict(mesh_list)}")
+        logger.debug(f"Creating device mesh with {dict(mesh_list)}")
 
         names = [x[0] for x in mesh_list]
         degrees = [x[1] for x in mesh_list]
         mesh = torch.distributed.device_mesh.init_device_mesh(_device_type, mesh_shape=degrees, mesh_dim_names=names)
 
-        dp_mesh_names = []
-        dp_cp_mesh_names = []
-        dp_shard_cp_mesh_names = []
+        dp_mesh_names, dp_cp_mesh_names, dp_shard_cp_mesh_names = [], [], []
 
         if self.data_replication_enabled:
             dp_mesh_names.append("dp_replicate")
@@ -104,7 +136,7 @@ class PytorchDTensorParallelState(BaseParallelState):
         if len(dp_shard_cp_mesh_names) > 0:
             mesh[tuple(dp_shard_cp_mesh_names)]._flatten(mesh_dim_name="dp_shard_cp")
 
-        self.mesh = mesh
+        self._mesh = mesh
         return mesh
 
     @property

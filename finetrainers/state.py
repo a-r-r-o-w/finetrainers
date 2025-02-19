@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 import torch
 import torch.distributed.checkpoint.stateful
 
-from .parallel import PytorchDTensorParallelState
+from .parallel import ParallelBackendType
 from .utils import get_device_info
 
 
@@ -52,7 +52,7 @@ class TrainState(torch.distributed.checkpoint.stateful.Stateful):
 @dataclass
 class State:
     # Parallel state
-    parallel_state: PytorchDTensorParallelState = None
+    parallel_backend: ParallelBackendType = None
 
     # Training state
     train_state: TrainState = None
