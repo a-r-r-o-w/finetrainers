@@ -5,7 +5,7 @@ from diffusers import DiffusionPipeline
 from diffusers.configuration_utils import FrozenDict
 from PIL.Image import Image
 
-from ..parallel import ParallelBackend
+from ..parallel import ParallelBackendEnum
 from ..processors import Processor, get_processor_parameters_from_dict
 from ..typing import ArtifactType, SchedulerType, TokenizerType
 from ..utils import get_parameter_names, resolve_component_cls
@@ -177,7 +177,7 @@ class ModelSpecification:
 
     def apply_tensor_parallel(
         self,
-        backend: ParallelBackend,
+        backend: ParallelBackendEnum,
         device_mesh: torch.distributed.DeviceMesh,
         text_encoder: torch.nn.Module,
         text_encoder_2: torch.nn.Module,

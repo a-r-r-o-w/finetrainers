@@ -1,12 +1,12 @@
 import logging
 import traceback
 
-from finetrainers import Trainer, parse_arguments
+from finetrainers import SFTTrainer, TrainingType, parse_arguments, get_logger
 from finetrainers.constants import FINETRAINERS_LOG_LEVEL
+from finetrainers.models import get_model_specifiction_cls
 
 
-logger = logging.getLogger("finetrainers")
-logger.setLevel(FINETRAINERS_LOG_LEVEL)
+logger = get_logger()
 
 
 def main():
@@ -23,7 +23,31 @@ def main():
 
     try:
         args = parse_arguments()
-        trainer = Trainer(args)
+
+        model_specification_cls = get_model_specifiction_cls(args.model_name, args.training_type)
+        model_specification = model_specification_cls(
+            pretrained_model_name_or_path=args.pretrained_model_name_or_path,
+            tokenizer_id=args.tokenizer_id,
+            tokenizer_2_id=args.tokenizer_2_id,
+            tokenizer_3_id=args.tokenizer_3_id,
+            text_encoder_id=args.text_encoder_id,
+            text_encoder_2_id=args.text_encoder_2_id,
+            text_encoder_3_id=args.text_encoder_3_id,
+            transformer_id=args.transformer_id,
+            vae_id=args.vae_id,
+            text_encoder_dtype=args.text_encoder_dtype,
+            text_encoder_2_dtype=args.text_encoder_2_dtype,
+            text_encoder_3_dtype=args.text_encoder_3_dtype,
+            transformer_dtype=args.transformer_dtype,
+            vae_dtype=args.vae_dtype,
+            revision=args.revision,
+            cache_dir=args.cache_dir,
+        )
+
+        if args.training_type in [TrainingType.LORA, TrainingType.FULL_FINETUNE]:
+            trainer = SFTTrainer(args, model_specification)
+        else:
+            raise ValueError(f"Training type {args.training_type} not supported.")
 
         trainer.prepare_models()
         trainer.prepare_trainable_parameters()

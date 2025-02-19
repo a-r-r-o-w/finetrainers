@@ -4,7 +4,10 @@ from typing import Any, Dict
 import torch.distributed.checkpoint.stateful
 import torchdata.stateful_dataloader
 
-from ..logging import logger
+from ..logging import get_logger
+
+
+logger = get_logger()
 
 
 class DPDataLoader(torchdata.stateful_dataloader.StatefulDataLoader, torch.distributed.checkpoint.stateful.Stateful):

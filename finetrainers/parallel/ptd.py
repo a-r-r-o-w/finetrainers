@@ -7,16 +7,17 @@ import datasets.distributed
 import torch
 
 from ..data import DPDataLoader
-from ..logging import logger
+from ..logging import get_logger
 from ..utils import get_device_info
-from .base import BaseParallelState
+from .base import BaseParallelBackend
 from .utils import apply_ddp_ptd
 
 
 _device_type, _device_module = get_device_info()
+logger = get_logger()
 
 
-class PytorchDTensorParallelState(BaseParallelState):
+class PytorchDTensorParallelBackend(BaseParallelBackend):
     def __init__(
         self,
         world_size: int,
@@ -97,6 +98,9 @@ class PytorchDTensorParallelState(BaseParallelState):
         dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, self.local_rank, dp_world_size)
         dataloader = DPDataLoader(self.local_rank, dataset, batch_size=batch_size, num_workers=num_workers)
         return dataset, dataloader
+
+    def prepare_optimizer(self, optimizer, lr_scheduler):
+        return optimizer, lr_scheduler
 
     def get_mesh(self) -> torch.distributed.DeviceMesh:
         if self._mesh is not None:

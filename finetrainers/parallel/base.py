@@ -6,7 +6,7 @@ import torch
 from ..trackers import TrackerType, initialize_trackers
 
 
-class BaseParallelState:
+class BaseParallelBackend:
     r"""
     Base class that contains properties and methods that should be implemented by different parallel backends.
     """
@@ -16,6 +16,9 @@ class BaseParallelState:
 
     def prepare_dataset(self, *args, **kwargs) -> Any:
         raise NotImplementedError("Method `prepare_dataset` must be implemented by subclass.")
+
+    def prepare_optimizer(self, *args, **kwargs) -> Any:
+        raise NotImplementedError("Method `prepare_optimizer` must be implemented by subclass.")
 
     def get_mesh(self):
         raise NotImplementedError("Method `get_mesh` must be implemented by subclass.")

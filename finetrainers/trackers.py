@@ -2,7 +2,10 @@ import pathlib
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from .logging import logger
+from .logging import get_logger
+
+
+logger = get_logger()
 
 
 class BaseTracker:

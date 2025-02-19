@@ -17,17 +17,19 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig
 from tqdm import tqdm
 
-from . import data, optimizer, parallel, patches, utils
-from .args import Args, validate_args
-from .hooks import apply_layerwise_upcasting
-from .logging import logger
-from .models import ModelSpecification, get_model_specifiction_cls
-from .processors import Processor, ProcessorType, get_condition
-from .state import State, TrainState
+from .. import data, logging, optimizer, parallel, patches, utils
+from ..args import Args, validate_args
+from ..hooks import apply_layerwise_upcasting
+from ..models import ModelSpecification
+from ..processors import Processor, ProcessorType, get_condition
+from ..state import State, TrainState
 
 
-class Trainer:
-    def __init__(self, args: Args) -> None:
+logger = logging.get_logger()
+
+
+class SFTTrainer:
+    def __init__(self, args: Args, model_specification: ModelSpecification) -> None:
         validate_args(args)
 
         self.args = args
@@ -65,33 +67,13 @@ class Trainer:
         self.state.condition_types = self.args.conditions
 
         self._init_distributed()
-        self._init_logging()
         self._init_config_options()
         self._init_non_model_conditions()
 
         # Perform any patches that might be necessary for training to work as expected
         patches.perform_patches_for_training(self.args, self.state.parallel_backend)
 
-        # Initialize the model specification
-        model_specification_cls = get_model_specifiction_cls(self.args.model_name, self.args.training_type)
-        self.model_specification: ModelSpecification = model_specification_cls(
-            pretrained_model_name_or_path=self.args.pretrained_model_name_or_path,
-            tokenizer_id=self.args.tokenizer_id,
-            tokenizer_2_id=self.args.tokenizer_2_id,
-            tokenizer_3_id=self.args.tokenizer_3_id,
-            text_encoder_id=self.args.text_encoder_id,
-            text_encoder_2_id=self.args.text_encoder_2_id,
-            text_encoder_3_id=self.args.text_encoder_3_id,
-            transformer_id=self.args.transformer_id,
-            vae_id=self.args.vae_id,
-            text_encoder_dtype=self.args.text_encoder_dtype,
-            text_encoder_2_dtype=self.args.text_encoder_2_dtype,
-            text_encoder_3_dtype=self.args.text_encoder_3_dtype,
-            transformer_dtype=self.args.transformer_dtype,
-            vae_dtype=self.args.vae_dtype,
-            revision=self.args.revision,
-            cache_dir=self.args.cache_dir,
-        )
+        self.model_specification = model_specification
 
     def prepare_models(self) -> None:
         logger.info("Initializing models")
@@ -129,14 +111,14 @@ class Trainer:
             self._set_components(diffusion_components)
 
         components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.vae]
-        self._disable_grad_for_models(components)
+        utils.set_requires_grad(components, False)
 
         if self.args.training_type == "full-finetune":
             logger.info("Finetuning transformer with no additional parameters")
-            self._enable_grad_for_models([self.transformer])
+            utils.set_requires_grad([self.transformer], True)
         else:
             logger.info("Finetuning transformer with PEFT parameters")
-            self._disable_grad_for_models([self.transformer])
+            utils.set_requires_grad([self.transformer], False)
 
         # Layerwise upcasting must be applied before adding the LoRA adapter.
         # If we don't perform this before moving to device, we might OOM on the GPU. So, best to do it on
@@ -185,7 +167,8 @@ class Trainer:
         # Setup distributed optimizer and lr scheduler
         logger.info("Initializing optimizer and lr scheduler")
         self.state.train_state = TrainState()
-        optim = optimizer.get_optimizer(
+        self.optimizer = optimizer.get_optimizer(
+            parallel_backend=self.args.parallel_backend,
             name=self.args.optimizer,
             model_parts=model_parts,
             learning_rate=self.args.lr,
@@ -196,16 +179,14 @@ class Trainer:
             weight_decay=self.args.weight_decay,
             fused=False,
         )
-        lr_scheduler = optimizer.get_lr_scheduler(
+        self.lr_scheduler = optimizer.get_lr_scheduler(
+            parallel_backend=self.args.parallel_backend,
             name=self.args.lr_scheduler,
-            optimizers=optim.optimizers,
+            optimizer=self.optimizer,
             num_warmup_steps=self.args.lr_warmup_steps,
             num_training_steps=self.args.train_steps,
             # TODO(aryan): handle last_epoch
         )
-
-        self.optimizer = optim
-        self.lr_scheduler = lr_scheduler
 
     def prepare_for_training(self) -> None:
         # 1. Apply parallelism
@@ -221,7 +202,7 @@ class Trainer:
         if parallel_backend.tensor_parallel_enabled:
             # TODO(aryan): handle fp8 from TorchAO here
             model_specification.apply_tensor_parallel(
-                backend=parallel.ParallelBackend.PTD,
+                backend=parallel.ParallelBackendEnum.PTD,
                 device_mesh=parallel_backend.get_mesh()["tp"],
                 transformer=self.transformer,
             )
@@ -267,10 +248,12 @@ class Trainer:
 
         self._move_components_to_device()
 
-        # 2. Initialize trackers
-        self._init_trackers()
+        # 2. Prepare optimizer and lr scheduler
+        self.optimizer, self.lr_scheduler = parallel_backend.prepare_optimizer(self.optimizer, self.lr_scheduler)
 
-        # 3. Initialize directories and repositories
+        # 3. Initialize trackers, directories and repositories
+        self._init_logging()
+        self._init_trackers()
         self._init_directories_and_repositories()
 
     def prepare_dataset(self) -> None:
@@ -282,7 +265,7 @@ class Trainer:
         # TODO(aryan): support batch size > 1
         self.dataset, self.dataloader = self.state.parallel_backend.prepare_dataset(
             dataset,
-            batch_size=self.args.batch_size,
+            batch_size=1,
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.pin_memory,
         )
@@ -304,7 +287,7 @@ class Trainer:
         info = {
             "trainable parameters": self.state.num_trainable_parameters,
             "train steps": self.args.train_steps,
-            "per-device batch size": self.args.batch_size,
+            "per-replica batch size": self.args.batch_size,
             "global batch size": global_batch_size,
             "gradient accumulation steps": self.args.gradient_accumulation_steps,
         }
@@ -563,7 +546,9 @@ class Trainer:
             if validation_data is None:
                 break
 
-            logger.debug(f"Validating {validation_data=} on rank={parallel_backend.rank}.")
+            logger.debug(
+                f"Validating {validation_data=} on rank={parallel_backend.rank}.", local_main_process_only=False
+            )
 
             validation_data = validation_data[0]
             validation_artifacts = self.model_specification.validation(
@@ -601,11 +586,17 @@ class Trainer:
                     main_process_prompts_to_filenames[PROMPT] = filename
 
                 if artifact.type == "image" and artifact.value is not None:
-                    logger.debug(f"Saving image to {output_filename}")
+                    logger.debug(
+                        f"Saving image from rank={parallel_backend.rank} to {output_filename}",
+                        local_main_process_only=False,
+                    )
                     artifact.value.save(output_filename)
                     all_processes_artifacts.append(wandb.Image(output_filename, caption=PROMPT))
                 elif artifact.type == "video" and artifact.value is not None:
-                    logger.debug(f"Saving video to {output_filename}")
+                    logger.debug(
+                        f"Saving video from rank={parallel_backend.rank} to {output_filename}",
+                        local_main_process_only=False,
+                    )
                     export_to_video(artifact.value, output_filename, fps=EXPORT_FPS)
                     all_processes_artifacts.append(wandb.Video(output_filename, caption=PROMPT))
 
@@ -678,13 +669,9 @@ class Trainer:
             utils.enable_determinism(self.args.seed, world_mesh)
 
     def _init_logging(self) -> None:
-        if torch.distributed.get_rank() == 0:
-            transformers.utils.logging.set_verbosity_warning()
-            diffusers.utils.logging.set_verbosity_info()
-        else:
-            transformers.utils.logging.set_verbosity_error()
-            diffusers.utils.logging.set_verbosity_error()
-
+        transformers.utils.logging.set_verbosity_warning()
+        diffusers.utils.logging.set_verbosity_info()
+        logging._set_parallel_backend(self.state.parallel_backend)
         logger.info("Initialized FineTrainers")
 
     def _init_trackers(self) -> None:
@@ -804,12 +791,6 @@ class Trainer:
         components = [getattr(pipeline, module_name, None) for module_name in module_names]
         self._move_components_to_device(components)
         return pipeline
-
-    def _disable_grad_for_models(self, models: List[torch.nn.Module]):
-        utils.set_requires_grad(models, False)
-
-    def _enable_grad_for_models(self, models: List[torch.nn.Module]):
-        utils.set_requires_grad(models, True)
 
     def _get_training_info(self) -> Dict[str, Any]:
         info = self.args.to_dict()

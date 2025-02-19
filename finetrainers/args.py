@@ -7,7 +7,7 @@ from diffusers.utils import get_logger
 
 from .constants import DEFAULT_IMAGE_RESOLUTION_BUCKETS, DEFAULT_VIDEO_RESOLUTION_BUCKETS, FINETRAINERS_LOG_LEVEL
 from .models import SUPPORTED_MODEL_CONFIGS
-from .parallel import ParallelBackend
+from .parallel import ParallelBackendEnum
 from .processors import SUPPORTED_CONDITIONS, ProcessorType
 from .utils import get_non_null_items
 
@@ -269,7 +269,7 @@ class Args:
     """
 
     # Parallel arguments
-    parallel_backend = ParallelBackend.ACCELERATE
+    parallel_backend = ParallelBackendEnum.ACCELERATE
     pp_degree: int = 1
     dp_degree: int = 1
     dp_shards: int = -1
@@ -577,8 +577,8 @@ def _add_parallel_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--parallel_backend",
         type=str,
-        default=ParallelBackend.ACCELERATE,
-        choices=[ParallelBackend.ACCELERATE, ParallelBackend.PTD],
+        default=ParallelBackendEnum.ACCELERATE,
+        choices=[ParallelBackendEnum.ACCELERATE, ParallelBackendEnum.PTD],
         help="The parallel backend to use for training.",
     )
     parser.add_argument("--pp_degree", type=int, default=1, help="Pipeline parallelism degree.")

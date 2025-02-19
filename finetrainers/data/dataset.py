@@ -9,13 +9,15 @@ import torch.distributed.checkpoint.stateful
 from diffusers.utils import load_image, load_video
 
 from .. import constants
-from ..logging import logger
+from ..logging import get_logger
 from . import utils
 
 
 import decord  # isort:skip
 
 decord.bridge.set_bridge("torch")
+
+logger = get_logger()
 
 
 class ImageCaptionFileDataset(torch.utils.data.IterableDataset, torch.distributed.checkpoint.stateful.Stateful):

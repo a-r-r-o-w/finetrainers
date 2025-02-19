@@ -26,8 +26,6 @@ SUPPORTED_MODEL_CONFIGS = {
     ModelType.LTX_VIDEO: {
         TrainingType.LORA: LTXVideoModelSpecification,
         TrainingType.FULL_FINETUNE: LTXVideoModelSpecification,
-        # "lora": LTX_VIDEO_T2V_LORA_CONFIG,
-        # "full-finetune": LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG,
     },
     ModelType.COGVIDEOX: {
         TrainingType.LORA: COGVIDEOX_T2V_LORA_CONFIG,

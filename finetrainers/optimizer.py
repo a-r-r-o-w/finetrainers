@@ -1,7 +1,7 @@
 import functools
 import math
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 import torch
 from torch.distributed.checkpoint.state_dict import (
@@ -10,6 +10,8 @@ from torch.distributed.checkpoint.state_dict import (
     set_optimizer_state_dict,
 )
 from torch.distributed.checkpoint.stateful import Stateful
+
+from .parallel import ParallelBackendEnum
 
 
 class OptimizerWrapper(Stateful):
@@ -84,16 +86,17 @@ class SchedulerWrapper:
 
 
 def get_optimizer(
+    parallel_backend: ParallelBackendEnum,
     name: str,
     model_parts: List[torch.nn.Module],
     learning_rate: float = 1e-3,
     beta1: float = 0.9,
     beta2: float = 0.95,
-    beta3: float = 0.98,
+    beta3: float = 0.999,
     epsilon: float = 1e-8,
     weight_decay: float = 1e-4,
     fused: bool = False,
-) -> OptimizerWrapper:
+) -> Union[torch.optim.Optimizer, OptimizerWrapper]:
     name = name.lower()
     if name == "adam":
         optimizer_cls = torch.optim.Adam
@@ -117,12 +120,30 @@ def get_optimizer(
     else:
         raise ValueError(f"Unsupported optimizer: {name}")
 
+    if parallel_backend == ParallelBackendEnum.ACCELERATE:
+        return get_optimizer_accelerate(model_parts, optimizer_cls, optimizer_kwargs)
+    elif parallel_backend == ParallelBackendEnum.PTD:
+        return get_optimizer_ptd(model_parts, optimizer_cls, optimizer_kwargs)
+
+
+def get_optimizer_accelerate(
+    model_parts: List[torch.nn.Module], optimizer_cls: Type[torch.optim.Optimizer], optimizer_kwargs: Dict[str, Any]
+) -> torch.optim.Optimizer:
+    params = [param for model in model_parts for param in model.parameters() if param.requires_grad]
+    optimizer = optimizer_cls(params, **optimizer_kwargs)
+    return optimizer
+
+
+def get_optimizer_ptd(
+    model_parts: List[torch.nn.Module], optimizer_cls: Type[torch.optim.Optimizer], optimizer_kwargs: Dict[str, Any]
+) -> OptimizerWrapper:
     return OptimizerWrapper(model_parts, optimizer_cls, optimizer_kwargs)
 
 
 def get_lr_scheduler(
+    parallel_backend: ParallelBackendEnum,
     name: str,
-    optimizers: List[torch.optim.Optimizer],
+    optimizer: Union[torch.optim.Optimizer, OptimizerWrapper],
     step_rules: Optional[str] = None,
     num_warmup_steps: Optional[int] = None,
     num_training_steps: Optional[int] = None,
@@ -131,7 +152,7 @@ def get_lr_scheduler(
     lr_init: float = 1e-3,
     lr_end: float = 1e-7,
     last_epoch: int = -1,
-) -> SchedulerWrapper:
+) -> Union[torch.optim.lr_scheduler.LambdaLR, SchedulerWrapper]:
     name = name.lower()
     if name == "constant":
         scheduler_lambda_fn = get_constant_schedule()
@@ -154,7 +175,25 @@ def get_lr_scheduler(
     else:
         raise ValueError(f"Unsupported scheduler: {name}")
 
-    return SchedulerWrapper(optimizers, scheduler_lambda_fn, last_epoch)
+    if parallel_backend == ParallelBackendEnum.ACCELERATE:
+        return get_lr_scheduler_accelerate(optimizer, scheduler_lambda_fn, last_epoch)
+    elif parallel_backend == ParallelBackendEnum.PTD:
+        return get_lr_scheduler_ptd(optimizer, scheduler_lambda_fn, last_epoch)
+
+
+def get_lr_scheduler_accelerate(
+    optimizer: torch.optim.Optimizer,
+    scheduler_lambda_fn: Type[torch.optim.lr_scheduler.LRScheduler],
+    last_epoch: int = -1,
+) -> torch.optim.lr_scheduler.LambdaLR:
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, scheduler_lambda_fn, last_epoch)
+    return scheduler
+
+
+def get_lr_scheduler_ptd(
+    optimizer: OptimizerWrapper, scheduler_lambda_fn: Type[torch.optim.lr_scheduler.LRScheduler], last_epoch: int = -1
+) -> SchedulerWrapper:
+    return SchedulerWrapper(optimizer.optimizers, scheduler_lambda_fn, last_epoch)
 
 
 # ==============================

@@ -1,12 +1,73 @@
 import logging
+import os
+from typing import TYPE_CHECKING
 
 from .constants import FINETRAINERS_LOG_LEVEL
 
 
-logger = logging.getLogger("finetrainers")
-logger.setLevel(FINETRAINERS_LOG_LEVEL)
-console_handler = logging.StreamHandler()
-console_handler.setLevel(FINETRAINERS_LOG_LEVEL)
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
+if TYPE_CHECKING:
+    from .parallel import ParallelBackendType
+
+
+class FinetrainersLoggerAdapter(logging.LoggerAdapter):
+    def __init__(self, logger: logging.Logger, parallel_backend: "ParallelBackendType" = None) -> None:
+        super().__init__(logger, {})
+        self.parallel_backend = parallel_backend
+
+    def log(
+        self,
+        level,
+        msg,
+        *args,
+        main_process_only: bool = False,
+        local_main_process_only: bool = True,
+        in_order: bool = False,
+        **kwargs,
+    ):
+        # set `stacklevel` to exclude ourself in `Logger.findCaller()` while respecting user's choice
+        kwargs.setdefault("stacklevel", 2)
+
+        if not self.isEnabledFor(level):
+            return
+
+        if self.parallel_backend is None:
+            if int(os.environ.get("RANK", 0)) == 0:
+                msg, kwargs = self.process(msg, kwargs)
+                self.logger.log(level, msg, *args, **kwargs)
+            return
+
+        if (main_process_only or local_main_process_only) and in_order:
+            raise ValueError(
+                "Cannot set `main_process_only` or `local_main_process_only` to True while `in_order` is True."
+            )
+
+        if (main_process_only and self.parallel_backend.is_main_process) or (
+            local_main_process_only and self.parallel_backend.is_local_main_process
+        ):
+            msg, kwargs = self.process(msg, kwargs)
+            self.logger.log(level, msg, *args, **kwargs)
+        elif in_order:
+            for i in range(self.parallel_backend.world_size):
+                if self.rank == i:
+                    msg, kwargs = self.process(msg, kwargs)
+                    self.logger.log(level, msg, *args, **kwargs)
+                self.parallel_backend.wait_for_everyone()
+
+
+def get_logger() -> logging.Logger:
+    global _logger
+    return _logger
+
+
+def _set_parallel_backend(parallel_backend: "ParallelBackendType") -> FinetrainersLoggerAdapter:
+    _logger.parallel_backend = parallel_backend
+
+
+_logger = logging.getLogger("finetrainers")
+_logger.setLevel(FINETRAINERS_LOG_LEVEL)
+_console_handler = logging.StreamHandler()
+_console_handler.setLevel(FINETRAINERS_LOG_LEVEL)
+_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+_console_handler.setFormatter(_formatter)
+_logger.addHandler(_console_handler)
+_logger = FinetrainersLoggerAdapter(_logger)

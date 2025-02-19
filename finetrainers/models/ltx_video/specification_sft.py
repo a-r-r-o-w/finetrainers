@@ -15,7 +15,7 @@ from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Tokenizer
 
 from ... import data
 from ... import functional as FF
-from ...parallel import ParallelBackend
+from ...parallel import ParallelBackendEnum
 from ...processors import get_condition
 from ...typing import ArtifactType
 from ...utils import get_non_null_items
@@ -368,13 +368,13 @@ class LTXVideoModelSpecification(ModelSpecification):
 
     def apply_tensor_parallel(
         self,
-        backend: ParallelBackend,
+        backend: ParallelBackendEnum,
         device_mesh: torch.distributed.DeviceMesh,
         transformer: LTXVideoTransformer3DModel,
         *args,
         **kwargs,
     ) -> None:
-        if backend == ParallelBackend.PTD:
+        if backend == ParallelBackendEnum.PTD:
             _apply_tensor_parallel_ptd(device_mesh, transformer)
         else:
             raise NotImplementedError(f"Parallel backend {backend} is not supported for LTXVideoModelSpecification")

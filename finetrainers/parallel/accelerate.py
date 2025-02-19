@@ -5,17 +5,16 @@ from typing import Optional, Tuple
 import torch
 from diffusers.utils import is_accelerate_available
 
-from ..logging import logger
+from ..logging import get_logger
 from ..utils import get_device_info
-from .base import BaseParallelState
+from .base import BaseParallelBackend
 from .utils import apply_ddp_accelerate
 
 
 if not is_accelerate_available():
     raise ImportError(
-        "Please install the accelerate package using `pip install accelerate` to use the AccelerateParallelState."
+        "Please install the accelerate package using `pip install accelerate` to use the AccelerateParallelBackend."
     )
-
 
 from accelerate import Accelerator
 from accelerate.data_loader import DataLoader
@@ -27,10 +26,11 @@ from accelerate.utils import (
 )
 
 
+logger = get_logger()
 _device_type, _device_module = get_device_info()
 
 
-class AccelerateParallelState(BaseParallelState):
+class AccelerateParallelBackend(BaseParallelBackend):
     def __init__(
         self,
         world_size: int,
@@ -63,7 +63,7 @@ class AccelerateParallelState(BaseParallelState):
 
         if pp_degree > 1 or dp_shards > 1 or cp_degree > 1 or tp_degree > 1:
             raise ValueError(
-                "AccelerateParallelState does not support anything but Distributed Data Parallelism at the moment."
+                "AccelerateParallelBackend does not support anything but Distributed Data Parallelism at the moment."
             )
 
         self._accelerator: Accelerator = None
@@ -106,6 +106,11 @@ class AccelerateParallelState(BaseParallelState):
         )
         dataloader = self._accelerator.prepare_data_loader(dataloader)
         return dataset, dataloader
+
+    def prepare_optimizer(self, optimizer, lr_scheduler):
+        optimizer = self._accelerator.prepare_optimizer(optimizer)
+        lr_scheduler = self._accelerator.prepare_scheduler(lr_scheduler)
+        return optimizer, lr_scheduler
 
     def get_mesh(self):
         if self._mesh is not None:

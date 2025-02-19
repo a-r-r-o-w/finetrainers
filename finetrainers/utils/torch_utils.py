@@ -9,8 +9,10 @@ import torch.distributed.tensor
 from accelerate import Accelerator
 from diffusers.utils.torch_utils import is_compiled_module
 
-from ..logging import logger
+from ..logging import get_logger
 
+
+logger = get_logger()
 
 _STRING_TO_DTYPE = {
     "fp32": torch.float32,

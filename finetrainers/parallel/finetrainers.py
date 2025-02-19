@@ -1,7 +1,7 @@
-from .base import BaseParallelState
+from .base import BaseParallelBackend
 
 
-class FinetrainersParallelState(BaseParallelState):
+class FinetrainersParallelBackend(BaseParallelBackend):
     def __init__(self):
         # TODO(aryan)
-        raise NotImplementedError("FinetrainersParallelState is not implemented yet.")
+        raise NotImplementedError("FinetrainersParallelBackend is not implemented yet.")

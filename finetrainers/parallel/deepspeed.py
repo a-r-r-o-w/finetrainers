@@ -1,7 +1,7 @@
-from .base import BaseParallelState
+from .base import BaseParallelBackend
 
 
-class DeepspeedParallelState(BaseParallelState):
+class DeepspeedParallelBackend(BaseParallelBackend):
     def __init__(self):
         # TODO(aryan)
-        raise NotImplementedError("DeepspeedParallelState is not implemented yet.")
+        raise NotImplementedError("DeepspeedParallelBackend is not implemented yet.")
