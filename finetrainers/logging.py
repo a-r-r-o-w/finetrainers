@@ -46,12 +46,20 @@ class FinetrainersLoggerAdapter(logging.LoggerAdapter):
         ):
             msg, kwargs = self.process(msg, kwargs)
             self.logger.log(level, msg, *args, **kwargs)
-        elif in_order:
+            return
+
+        if in_order:
             for i in range(self.parallel_backend.world_size):
                 if self.rank == i:
                     msg, kwargs = self.process(msg, kwargs)
                     self.logger.log(level, msg, *args, **kwargs)
                 self.parallel_backend.wait_for_everyone()
+            return
+
+        if not main_process_only and not local_main_process_only:
+            msg, kwargs = self.process(msg, kwargs)
+            self.logger.log(level, msg, *args, **kwargs)
+            return
 
 
 def get_logger() -> logging.Logger:
