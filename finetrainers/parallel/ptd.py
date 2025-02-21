@@ -90,10 +90,8 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
         num_workers: int = 0,
         pin_memory: bool = False,
     ) -> Tuple[torch.utils.data.IterableDataset, DPDataLoader]:
-        world_mesh = self.get_mesh()
-        dp_mesh = world_mesh
-        if "dp" in world_mesh.mesh_dim_names:
-            dp_mesh = world_mesh["dp"]
+        if (dp_mesh := self.get_mesh("dp")) is None:
+            dp_mesh = self.get_mesh()
         dp_world_size = dp_mesh.size()
         dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, self.local_rank, dp_world_size)
         dataloader = DPDataLoader(self.local_rank, dataset, batch_size=batch_size, num_workers=num_workers)
@@ -102,9 +100,17 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
     def prepare_optimizer(self, optimizer, lr_scheduler):
         return optimizer, lr_scheduler
 
-    def get_mesh(self) -> torch.distributed.DeviceMesh:
+    def get_mesh(self, name: Optional[str] = None) -> torch.distributed.DeviceMesh:
+        def _get_mesh():
+            if name is None:
+                return self._mesh
+            try:
+                return self._mesh[name]
+            except KeyError:
+                return None
+
         if self._mesh is not None:
-            return self._mesh
+            return _get_mesh()
 
         mesh_list = [
             ("pp", self._pp_degree),
@@ -114,8 +120,6 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
             ("tp", self._tp_degree),
         ]
         mesh_list = [(name, degree) for name, degree in mesh_list if degree > 1]
-        logger.debug(f"Creating device mesh with {dict(mesh_list)}")
-
         names = [x[0] for x in mesh_list]
         degrees = [x[1] for x in mesh_list]
         mesh = torch.distributed.device_mesh.init_device_mesh(_device_type, mesh_shape=degrees, mesh_dim_names=names)
@@ -140,8 +144,9 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
         if len(dp_shard_cp_mesh_names) > 0:
             mesh[tuple(dp_shard_cp_mesh_names)]._flatten(mesh_dim_name="dp_shard_cp")
 
+        logger.debug(f"Device mesh: {mesh}")
         self._mesh = mesh
-        return mesh
+        return _get_mesh()
 
     @property
     def world_size(self):

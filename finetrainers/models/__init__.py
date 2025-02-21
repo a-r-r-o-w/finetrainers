@@ -3,7 +3,7 @@ from typing import Any, Dict, Type
 
 from .cogvideox import COGVIDEOX_T2V_FULL_FINETUNE_CONFIG, COGVIDEOX_T2V_LORA_CONFIG
 from .hunyuan_video import HUNYUAN_VIDEO_T2V_FULL_FINETUNE_CONFIG, HUNYUAN_VIDEO_T2V_LORA_CONFIG
-from .ltx_video import LTX_VIDEO_T2V_FULL_FINETUNE_CONFIG, LTX_VIDEO_T2V_LORA_CONFIG, LTXVideoModelSpecification
+from .ltx_video import LTXVideoModelSpecification
 from .modeling_utils import ModelSpecification
 
 

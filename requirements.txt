@@ -1,5 +1,6 @@
 accelerate
 bitsandbytes
+datasets>=3.3.2
 diffusers>=0.32.1
 transformers>=4.45.2
 huggingface_hub

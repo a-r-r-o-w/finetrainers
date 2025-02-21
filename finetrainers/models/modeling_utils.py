@@ -6,9 +6,9 @@ from diffusers.configuration_utils import FrozenDict
 from PIL.Image import Image
 
 from ..parallel import ParallelBackendEnum
-from ..processors import Processor, get_processor_parameters_from_dict
+from ..processors import Processor
 from ..typing import ArtifactType, SchedulerType, TokenizerType
-from ..utils import get_parameter_names, resolve_component_cls
+from ..utils import resolve_component_cls
 
 
 class ModelSpecification:
@@ -196,15 +196,15 @@ class ModelSpecification:
         if name in self.conditions:
             self.conditions.pop(name)
 
-    @staticmethod
-    def _prepare_condition(
-        processor: Processor,
-        *args,
-        **kwargs,
-    ) -> Dict[str, torch.Tensor]:
-        accepted_parameters = get_parameter_names(processor, "__call__")
-        condition_parameters = get_processor_parameters_from_dict(accepted_parameters, kwargs)
-        return processor(*args, **condition_parameters)
+    # @staticmethod
+    # def _prepare_condition(
+    #     processor: Processor,
+    #     *args,
+    #     **kwargs,
+    # ) -> Dict[str, torch.Tensor]:
+    #     accepted_parameters = get_parameter_names(processor, "__call__")
+    #     condition_parameters = get_processor_parameters_from_dict(accepted_parameters, kwargs)
+    #     return processor(*args, **condition_parameters)
 
     def _load_configs(self) -> None:
         self._load_transformer_config()

@@ -112,14 +112,20 @@ class AccelerateParallelBackend(BaseParallelBackend):
         lr_scheduler = self._accelerator.prepare_scheduler(lr_scheduler)
         return optimizer, lr_scheduler
 
-    def get_mesh(self):
+    def get_mesh(self, name: Optional[str] = None) -> torch.distributed.DeviceMesh:
+        def _get_mesh():
+            if name is None:
+                return self._mesh
+            try:
+                return self._mesh[name]
+            except KeyError:
+                return None
+
         if self._mesh is not None:
-            return self._mesh
+            return _get_mesh()
 
         mesh_list = [("dp_replicate", self._dp_degree), ("dp_shard", self._dp_shards)]
         mesh_list = [(name, degree) for name, degree in mesh_list if degree > 1]
-        logger.debug(f"Creating device mesh with {dict(mesh_list)}")
-
         names = [x[0] for x in mesh_list]
         degrees = [x[1] for x in mesh_list]
         mesh = torch.distributed.device_mesh.init_device_mesh(_device_type, mesh_shape=degrees, mesh_dim_names=names)
@@ -144,8 +150,9 @@ class AccelerateParallelBackend(BaseParallelBackend):
         if len(dp_shard_cp_mesh_names) > 0:
             mesh[tuple(dp_shard_cp_mesh_names)]._flatten(mesh_dim_name="dp_shard_cp")
 
+        logger.debug(f"Device mesh: {mesh}")
         self._mesh = mesh
-        return mesh
+        return _get_mesh()
 
     @property
     def world_size(self):

@@ -1,9 +1,11 @@
 import pathlib
-from typing import Any, Dict, List
 
 import datasets
+import datasets.data_files
 import datasets.distributed
 import datasets.exceptions
+import numpy as np
+import PIL.Image
 import torch
 import torch.distributed.checkpoint.stateful
 from diffusers.utils import load_image, load_video
@@ -39,7 +41,6 @@ class ImageCaptionFileDataset(torch.utils.data.IterableDataset, torch.distribute
                 )
 
         data = datasets.Dataset.from_list(data)
-        data = data.with_transform(_read_caption_from_file)
         data = data.cast_column("image", datasets.Image(mode="RGB"))
 
         self._data = data.to_iterable_dataset()
@@ -57,6 +58,8 @@ class ImageCaptionFileDataset(torch.utils.data.IterableDataset, torch.distribute
     def __iter__(self):
         for sample in self._get_data_iter():
             self._sample_index += 1
+            sample["caption"] = _read_caption_from_file(sample["caption"])
+            sample["image"] = _preprocess_image(sample["image"])
             yield sample
 
     def load_state_dict(self, state_dict):
@@ -70,8 +73,8 @@ class ImageCaptionFileDataset(torch.utils.data.IterableDataset, torch.distribute
         data_file = None
         found_data = 0
 
-        for suffixes in constants.SUPPORTED_IMAGE_FILE_EXTENSIONS:
-            image_filename = caption_file.with_suffix(suffixes)
+        for extension in constants.SUPPORTED_IMAGE_FILE_EXTENSIONS:
+            image_filename = caption_file.with_suffix(f".{extension}")
             if image_filename.exists():
                 found_data += 1
                 data_file = image_filename
@@ -107,7 +110,6 @@ class VideoCaptionFileDataset(torch.utils.data.IterableDataset, torch.distribute
                 )
 
         data = datasets.Dataset.from_list(data)
-        data = data.with_transform(_read_caption_from_file)
         data = data.cast_column("video", datasets.Video())
 
         self._data = data.to_iterable_dataset()
@@ -125,6 +127,8 @@ class VideoCaptionFileDataset(torch.utils.data.IterableDataset, torch.distribute
     def __iter__(self):
         for sample in self._get_data_iter():
             self._sample_index += 1
+            sample["caption"] = _read_caption_from_file(sample["caption"])
+            sample["video"] = _preprocess_video(sample["video"])
             yield sample
 
     def load_state_dict(self, state_dict):
@@ -138,8 +142,8 @@ class VideoCaptionFileDataset(torch.utils.data.IterableDataset, torch.distribute
         data_file = None
         found_data = 0
 
-        for suffixes in constants.SUPPORTED_VIDEO_FILE_EXTENSIONS:
-            video_filename = caption_file.with_suffix(suffixes)
+        for extension in constants.SUPPORTED_VIDEO_FILE_EXTENSIONS:
+            video_filename = caption_file.with_suffix(f".{extension}")
             if video_filename.exists():
                 found_data += 1
                 data_file = video_filename
@@ -179,6 +183,7 @@ class ImageFolderDataset(torch.utils.data.IterableDataset, torch.distributed.che
     def __iter__(self):
         for sample in self._get_data_iter():
             self._sample_index += 1
+            sample["image"] = _preprocess_image(sample["image"])
             yield sample
 
     def load_state_dict(self, state_dict):
@@ -209,10 +214,7 @@ class VideoFolderDataset(torch.utils.data.IterableDataset, torch.distributed.che
         while True:
             for sample in self._get_data_iter():
                 self._sample_index += 1
-                sample["video"] = sample["video"].get_batch(list(range(len(sample["video"]))))
-                # TODO(aryan): remove this from here and make it part of processors
-                sample["video"] = sample["video"].permute(0, 3, 1, 2)
-                sample["video"] = sample["video"].float() / 127.5 - 1.0
+                sample["video"] = _preprocess_video(sample["video"])
                 yield sample
 
             if not self.infinite:
@@ -429,12 +431,21 @@ def _initialize_webdataset(
         return VideoWebDataset(dataset_name, infinite=infinite)
 
 
-def _read_caption_from_file(data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    if "caption" in data:
-        transformed_data = []
-        for filename in data["caption"]:
-            with open(filename, "r") as f:
-                filename = f.read().strip()
-            transformed_data.append(filename)
-        data["caption"] = transformed_data
-    return data
+def _read_caption_from_file(filename: str) -> str:
+    with open(filename, "r") as f:
+        return f.read().strip()
+
+
+def _preprocess_image(image: PIL.Image.Image) -> torch.Tensor:
+    image = image.convert("RGB")
+    image = np.array(image).astype(np.float32)
+    image = torch.from_numpy(image)
+    image = image.permute(2, 0, 1).contiguous() / 127.5 - 1.0
+    return image
+
+
+def _preprocess_video(video: decord.VideoReader) -> torch.Tensor:
+    video = video.get_batch(list(range(len(video))))
+    video = video.permute(0, 3, 1, 2).contiguous()
+    video = video.float() / 127.5 - 1.0
+    return video

@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import torch
 
@@ -20,7 +20,7 @@ class BaseParallelBackend:
     def prepare_optimizer(self, *args, **kwargs) -> Any:
         raise NotImplementedError("Method `prepare_optimizer` must be implemented by subclass.")
 
-    def get_mesh(self):
+    def get_mesh(self, name: Optional[str] = None) -> torch.distributed.DeviceMesh:
         raise NotImplementedError("Method `get_mesh` must be implemented by subclass.")
 
     def initialize_trackers(

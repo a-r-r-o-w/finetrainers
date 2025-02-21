@@ -273,6 +273,10 @@ class SFTTrainer:
     def train(self) -> None:
         logger.info("Starting training")
 
+        parallel_backend = self.state.parallel_backend
+        train_state = self.state.train_state
+        device = parallel_backend.device
+
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory before training start: {json.dumps(memory_statistics, indent=4)}")
 
@@ -283,7 +287,7 @@ class SFTTrainer:
             self.model_specification.save_model(self.args.output_dir, scheduler=self.scheduler)
 
         # TODO(aryan): handle per-device batch_size > 1
-        global_batch_size = self.args.batch_size * self.state.parallel_backend.world_size
+        global_batch_size = self.args.batch_size * parallel_backend._dp_degree
         info = {
             "trainable parameters": self.state.num_trainable_parameters,
             "train steps": self.args.train_steps,
@@ -292,10 +296,6 @@ class SFTTrainer:
             "gradient accumulation steps": self.args.gradient_accumulation_steps,
         }
         logger.info(f"Training configuration: {json.dumps(info, indent=4)}")
-
-        train_state = self.state.train_state
-        parallel_backend = self.state.parallel_backend
-        device = parallel_backend.device
 
         train_state.global_step = 0
         train_state.observed_data_samples = 0
@@ -345,11 +345,9 @@ class SFTTrainer:
             train_state.step < self.args.train_steps and train_state.observed_data_samples < self.args.max_data_samples
         ):
             batch = next(data_iterator)
-            batch_size = len(batch["caption"])
 
             train_state.step += 1
-            # TODO(aryan): this is not correct. We need to handle PP and DP properly
-            train_state.observed_data_samples += batch_size * parallel_backend._world_size
+            train_state.observed_data_samples += parallel_backend._dp_degree
 
             logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
             self.optimizer.zero_grad()
@@ -389,7 +387,7 @@ class SFTTrainer:
             sigmas = utils.prepare_sigmas(
                 scheduler=self.scheduler,
                 sigmas=scheduler_sigmas,
-                batch_size=batch_size,
+                batch_size=self.args.batch_size,
                 num_train_timesteps=self.scheduler.config.num_train_timesteps,
                 flow_weighting_scheme=self.args.flow_weighting_scheme,
                 flow_logit_mean=self.args.flow_logit_mean,
@@ -508,11 +506,9 @@ class SFTTrainer:
 
         # 1. Load validation dataset
         parallel_backend = self.state.parallel_backend
-        world_mesh = parallel_backend.get_mesh()
 
-        if "dp" in world_mesh.mesh_dim_names:
-            dp_mesh = world_mesh["dp"]
-            local_rank, dp_world_size = dp_mesh.local_rank, dp_mesh.size()
+        if (dp_mesh := parallel_backend.get_mesh("dp")) is not None:
+            local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
         else:
             local_rank, dp_world_size = 0, 1
 

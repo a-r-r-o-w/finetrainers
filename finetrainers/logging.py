@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 from .constants import FINETRAINERS_LOG_LEVEL
 
@@ -13,6 +13,8 @@ class FinetrainersLoggerAdapter(logging.LoggerAdapter):
     def __init__(self, logger: logging.Logger, parallel_backend: "ParallelBackendType" = None) -> None:
         super().__init__(logger, {})
         self.parallel_backend = parallel_backend
+        self._log_freq = {}
+        self._log_freq_counter = {}
 
     def log(
         self,
@@ -61,8 +63,36 @@ class FinetrainersLoggerAdapter(logging.LoggerAdapter):
             self.logger.log(level, msg, *args, **kwargs)
             return
 
+    def log_freq(
+        self,
+        level: str,
+        name: str,
+        msg: str,
+        frequency: int,
+        *,
+        main_process_only: bool = False,
+        local_main_process_only: bool = True,
+        in_order: bool = False,
+        **kwargs,
+    ) -> None:
+        if frequency <= 0:
+            return
+        if name not in self._log_freq_counter:
+            self._log_freq[name] = frequency
+            self._log_freq_counter[name] = 0
+        if self._log_freq_counter[name] % self._log_freq[name] == 0:
+            self.log(
+                level,
+                msg,
+                main_process_only=main_process_only,
+                local_main_process_only=local_main_process_only,
+                in_order=in_order,
+                **kwargs,
+            )
+        self._log_freq_counter[name] += 1
 
-def get_logger() -> logging.Logger:
+
+def get_logger() -> Union[logging.Logger, FinetrainersLoggerAdapter]:
     global _logger
     return _logger
 

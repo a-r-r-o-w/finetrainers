@@ -5,10 +5,10 @@ import unittest
 
 import torch
 from diffusers.utils import export_to_video
-from PIL import Image, JpegImagePlugin
+from PIL import Image
 
 
-project_root = pathlib.Path(__file__).resolve().parents[1]
+project_root = pathlib.Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
 import decord  # noqa
@@ -44,15 +44,12 @@ class ImageCaptionFileDatasetFastTests(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def test_getitem(self):
-        self.assertEqual(len(self.dataset), 3)
-        for index in range(3):
-            item = self.dataset[index]
+        iterator = iter(self.dataset)
+        for _ in range(3):
+            item = next(iterator)
             self.assertEqual(item["caption"], "")
-            self.assertIsInstance(item["image"], JpegImagePlugin.JpegImageFile)
-
-    def test_direct_access(self):
-        self.assertEqual(self.dataset._data["caption"], [""] * 3)
-        self.assertEqual(len(self.dataset._data["image"]), 3)
+            self.assertTrue(torch.is_tensor(item["image"]))
+            self.assertEqual(item["image"].shape, (3, 64, 64))
 
 
 class ImageFolderDatasetFastTests(unittest.TestCase):
@@ -78,11 +75,11 @@ class ImageFolderDatasetFastTests(unittest.TestCase):
                 f.write(f"{i}.jpg,{i}\n")
 
         dataset = ImageFolderDataset(self.tmpdir.name)
+        iterator = iter(dataset)
 
-        self.assertEqual(len(dataset), 3)
-        for index in range(3):
-            item = dataset[index]
-            self.assertIsInstance(item["image"], JpegImagePlugin.JpegImageFile)
+        for _ in range(3):
+            item = next(iterator)
+            self.assertTrue(torch.is_tensor(item["image"]))
 
     def test_getitem_jsonl(self):
         jsonl_filename = pathlib.Path(self.tmpdir.name) / "metadata.jsonl"
@@ -91,11 +88,11 @@ class ImageFolderDatasetFastTests(unittest.TestCase):
                 f.write(f'{{"file_name": "{i}.jpg", "label": {i}}}\n')
 
         dataset = ImageFolderDataset(self.tmpdir.name)
+        iterator = iter(dataset)
 
-        self.assertEqual(len(dataset), 3)
-        for index in range(3):
-            item = dataset[index]
-            self.assertIsInstance(item["image"], JpegImagePlugin.JpegImageFile)
+        for _ in range(3):
+            item = next(iterator)
+            self.assertTrue(torch.is_tensor(item["image"]))
 
 
 class VideoCaptionFileDatasetFastTests(unittest.TestCase):
@@ -118,20 +115,13 @@ class VideoCaptionFileDatasetFastTests(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def test_getitem(self):
-        self.assertEqual(len(self.dataset), 3)
-        for index in range(3):
-            item = self.dataset[index]
+        iterator = iter(self.dataset)
+        for _ in range(3):
+            item = next(iterator)
+            self.assertTrue(torch.is_tensor(item["video"]))
             self.assertEqual(item["caption"], "")
             self.assertEqual(len(item["video"]), 4)
-            self.assertEqual(item["video"].get_batch([-1]).shape, (1, 64, 64, 3))
-            self.assertTrue(torch.is_tensor(item["video"].get_batch(list(range(2)))))
-
-    def test_direct_access(self):
-        self.assertEqual(self.dataset._data["caption"], [""] * 3)
-        self.assertEqual(len(self.dataset._data["video"]), 3)
-        self.assertEqual(len(self.dataset._data["video"][-1]), 4)
-        self.assertEqual(self.dataset._data["video"][-1].get_batch([-1]).shape, (1, 64, 64, 3))
-        self.assertTrue(torch.is_tensor(self.dataset._data["video"][-1].get_batch(list(range(2)))))
+            self.assertEqual(item["video"][0].shape, (3, 64, 64))
 
 
 class VideoFolderDatasetFastTests(unittest.TestCase):
@@ -157,13 +147,13 @@ class VideoFolderDatasetFastTests(unittest.TestCase):
                 f.write(f"{i}.mp4,{i}\n")
 
         dataset = VideoFolderDataset(self.tmpdir.name)
+        iterator = iter(dataset)
 
-        self.assertEqual(len(dataset), 3)
-        for index in range(3):
-            item = dataset[index]
+        for _ in range(3):
+            item = next(iterator)
+            self.assertTrue(torch.is_tensor(item["video"]))
             self.assertEqual(len(item["video"]), 4)
-            self.assertEqual(item["video"].get_batch([-1]).shape, (1, 64, 64, 3))
-            self.assertTrue(torch.is_tensor(item["video"].get_batch(list(range(2)))))
+            self.assertEqual(item["video"][0].shape, (3, 64, 64))
 
     def test_getitem_jsonl(self):
         jsonl_filename = pathlib.Path(self.tmpdir.name) / "metadata.jsonl"
@@ -172,30 +162,22 @@ class VideoFolderDatasetFastTests(unittest.TestCase):
                 f.write(f'{{"file_name": "{i}.mp4", "label": {i}}}\n')
 
         dataset = VideoFolderDataset(self.tmpdir.name)
+        iterator = iter(dataset)
 
-        self.assertEqual(len(dataset), 3)
-        for index in range(3):
-            item = dataset[index]
+        for _ in range(3):
+            item = next(iterator)
+            self.assertTrue(torch.is_tensor(item["video"]))
             self.assertEqual(len(item["video"]), 4)
-            self.assertEqual(item["video"].get_batch([-1]).shape, (1, 64, 64, 3))
-            self.assertTrue(torch.is_tensor(item["video"].get_batch(list(range(2)))))
+            self.assertEqual(item["video"][0].shape, (3, 64, 64))
 
 
 class VideoWebDatasetFastTests(unittest.TestCase):
     def setUp(self):
         self.num_data_files = 15
-        # Should be converted into an iterable dataset internally
-        self.map_dataset = VideoWebDataset("finetrainers/dummy-squish-wds", streaming=False, infinite=False)
-        self.iterable_dataset = VideoWebDataset("finetrainers/dummy-squish-wds", streaming=True, infinite=False)
+        self.dataset = VideoWebDataset("finetrainers/dummy-squish-wds", infinite=False)
 
     def test_getitem(self):
-        self.assertTrue(isinstance(self.map_dataset._data, torch.utils.data.IterableDataset))
-        for index, item in enumerate(self.map_dataset):
-            if index > 2:
-                break
-            self.assertIsInstance(item["video"], decord.VideoReader)
-            self.assertEqual(len(item["video"].get_batch([0, 1, 2, 3])), 4)
-        for index, item in enumerate(self.iterable_dataset):
+        for index, item in enumerate(self.dataset):
             if index > 2:
                 break
             self.assertIsInstance(item["video"], decord.VideoReader)
