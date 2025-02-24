@@ -65,6 +65,8 @@ class AccelerateParallelBackend(BaseParallelBackend):
             raise ValueError(
                 "AccelerateParallelBackend does not support anything but Distributed Data Parallelism at the moment."
             )
+        if dp_degree != world_size:
+            raise ValueError("Data parallel degree must be equal to world size.")
 
         self._accelerator: Accelerator = None
         self._mesh: torch.distributed.DeviceMesh = None

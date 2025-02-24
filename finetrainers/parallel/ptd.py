@@ -47,14 +47,11 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
         self._backend = backend
         self._timeout = timeout
 
-        for degree in [pp_degree, dp_degree, cp_degree, tp_degree]:
+        for degree in [pp_degree, dp_degree, dp_shards, cp_degree, tp_degree]:
             if degree < 1:
                 raise ValueError(f"Parallel degree must be at least 1, got {degree}.")
 
-        if dp_shards == -1:
-            self._dp_shards = world_size // (pp_degree * dp_degree * cp_degree * tp_degree)
-
-        if self._dp_shards * pp_degree * dp_degree * cp_degree * tp_degree != world_size:
+        if dp_shards * pp_degree * dp_degree * cp_degree * tp_degree != world_size:
             raise ValueError(
                 f"World size {world_size} must be divisible by the product of all parallel degrees and data parallel shards."
             )

@@ -267,7 +267,7 @@ class Args:
     parallel_backend = ParallelBackendEnum.ACCELERATE
     pp_degree: int = 1
     dp_degree: int = 1
-    dp_shards: int = -1
+    dp_shards: int = 1
     cp_degree: int = 1
     tp_degree: int = 1
 

@@ -2,6 +2,7 @@ import pathlib
 from typing import Any, Callable, Dict, Iterable, Optional
 
 import torch
+from tqdm.auto import tqdm
 
 from .. import utils
 
@@ -47,7 +48,7 @@ class DistributedDataPreprocessor:
         if use_cached_samples and len(self._cached_samples) == 0:
             raise ValueError("No cached samples available.")
 
-        for i in range(self._num_items):
+        for i in tqdm(range(self._num_items), desc=f"Rank {self._rank}", total=self._num_items):
             if use_cached_samples:
                 item = self._cached_samples[i]
             else:

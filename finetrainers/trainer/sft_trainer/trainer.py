@@ -408,6 +408,8 @@ class SFTTrainer:
                 device=device,
                 generator=self.state.generator,
             )
+            ndim = latent_model_conditions["latents"].ndim
+            sigmas = utils.expand_tensor_dims(sigmas, ndim)
 
             if parallel_backend.pipeline_parallel_enabled:
                 raise NotImplementedError(
@@ -421,6 +423,7 @@ class SFTTrainer:
                     latent_model_conditions=latent_model_conditions,
                     sigmas=sigmas,
                 )
+                print(target.shape)
 
                 timesteps = (sigmas * 1000.0).long()
                 weights = utils.prepare_loss_weights(
@@ -436,8 +439,6 @@ class SFTTrainer:
                 loss = loss.mean(list(range(1, loss.ndim)))
                 # Average loss across batch dimension
                 loss = loss.mean()
-
-                del pred, target
                 loss.backward()
 
             # Clip gradients
