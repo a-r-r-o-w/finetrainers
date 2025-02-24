@@ -14,5 +14,5 @@ class DisableTensorToDtype:
 
         torch.Tensor.to = modified_to
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, *args, **kwargs):
         torch.Tensor.to = self.original_to

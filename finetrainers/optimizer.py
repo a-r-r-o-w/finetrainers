@@ -1,6 +1,5 @@
 import functools
 import math
-from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Type, Union
 
 import torch
@@ -199,16 +198,6 @@ def get_lr_scheduler_ptd(
 # ==============================
 # Adapted from https://github.com/huggingface/diffusers/blob/196aef5a6f76e1ad6ba889184860c3633d166910/src/diffusers/optimization.py
 # ==============================
-
-
-class SchedulerType(Enum):
-    LINEAR = "linear"
-    COSINE = "cosine"
-    COSINE_WITH_RESTARTS = "cosine_with_restarts"
-    POLYNOMIAL = "polynomial"
-    CONSTANT = "constant"
-    CONSTANT_WITH_WARMUP = "constant_with_warmup"
-    PIECEWISE_CONSTANT = "piecewise_constant"
 
 
 def get_constant_schedule() -> Callable[[int], float]:

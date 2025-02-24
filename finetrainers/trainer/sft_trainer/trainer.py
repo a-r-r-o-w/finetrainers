@@ -10,13 +10,14 @@ import torch.backends
 import transformers
 import wandb
 from diffusers import DiffusionPipeline
+from diffusers.hooks import apply_layerwise_casting
 from diffusers.training_utils import cast_training_params
 from diffusers.utils import export_to_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig
 from tqdm import tqdm
 
-from ... import data, hooks, logging, optimizer, parallel, patches, utils
+from ... import data, logging, optimizer, parallel, patches, utils
 from ...args import Args, validate_args
 from ...models import ModelSpecification, TrainingType
 from ...state import State, TrainState
@@ -111,7 +112,7 @@ class SFTTrainer:
         # If we don't perform this before moving to device, we might OOM on the GPU. So, best to do it on
         # CPU for now, before support is added in Diffusers for loading and enabling layerwise upcasting directly.
         if self.args.training_type == "lora" and "transformer" in self.args.layerwise_upcasting_modules:
-            hooks.apply_layerwise_upcasting(
+            apply_layerwise_casting(
                 self.transformer,
                 storage_dtype=self.args.layerwise_upcasting_storage_dtype,
                 compute_dtype=self.args.transformer_dtype,
