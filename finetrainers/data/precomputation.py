@@ -45,8 +45,6 @@ class DistributedDataPreprocessor:
                 raise ValueError("Cannot cache and use cached samples at the same time.")
             if drop_samples:
                 raise ValueError("Cannot cache and drop samples at the same time.")
-        if use_cached_samples and len(self._cached_samples) == 0:
-            raise ValueError("No cached samples available.")
 
         for i in tqdm(range(self._num_items), desc=f"Rank {self._rank}", total=self._num_items):
             if use_cached_samples:

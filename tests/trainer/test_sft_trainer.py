@@ -16,7 +16,7 @@ os.environ["FINETRAINERS_LOG_LEVEL"] = "DEBUG"
 project_root = pathlib.Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
-from finetrainers import Args, SFTTrainer, get_logger  # noqa
+from finetrainers import Args, SFTTrainer, TrainingType, get_logger  # noqa
 
 from ..models.dummy.base_specification import DummyLTXVideoModelSpecification  # noqa
 
@@ -25,7 +25,7 @@ logger = get_logger()
 
 
 class SFTTrainerFastTestsMixin:
-    num_data_files = 3
+    num_data_files = 4
     num_frames = 4
     height = 64
     width = 64
@@ -64,14 +64,7 @@ class SFTTrainerFastTestsMixin:
     def get_args(self) -> Args:
         raise NotImplementedError("`get_args` must be implemented in the subclass.")
 
-    def _test_lora(self, args: Args):
-        args.training_type = "lora"
-        model_specification = DummyLTXVideoModelSpecification()
-        trainer = SFTTrainer(args, model_specification)
-        trainer.run()
-
-    def _test_full_finetune(self, args: Args):
-        args.training_type = "full_finetune"
+    def _test_training(self, args: Args):
         model_specification = DummyLTXVideoModelSpecification()
         trainer = SFTTrainer(args, model_specification)
         trainer.run()
@@ -81,6 +74,7 @@ class SFTTrainerLoRATests___PTD(SFTTrainerFastTestsMixin, unittest.TestCase):
     def get_args(self) -> Args:
         args = self.get_base_args()
         args.parallel_backend = "ptd"
+        args.training_type = TrainingType.LORA
         args.rank = 4
         args.target_modules = ["to_q", "to_k", "to_v", "to_out.0"]
         return args
@@ -89,47 +83,104 @@ class SFTTrainerLoRATests___PTD(SFTTrainerFastTestsMixin, unittest.TestCase):
         args = self.get_args()
         args.dp_degree = 1
         args.batch_size = 1
-        self._test_lora(args)
+        self._test_training(args)
 
     def test___dp_degree_1___batch_size_2(self):
         args = self.get_args()
         args.dp_degree = 1
         args.batch_size = 2
-        self._test_lora(args)
+        self._test_training(args)
 
     def test___dp_degree_2___batch_size_1(self):
         args = self.get_args()
         args.dp_degree = 2
         args.batch_size = 1
-        self._test_lora(args)
+        self._test_training(args)
 
     def test___dp_degree_2___batch_size_2(self):
         args = self.get_args()
         args.dp_degree = 2
         args.batch_size = 2
-        self._test_lora(args)
+        self._test_training(args)
+
+    # def test___dp_shards_2___batch_size_1(self):
+    #     args = self.get_args()
+    #     args.dp_shards = 2
+    #     args.batch_size = 1
+    #     self._test_lora(args)
+
+    # def test___dp_shards_2___batch_size_2(self):
+    #     args = self.get_args()
+    #     args.dp_shards = 2
+    #     args.batch_size = 1
+    #     self._test_lora(args)
+
+    # def test___dp_degree_2___dp_shards_2___batch_size_1(self):
+    #     args = self.get_args()
+    #     args.dp_degree = 2
+    #     args.dp_shards = 2
+    #     args.batch_size = 1
+    #     self._test_lora(args)
+
+    def test___tp_degree_2___batch_size_2(self):
+        args = self.get_args()
+        args.tp_degree = 2
+        args.batch_size = 1
+        self._test_training(args)
+
+
+class SFTTrainerFullFinetuneTests___PTD(SFTTrainerFastTestsMixin, unittest.TestCase):
+    def get_args(self) -> Args:
+        args = self.get_base_args()
+        args.parallel_backend = "ptd"
+        args.training_type = TrainingType.FULL_FINETUNE
+        return args
+
+    def test___dp_degree_1___batch_size_1(self):
+        args = self.get_args()
+        args.dp_degree = 1
+        args.batch_size = 1
+        self._test_training(args)
+
+    def test___dp_degree_1___batch_size_2(self):
+        args = self.get_args()
+        args.dp_degree = 1
+        args.batch_size = 2
+        self._test_training(args)
+
+    def test___dp_degree_2___batch_size_1(self):
+        args = self.get_args()
+        args.dp_degree = 2
+        args.batch_size = 1
+        self._test_training(args)
+
+    def test___dp_degree_2___batch_size_2(self):
+        args = self.get_args()
+        args.dp_degree = 2
+        args.batch_size = 2
+        self._test_training(args)
 
     def test___dp_shards_2___batch_size_1(self):
         args = self.get_args()
         args.dp_shards = 2
         args.batch_size = 1
-        self._test_lora(args)
+        self._test_training(args)
 
     def test___dp_shards_2___batch_size_2(self):
         args = self.get_args()
         args.dp_shards = 2
         args.batch_size = 1
-        self._test_lora(args)
+        self._test_training(args)
 
     def test___dp_degree_2___dp_shards_2___batch_size_1(self):
         args = self.get_args()
         args.dp_degree = 2
         args.dp_shards = 2
         args.batch_size = 1
-        self._test_lora(args)
+        self._test_training(args)
 
     def test___tp_degree_2___batch_size_2(self):
         args = self.get_args()
         args.tp_degree = 2
         args.batch_size = 1
-        self._test_lora(args)
+        self._test_training(args)

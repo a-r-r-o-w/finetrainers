@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 from ... import data, hooks, logging, optimizer, parallel, patches, utils
 from ...args import Args, validate_args
-from ...models import ModelSpecification
+from ...models import ModelSpecification, TrainingType
 from ...state import State, TrainState
 
 
@@ -100,7 +100,7 @@ class SFTTrainer:
 
         parallel_backend = self.state.parallel_backend
 
-        if self.args.training_type == "full-finetune":
+        if self.args.training_type == TrainingType.FULL_FINETUNE:
             logger.info("Finetuning transformer with no additional parameters")
             utils.set_requires_grad([self.transformer], True)
         else:
@@ -270,7 +270,7 @@ class SFTTrainer:
         # In some cases, the scheduler needs to be loaded with specific config (e.g. in CogVideoX). Since we need
         # to able to load all diffusion components from a specific checkpoint folder during validation, we need to
         # ensure the scheduler config is serialized as well.
-        if self.args.training_type == "full-finetune":
+        if self.args.training_type == TrainingType.FULL_FINETUNE:
             self.model_specification.save_model(self.args.output_dir, scheduler=self.scheduler)
 
         # TODO(aryan): handle per-device batch_size > 1
@@ -376,14 +376,18 @@ class SFTTrainer:
                 self._delete_components(component_names)
                 del latent_components, component_names, component_modules
 
-            latent_batch, condition_batch = [], []
-            for _ in range(self.args.batch_size):
-                condition_item = next(precomputed_condition_iterator)
-                latent_item = next(precomputed_latent_iterator)
-                latent_batch.append(latent_item)
-                condition_batch.append(condition_item)
-            latent_model_conditions = self.model_specification.collate_latents(latent_batch)
-            condition_model_conditions = self.model_specification.collate_conditions(condition_batch)
+            try:
+                latent_batch, condition_batch = [], []
+                for _ in range(self.args.batch_size):
+                    condition_item = next(precomputed_condition_iterator)
+                    latent_item = next(precomputed_latent_iterator)
+                    latent_batch.append(latent_item)
+                    condition_batch.append(condition_item)
+                latent_model_conditions = self.model_specification.collate_latents(latent_batch)
+                condition_model_conditions = self.model_specification.collate_conditions(condition_batch)
+            except StopIteration:
+                logger.info("Data exhausted. Exiting training loop.")
+                break
 
             train_state.step += 1
             train_state.observed_data_samples += self.args.batch_size * parallel_backend._dp_degree
@@ -423,7 +427,6 @@ class SFTTrainer:
                     latent_model_conditions=latent_model_conditions,
                     sigmas=sigmas,
                 )
-                print(target.shape)
 
                 timesteps = (sigmas * 1000.0).long()
                 weights = utils.prepare_loss_weights(
@@ -522,7 +525,7 @@ class SFTTrainer:
 
         # 1. Load validation dataset
         parallel_backend = self.state.parallel_backend
-        dp_mesh = parallel_backend.get_mesh("dp")
+        dp_mesh = parallel_backend.get_mesh("dp_replicate")
 
         if dp_mesh is not None:
             local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()

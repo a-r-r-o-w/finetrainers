@@ -87,10 +87,12 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
         num_workers: int = 0,
         pin_memory: bool = False,
     ) -> Tuple[torch.utils.data.IterableDataset, DPDataLoader]:
-        if (dp_mesh := self.get_mesh("dp")) is None:
+        dp_mesh = self.get_mesh("dp_replicate")
+        if dp_mesh is None:
             dp_mesh = self.get_mesh()
+        dp_local_rank = dp_mesh.get_local_rank()
         dp_world_size = dp_mesh.size()
-        dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, self.local_rank, dp_world_size)
+        dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, dp_local_rank, dp_world_size)
         dataloader = DPDataLoader(self.local_rank, dataset, batch_size=batch_size, num_workers=num_workers)
         return dataset, dataloader
 

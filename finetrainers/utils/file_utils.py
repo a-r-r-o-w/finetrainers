@@ -1,12 +1,12 @@
-import logging
 import os
 import shutil
 from pathlib import Path
 from typing import List, Union
 
+from ..logging import get_logger
 
-logger = logging.getLogger("finetrainers")
-logger.setLevel(os.environ.get("FINETRAINERS_LOG_LEVEL", "INFO"))
+
+logger = get_logger()
 
 
 def find_files(dir: Union[str, Path], prefix: str = "checkpoint") -> List[str]:
