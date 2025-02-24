@@ -155,7 +155,7 @@ For inference, refer [here](./docs/training/ltx_video.md#inference). For docs re
 
 If you would like to use a custom dataset, refer to the dataset preparation guide [here](./docs/dataset/README.md).
 
-## Featured Projects
+## Featured Projects 🔥
 
 Checkout some amazing projects citing `finetrainers`:
 - [SkyworkAI's SkyReels-A1](https://github.com/SkyworkAI/SkyReels-A1)
