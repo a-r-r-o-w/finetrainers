@@ -44,7 +44,7 @@ from diffusers import (
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import cast_training_params
-from diffusers.utils import convert_unet_state_dict_to_peft, export_to_video, load_image
+from diffusers.utils import export_to_video, load_image
 from diffusers.utils.hub_utils import load_or_create_model_card, populate_model_card
 from huggingface_hub import create_repo, upload_folder
 from torch.utils.data import DataLoader

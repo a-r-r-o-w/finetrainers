@@ -1,5 +1,5 @@
 """
-Default values taken from 
+Default values taken from
 https://github.com/genmoai/mochi/blob/aba74c1b5e0755b1fa3343d9e4bd22e89de77ab1/demos/fine_tuner/configs/lora.yaml
 when applicable.
 """

@@ -14,16 +14,16 @@
 # limitations under the License.
 
 import gc
-import random
-from glob import glob
 import math
 import os
-import torch.nn.functional as F
-import numpy as np
+import random
+from glob import glob
 from pathlib import Path
-from typing import Any, Dict, Tuple, List
+from typing import Any, Dict, List, Tuple
 
+import numpy as np
 import torch
+import torch.nn.functional as F
 import wandb
 from diffusers import FlowMatchEulerDiscreteScheduler, MochiPipeline, MochiTransformer3DModel
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
@@ -37,9 +37,10 @@ from tqdm.auto import tqdm
 
 
 from args import get_args  # isort:skip
+
 from dataset_simple import LatentEmbedDataset
 
-import sys
+
 from utils import print_memory, reset_memory  # isort:skip
 
 
@@ -100,7 +101,7 @@ Requires the [🧨 Diffusers library](https://github.com/huggingface/diffusers) 
 ```py
 from diffusers import MochiPipeline
 from diffusers.utils import export_to_video
-import torch 
+import torch
 
 pipe = MochiPipeline.from_pretrained("genmo/mochi-1-preview")
 pipe.load_lora_weights("CHANGE_ME")
@@ -315,7 +316,7 @@ def main(args):
     optimizer = torch.optim.AdamW(transformer_lora_parameters, lr=args.learning_rate, weight_decay=args.weight_decay)
 
     # Dataset and DataLoader
-    train_vids = list(sorted(glob(f"{args.data_root}/*.mp4")))
+    train_vids = sorted(glob(f"{args.data_root}/*.mp4"))
     train_vids = [v for v in train_vids if not v.endswith(".recon.mp4")]
     print(f"Found {len(train_vids)} training videos in {args.data_root}")
     assert len(train_vids) > 0, f"No training data found in {args.data_root}"

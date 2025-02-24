@@ -3,8 +3,8 @@ Adapted from:
 https://github.com/genmoai/mochi/blob/main/demos/fine_tuner/trim_and_crop_videos.py
 """
 
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 import click
 from moviepy.editor import VideoFileClip

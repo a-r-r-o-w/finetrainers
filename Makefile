@@ -3,9 +3,9 @@
 check_dirs := finetrainers tests examples
 
 quality:
-	ruff check $(check_dirs)
-	ruff format --check $(check_dirs)
+	ruff check $(check_dirs) --exclude examples/_legacy
+	ruff format --check $(check_dirs) --exclude examples/_legacy
 
 style:
-	ruff check $(check_dirs) --fix
-	ruff format $(check_dirs)
+	ruff check $(check_dirs) --fix --exclude examples/_legacy
+	ruff format $(check_dirs) --exclude examples/_legacy
