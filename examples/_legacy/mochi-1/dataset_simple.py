@@ -37,7 +37,7 @@ class LatentEmbedDataset(Dataset):
 def process_videos(directory):
     dir_path = Path(directory)
     mp4_files = [str(f) for f in dir_path.glob("**/*.mp4") if not f.name.endswith(".recon.mp4")]
-    assert mp4_files, f"No mp4 files found"
+    assert mp4_files, "No mp4 files found"
 
     dataset = LatentEmbedDataset(mp4_files)
     dataloader = DataLoader(dataset, batch_size=4, shuffle=True)

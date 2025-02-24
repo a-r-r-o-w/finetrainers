@@ -4,13 +4,14 @@ https://github.com/genmoai/mochi/blob/main/demos/fine_tuner/encode_videos.py
 https://github.com/genmoai/mochi/blob/main/demos/fine_tuner/embed_captions.py
 """
 
+from pathlib import Path
+
 import click
 import torch
 import torchvision
-from pathlib import Path
 from diffusers import AutoencoderKLMochi, MochiPipeline
-from transformers import T5EncoderModel, T5Tokenizer
 from tqdm.auto import tqdm
+from transformers import T5EncoderModel, T5Tokenizer
 
 
 def encode_videos(model: torch.nn.Module, vid_path: Path, shape: str):
