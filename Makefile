@@ -1,6 +1,6 @@
 .PHONY: quality style
 
-check_dirs := finetrainers tests
+check_dirs := finetrainers tests train.py
 
 quality:
 	ruff check $(check_dirs)

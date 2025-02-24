@@ -1,18 +1,5 @@
 import pathlib
-from dataclasses import dataclass, field
 from typing import List
-
-from ..processors import Processor
-
-
-@dataclass
-class DatasetConfig:
-    root: str
-    type: str
-    processors: List[Processor] = field(default_factory=list)
-
-    def __post_init__(self):
-        assert self.type in ["image", "video"]
 
 
 def find_files(root: str, pattern: str, depth: int = 0) -> List[str]:

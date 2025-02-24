@@ -118,8 +118,8 @@ class AccelerateParallelBackend(BaseParallelBackend):
                 return self._mesh
             try:
                 return self._mesh[name]
-            except KeyError:
-                return None
+            except (KeyError, RuntimeError):
+                return self._mesh
 
         if self._mesh is not None:
             return _get_mesh()

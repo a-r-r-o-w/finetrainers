@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import datasets.distributed
 import diffusers
@@ -10,19 +10,16 @@ import torch.backends
 import transformers
 import wandb
 from diffusers import DiffusionPipeline
-from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from diffusers.training_utils import cast_training_params
 from diffusers.utils import export_to_video
 from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig
 from tqdm import tqdm
 
-from .. import data, logging, optimizer, parallel, patches, utils
-from ..args import Args, validate_args
-from ..hooks import apply_layerwise_upcasting
-from ..models import ModelSpecification
-from ..processors import Processor, ProcessorType, get_condition
-from ..state import State, TrainState
+from ... import data, hooks, logging, optimizer, parallel, patches, utils
+from ...args import Args, validate_args
+from ...models import ModelSpecification
+from ...state import State, TrainState
 
 
 logger = logging.get_logger()
@@ -60,35 +57,32 @@ class SFTTrainer:
         self.optimizer = None
         self.lr_scheduler = None
 
-        # Trainer-specific conditions
-        self.caption_preprocessing_conditions: List[Processor] = []
-        self.caption_postprocessing_conditions: List[Processor] = []
-
-        self.state.condition_types = self.args.conditions
-
         self._init_distributed()
         self._init_config_options()
-        self._init_non_model_conditions()
 
         # Perform any patches that might be necessary for training to work as expected
         patches.perform_patches_for_training(self.args, self.state.parallel_backend)
 
         self.model_specification = model_specification
 
-    def prepare_models(self) -> None:
+    def run(self) -> None:
+        try:
+            self._prepare_models()
+            self._prepare_trainable_parameters()
+            self._prepare_for_training()
+            self._prepare_dataset()
+            self._train()
+            # trainer._evaluate()
+        except Exception as e:
+            logger.error(f"Error during training: {e}")
+            self.state.parallel_backend.destroy()
+            raise e
+
+    def _prepare_models(self) -> None:
         logger.info("Initializing models")
 
-        condition_components, latent_components, diffusion_components = {}, {}, {}
-        if not self.args.precompute_conditions:
-            condition_components = self.model_specification.load_condition_models(self.state.condition_types)
-            latent_components = self.model_specification.load_latent_models()
-            diffusion_components = self.model_specification.load_diffusion_models()
-
-        components = {}
-        components.update(condition_components)
-        components.update(latent_components)
-        components.update(diffusion_components)
-        self._set_components(components)
+        diffusion_components = self.model_specification.load_diffusion_models()
+        self._set_components(diffusion_components)
 
         if self.vae is not None:
             if self.args.enable_slicing:
@@ -101,17 +95,10 @@ class SFTTrainer:
                 "Pipeline parallelism is not supported yet. This will be supported in the future."
             )
 
-    def prepare_trainable_parameters(self) -> None:
+    def _prepare_trainable_parameters(self) -> None:
         logger.info("Initializing trainable parameters")
 
         parallel_backend = self.state.parallel_backend
-
-        if self.args.precompute_conditions:
-            diffusion_components = self.model_specification.load_diffusion_models()
-            self._set_components(diffusion_components)
-
-        components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.vae]
-        utils.set_requires_grad(components, False)
 
         if self.args.training_type == "full-finetune":
             logger.info("Finetuning transformer with no additional parameters")
@@ -124,7 +111,7 @@ class SFTTrainer:
         # If we don't perform this before moving to device, we might OOM on the GPU. So, best to do it on
         # CPU for now, before support is added in Diffusers for loading and enabling layerwise upcasting directly.
         if self.args.training_type == "lora" and "transformer" in self.args.layerwise_upcasting_modules:
-            apply_layerwise_upcasting(
+            hooks.apply_layerwise_upcasting(
                 self.transformer,
                 storage_dtype=self.args.layerwise_upcasting_storage_dtype,
                 compute_dtype=self.args.transformer_dtype,
@@ -188,7 +175,7 @@ class SFTTrainer:
             # TODO(aryan): handle last_epoch
         )
 
-    def prepare_for_training(self) -> None:
+    def _prepare_for_training(self) -> None:
         # 1. Apply parallelism
         parallel_backend = self.state.parallel_backend
         world_mesh = parallel_backend.get_mesh()
@@ -256,7 +243,7 @@ class SFTTrainer:
         self._init_trackers()
         self._init_directories_and_repositories()
 
-    def prepare_dataset(self) -> None:
+    def _prepare_dataset(self) -> None:
         logger.info("Initializing dataset and dataloader")
 
         # TODO(aryan): allow configurability
@@ -270,7 +257,7 @@ class SFTTrainer:
             pin_memory=self.args.pin_memory,
         )
 
-    def train(self) -> None:
+    def _train(self) -> None:
         logger.info("Starting training")
 
         parallel_backend = self.state.parallel_backend
@@ -341,43 +328,68 @@ class SFTTrainer:
         self.transformer.train()
         data_iterator = iter(self.dataloader)
 
+        preprocessor = data.DistributedDataPreprocessor(
+            rank=parallel_backend.rank,
+            num_items=self.args.precomputation_items,
+            processor_fn={
+                "condition": self.model_specification.prepare_conditions,
+                "latent": self.model_specification.prepare_latents,
+            },
+            save_dir=self.args.precomputation_dir,
+        )
+        precomputed_condition_iterator: data.PreprocessedDataIterable = None
+        precomputed_latent_iterator: data.PreprocessedDataIterable = None
+
         while (
             train_state.step < self.args.train_steps and train_state.observed_data_samples < self.args.max_data_samples
         ):
-            batch = next(data_iterator)
+            if preprocessor.requires_data:
+                logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
+                condition_components = self.model_specification.load_condition_models()
+                component_names = list(condition_components.keys())
+                component_modules = list(condition_components.values())
+                self._set_components(condition_components)
+                self._move_components_to_device(component_modules)
+                precomputed_condition_iterator = preprocessor.consume(
+                    "condition",
+                    components=condition_components,
+                    data_iterator=data_iterator,
+                    generator=generator,
+                    cache_samples=True,
+                )
+                self._delete_components(component_names)
+                del condition_components, component_names, component_modules
+
+                latent_components = self.model_specification.load_latent_models()
+                component_names = list(latent_components.keys())
+                component_modules = list(latent_components.values())
+                self._set_components(latent_components)
+                self._move_components_to_device(component_modules)
+                precomputed_latent_iterator = preprocessor.consume(
+                    "latent",
+                    components=latent_components,
+                    data_iterator=data_iterator,
+                    generator=generator,
+                    use_cached_samples=True,
+                    drop_samples=True,
+                )
+                self._delete_components(component_names)
+                del latent_components, component_names, component_modules
+
+            latent_batch, condition_batch = [], []
+            for _ in range(self.args.batch_size):
+                condition_item = next(precomputed_condition_iterator)
+                latent_item = next(precomputed_latent_iterator)
+                latent_batch.append(latent_item)
+                condition_batch.append(condition_item)
+            latent_model_conditions = self.model_specification.collate_latents(latent_batch)
+            condition_model_conditions = self.model_specification.collate_conditions(condition_batch)
 
             train_state.step += 1
-            train_state.observed_data_samples += parallel_backend._dp_degree
+            train_state.observed_data_samples += self.args.batch_size * parallel_backend._dp_degree
 
             logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
             self.optimizer.zero_grad()
-
-            if not self.args.precompute_conditions:
-                latent_model_conditions = self.model_specification.prepare_latents(
-                    vae=self.vae,
-                    generator=self.state.generator,
-                    precompute=False,
-                    **batch,
-                )
-                condition_model_conditions = self.model_specification.prepare_conditions(
-                    tokenizer=self.tokenizer,
-                    tokenizer_2=self.tokenizer_2,
-                    tokenizer_3=self.tokenizer_3,
-                    text_encoder=self.text_encoder,
-                    text_encoder_2=self.text_encoder_2,
-                    text_encoder_3=self.text_encoder_3,
-                    generator=self.state.generator,
-                    precompute=False,
-                    **batch,
-                )
-            else:
-                # TODO(aryan)
-                raise NotImplementedError("Precomputation is not supported yet.")
-                latent_model_conditions = batch["latent_model_conditions"]
-                condition_model_conditions = batch["condition_model_conditions"]
-                latent_model_conditions["latents"] = DiagonalGaussianDistribution(
-                    latent_model_conditions["latents"]
-                ).sample(self.state.generator)
 
             utils.align_device_and_dtype(latent_model_conditions, device, self.args.transformer_dtype)
             utils.align_device_and_dtype(condition_model_conditions, device, self.args.transformer_dtype)
@@ -471,7 +483,7 @@ class SFTTrainer:
 
             # TODO(aryan): handle checkpointing
             if train_state.step % self.args.validation_steps == 0:
-                self.validate(step=train_state.step, final_validation=False)
+                self._validate(step=train_state.step, final_validation=False)
 
         parallel_backend.wait_for_everyone()
 
@@ -487,7 +499,7 @@ class SFTTrainer:
             pass
 
         parallel_backend.wait_for_everyone()
-        self.validate(step=train_state.step, final_validation=True)
+        self._validate(step=train_state.step, final_validation=True)
 
         if parallel_backend.is_main_process:
             if self.args.push_to_hub:
@@ -501,13 +513,17 @@ class SFTTrainer:
 
         parallel_backend.destroy()
 
-    def validate(self, step: int, final_validation: bool = False) -> None:
+    def _validate(self, step: int, final_validation: bool = False) -> None:
+        if self.args.validation_dataset_file is None:
+            return
+
         logger.info("Starting validation")
 
         # 1. Load validation dataset
         parallel_backend = self.state.parallel_backend
+        dp_mesh = parallel_backend.get_mesh("dp")
 
-        if (dp_mesh := parallel_backend.get_mesh("dp")) is not None:
+        if dp_mesh is not None:
             local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
         else:
             local_rank, dp_world_size = 0, 1
@@ -637,7 +653,7 @@ class SFTTrainer:
         if not final_validation:
             self.transformer.train()
 
-    def evaluate(self) -> None:
+    def _evaluate(self) -> None:
         raise NotImplementedError("Evaluation has not been implemented yet.")
 
     def _init_distributed(self) -> None:
@@ -693,25 +709,17 @@ class SFTTrainer:
         if self.args.allow_tf32 and torch.cuda.is_available():
             torch.backends.cuda.matmul.allow_tf32 = True
 
-    def _init_non_model_conditions(self) -> None:
-        if ProcessorType.CAPTION_TEXT_DROPOUT in self.state.condition_types:
-            params = {"dropout_p": self.args.caption_dropout_p}
-            self.caption_preprocessing_conditions.append(get_condition(ProcessorType.CAPTION_TEXT_DROPOUT, params))
-            self.state.condition_types.remove(ProcessorType.CAPTION_TEXT_DROPOUT)
-
-        if ProcessorType.CAPTION_EMBEDDING_DROPOUT in self.state.condition_types:
-            params = {"dropout_p": self.args.caption_dropout_p}
-            self.caption_postprocessing_conditions.append(
-                get_condition(ProcessorType.CAPTION_EMBEDDING_DROPOUT, params)
-            )
-            self.state.condition_types.remove(ProcessorType.CAPTION_EMBEDDING_DROPOUT)
-
-    def _move_components_to_device(self, components: Optional[List[torch.nn.Module]] = None) -> None:
+    def _move_components_to_device(
+        self, components: Optional[List[torch.nn.Module]] = None, device: Optional[Union[str, torch.device]] = None
+    ) -> None:
+        if device is None:
+            device = self.state.parallel_backend.device
         if components is None:
             components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.transformer, self.vae]
         components = utils.get_non_null_items(components)
+        components = list(filter(lambda x: hasattr(x, "to"), components))
         for component in components:
-            component.to(self.state.parallel_backend.device)
+            component.to(device)
 
     def _set_components(self, components: Dict[str, Any]) -> None:
         # Set models
@@ -726,17 +734,22 @@ class SFTTrainer:
         self.vae = components.get("vae", self.vae)
         self.scheduler = components.get("scheduler", self.scheduler)
 
-    def _delete_components(self) -> None:
-        self.tokenizer = None
-        self.tokenizer_2 = None
-        self.tokenizer_3 = None
-        self.text_encoder = None
-        self.text_encoder_2 = None
-        self.text_encoder_3 = None
-        self.transformer = None
-        self.unet = None
-        self.vae = None
-        self.scheduler = None
+    def _delete_components(self, component_names: Optional[List[str]] = None) -> None:
+        if component_names is None:
+            component_names = [
+                "tokenizer",
+                "tokenizer_2",
+                "tokenizer_3",
+                "text_encoder",
+                "text_encoder_2",
+                "text_encoder_3",
+                "transformer",
+                "unet",
+                "vae",
+                "scheduler",
+            ]
+        for component_name in component_names:
+            setattr(self, component_name, None)
         utils.free_memory()
         utils.synchronize_device()
 

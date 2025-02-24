@@ -1,6 +1,6 @@
 import random
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from diffusers import (
@@ -15,11 +15,66 @@ from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Tokenizer
 
 from ... import data
 from ... import functional as FF
+from ...logging import get_logger
 from ...parallel import ParallelBackendEnum
-from ...processors import get_condition
+from ...processors import ProcessorMixin, T5Processor
 from ...typing import ArtifactType
 from ...utils import get_non_null_items
 from ..modeling_utils import ModelSpecification
+
+
+logger = get_logger()
+
+
+class LTXLatentEncodeProcessor(ProcessorMixin):
+    r"""
+    Processor to encode image/video into latents using the LTX VAE.
+
+    Args:
+        output_names (`List[str]`):
+            The names of the outputs that the processor returns. The outputs are in the following order:
+            - latents: The latents of the input image/video.
+            - num_frames: The number of frames in the input video.
+            - height: The height of the input image/video.
+            - width: The width of the input image/video.
+            - latents_mean: The latent channel means from the VAE state dict.
+            - latents_std: The latent channel standard deviations from the VAE state dict.
+    """
+
+    def __init__(self, output_names: List[str]):
+        super().__init__()
+        self.output_names = output_names
+        assert len(self.output_names) == 6
+
+    def forward(
+        self,
+        vae: AutoencoderKLLTXVideo,
+        image: Optional[torch.Tensor] = None,
+        video: Optional[torch.Tensor] = None,
+        generator: Optional[torch.Generator] = None,
+    ) -> Dict[str, torch.Tensor]:
+        device = vae.device
+        dtype = vae.dtype
+
+        if image is not None:
+            video = image.unsqueeze(1)
+
+        assert video.ndim == 5, f"Expected 5D tensor, got {video.ndim}D tensor"
+        video = video.to(device=device, dtype=vae.dtype)
+        video = video.permute(0, 2, 1, 3, 4).contiguous()  # [B, F, C, H, W] -> [B, C, F, H, W]
+
+        latents = vae.encode(video).latent_dist.sample(generator=generator)
+        latents = latents.to(dtype=dtype)
+        _, _, num_frames, height, width = latents.shape
+
+        return {
+            self.output_names[0]: latents,
+            self.output_names[1]: num_frames,
+            self.output_names[2]: height,
+            self.output_names[3]: width,
+            self.output_names[4]: vae.latents_mean,
+            self.output_names[5]: vae.latents_std,
+        }
 
 
 class LTXVideoModelSpecification(ModelSpecification):
@@ -35,7 +90,8 @@ class LTXVideoModelSpecification(ModelSpecification):
         vae_dtype: torch.dtype = torch.bfloat16,
         revision: Optional[str] = None,
         cache_dir: Optional[str] = None,
-        *args,
+        condition_model_processors: List[ProcessorMixin] = None,
+        latent_model_processors: List[ProcessorMixin] = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -51,7 +107,17 @@ class LTXVideoModelSpecification(ModelSpecification):
             cache_dir=cache_dir,
         )
 
-    def load_condition_models(self, condition_types: List[str], *args, **kwargs) -> Dict[str, torch.nn.Module]:
+        if condition_model_processors is None:
+            condition_model_processors = [T5Processor(["prompt_embeds", "prompt_attention_mask"])]
+        if latent_model_processors is None:
+            latent_model_processors = [
+                LTXLatentEncodeProcessor(["latents", "num_frames", "height", "width", "latents_mean", "latents_std"])
+            ]
+
+        self.condition_model_processors = condition_model_processors
+        self.latent_model_processors = latent_model_processors
+
+    def load_condition_models(self) -> Dict[str, torch.nn.Module]:
         if self.tokenizer_id is not None:
             tokenizer = AutoTokenizer.from_pretrained(
                 self.tokenizer_id, revision=self.revision, cache_dir=self.cache_dir
@@ -80,13 +146,9 @@ class LTXVideoModelSpecification(ModelSpecification):
                 cache_dir=self.cache_dir,
             )
 
-        for condition_type in condition_types:
-            condition = get_condition(condition_type, {"tokenizer": tokenizer, "text_encoder": text_encoder})
-            self._add_condition(condition_type, condition)
-
         return {"tokenizer": tokenizer, "text_encoder": text_encoder}
 
-    def load_latent_models(self, *args, **kwargs) -> Dict[str, torch.nn.Module]:
+    def load_latent_models(self) -> Dict[str, torch.nn.Module]:
         if self.vae_id is not None:
             vae = AutoencoderKLLTXVideo.from_pretrained(
                 self.vae_id,
@@ -105,7 +167,7 @@ class LTXVideoModelSpecification(ModelSpecification):
 
         return {"vae": vae}
 
-    def load_diffusion_models(self, *args, **kwargs) -> Dict[str, torch.nn.Module]:
+    def load_diffusion_models(self) -> Dict[str, torch.nn.Module]:
         if self.transformer_id is not None:
             transformer = LTXVideoTransformer3DModel.from_pretrained(
                 self.transformer_id,
@@ -137,7 +199,6 @@ class LTXVideoModelSpecification(ModelSpecification):
         enable_tiling: bool = False,
         enable_model_cpu_offload: bool = False,
         training: bool = False,
-        *args,
         **kwargs,
     ) -> LTXPipeline:
         components = {
@@ -180,23 +241,22 @@ class LTXVideoModelSpecification(ModelSpecification):
     @torch.no_grad()
     def prepare_conditions(
         self,
-        caption: str,
         tokenizer: T5Tokenizer,
         text_encoder: T5EncoderModel,
+        caption: str,
         max_sequence_length: int = 128,
-        *args,
         **kwargs,
-    ) -> Dict[str, torch.Tensor]:
-        conditions = {}
-        for _, condition in self.conditions.items():
-            result = self._prepare_condition(
-                condition,
-                caption=caption,
-                tokenizer=tokenizer,
-                text_encoder=text_encoder,
-                max_sequence_length=max_sequence_length,
-            )
-            conditions.update(result)
+    ) -> Dict[str, Any]:
+        conditions = {
+            "tokenizer": tokenizer,
+            "text_encoder": text_encoder,
+            "caption": caption,
+            "max_sequence_length": max_sequence_length,
+            **kwargs,
+        }
+        input_keys = set(conditions.keys())
+        conditions = super().prepare_conditions(**conditions)
+        conditions = {k: v for k, v in conditions.items() if k not in input_keys}
         return conditions
 
     @torch.no_grad()
@@ -206,44 +266,13 @@ class LTXVideoModelSpecification(ModelSpecification):
         image: Optional[torch.Tensor] = None,
         video: Optional[torch.Tensor] = None,
         generator: Optional[torch.Generator] = None,
-        precompute: bool = False,
-        *args,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
-        device = vae.device
-        dtype = vae.dtype
-
-        # TODO(aryan): remove this
-        video = video[:, :49, :, :, :]
-
-        if image is not None:
-            video = image.unsqueeze(1)
-
-        assert video.ndim == 5, f"Expected 5D tensor, got {video.ndim}D tensor"
-        video = video.to(device=device, dtype=vae.dtype)
-        video = video.permute(0, 2, 1, 3, 4).contiguous()  # [B, F, C, H, W] -> [B, C, F, H, W]
-
-        if not precompute:
-            latents = vae.encode(video).latent_dist.sample(generator=generator)
-            latents = latents.to(dtype=dtype)
-        else:
-            if vae.use_slicing and video.shape[0] > 1:
-                encoded_slices = [vae._encode(x_slice) for x_slice in video.split(1)]
-                h = torch.cat(encoded_slices)
-            else:
-                h = vae._encode(video)
-            latents = h
-
-        _, _, num_frames, height, width = latents.shape
-
-        return {
-            "latents": latents,
-            "num_frames": num_frames,
-            "height": height,
-            "width": width,
-            "latents_mean": vae.latents_mean,
-            "latents_std": vae.latents_std,
-        }
+        conditions = {"vae": vae, "image": image, "video": video, "generator": generator, **kwargs}
+        input_keys = set(conditions.keys())
+        conditions = super().prepare_latents(**conditions)
+        conditions = {k: v for k, v in conditions.items() if k not in input_keys}
+        return conditions
 
     def forward(
         self,
@@ -252,7 +281,6 @@ class LTXVideoModelSpecification(ModelSpecification):
         latent_model_conditions: Dict[str, torch.Tensor],
         sigmas: torch.Tensor,
         generator: Optional[torch.Generator] = None,
-        *args,
         **kwargs,
     ) -> Tuple[torch.Tensor, ...]:
         # TODO(aryan): make this configurable? Should it be?
@@ -329,7 +357,6 @@ class LTXVideoModelSpecification(ModelSpecification):
         frame_rate: int = 25,
         num_inference_steps: int = 50,
         generator: Optional[torch.Generator] = None,
-        *args,
         **kwargs,
     ) -> List[ArtifactType]:
         if image is not None:
@@ -359,7 +386,6 @@ class LTXVideoModelSpecification(ModelSpecification):
         directory: str,
         transformer: Optional[LTXVideoTransformer3DModel] = None,
         scheduler: Optional[FlowMatchEulerDiscreteScheduler] = None,
-        *args,
         **kwargs,
     ) -> None:
         directory = Path(directory)
@@ -373,7 +399,6 @@ class LTXVideoModelSpecification(ModelSpecification):
         backend: ParallelBackendEnum,
         device_mesh: torch.distributed.DeviceMesh,
         transformer: LTXVideoTransformer3DModel,
-        *args,
         **kwargs,
     ) -> None:
         if backend == ParallelBackendEnum.PTD:

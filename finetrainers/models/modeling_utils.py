@@ -5,10 +5,19 @@ from diffusers import DiffusionPipeline
 from diffusers.configuration_utils import FrozenDict
 from PIL.Image import Image
 
+from ..logging import get_logger
 from ..parallel import ParallelBackendEnum
-from ..processors import Processor
+from ..processors import ProcessorMixin
 from ..typing import ArtifactType, SchedulerType, TokenizerType
 from ..utils import resolve_component_cls
+
+
+logger = get_logger()
+
+# TODO(aryan): we most likely don't need this. take a look after refactoring more
+# fmt: off
+IGNORE_KEYS_FOR_COLLATION = {"height", "width", "num_frames", "frame_rate", "rope_interpolation_scale", "return_dict", "attention_kwargs", "cross_attention_kwargs", "joint_attention_kwargs"}
+# fmt: on
 
 
 class ModelSpecification:
@@ -36,6 +45,8 @@ class ModelSpecification:
         vae_dtype: str = torch.bfloat16,
         revision: Optional[str] = None,
         cache_dir: Optional[str] = None,
+        condition_model_processors: List[ProcessorMixin] = None,
+        latent_model_processors: List[ProcessorMixin] = None,
     ) -> None:
         self.pretrained_model_name_or_path = pretrained_model_name_or_path
         self.tokenizer_id = tokenizer_id
@@ -53,25 +64,25 @@ class ModelSpecification:
         self.vae_dtype = vae_dtype
         self.revision = revision
         self.cache_dir = cache_dir
+        self.condition_model_processors = condition_model_processors or []
+        self.latent_model_processors = latent_model_processors or []
 
         self.transformer_config: Dict[str, Any] = None
         self.vae_config: Dict[str, Any] = None
 
-        self.conditions: Dict[str, Processor] = {}
-
         self._load_configs()
 
-    def load_condition_models(self, *args, **kwargs) -> Dict[str, torch.nn.Module]:
+    def load_condition_models(self) -> Dict[str, torch.nn.Module]:
         raise NotImplementedError(
             f"ModelSpecification::load_condition_models is not implemented for {self.__class__.__name__}"
         )
 
-    def load_latent_models(self, *args, **kwargs) -> Dict[str, torch.nn.Module]:
+    def load_latent_models(self) -> Dict[str, torch.nn.Module]:
         raise NotImplementedError(
             f"ModelSpecification::load_latent_models is not implemented for {self.__class__.__name__}"
         )
 
-    def load_diffusion_models(self, *args, **kwargs) -> Dict[str, Union[torch.nn.Module]]:
+    def load_diffusion_models(self) -> Dict[str, Union[torch.nn.Module]]:
         raise NotImplementedError(
             f"ModelSpecification::load_diffusion_models is not implemented for {self.__class__.__name__}"
         )
@@ -91,7 +102,6 @@ class ModelSpecification:
         enable_tiling: bool = False,
         enable_model_cpu_offload: bool = False,
         training: bool = False,
-        *args,
         **kwargs,
     ) -> DiffusionPipeline:
         raise NotImplementedError(
@@ -101,38 +111,62 @@ class ModelSpecification:
     def collate_fn(self, batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torch.Tensor]:
         raise NotImplementedError(f"ModelSpecification::collate_fn is not implemented for {self.__class__.__name__}")
 
-    def prepare_conditions(
-        self,
-        tokenizer: Optional[TokenizerType] = None,
-        tokenizer_2: Optional[TokenizerType] = None,
-        tokenizer_3: Optional[TokenizerType] = None,
-        text_encoder: Optional[torch.nn.Module] = None,
-        text_encoder_2: Optional[torch.nn.Module] = None,
-        text_encoder_3: Optional[torch.nn.Module] = None,
-        max_sequence_length: Optional[int] = None,
-        *args,
-        **kwargs,
-    ) -> Dict[str, torch.Tensor]:
-        raise NotImplementedError(
-            f"ModelSpecification::prepare_conditions is not implemented for {self.__class__.__name__}"
-        )
+    def prepare_conditions(self, **kwargs) -> Dict[str, Any]:
+        for processor in self.condition_model_processors:
+            result = processor(**kwargs)
+            result_keys = set(result.keys())
+            repeat_keys = result_keys.intersection(kwargs.keys())
+            if repeat_keys:
+                logger.warning(
+                    f"Processor {processor.__class__.__name__} returned keys that already exist in "
+                    f"conditions: {repeat_keys}. Overwriting the existing values, but this may not "
+                    f"be intended. Please rename the keys in the processor to avoid conflicts."
+                )
+            kwargs.update(result)
+        return kwargs
 
-    def prepare_latents(
-        self,
-        vae: Optional[torch.nn.Module] = None,
-        image: Optional[torch.Tensor] = None,
-        video: Optional[torch.Tensor] = None,
-        generator: Optional[torch.Generator] = None,
-        precompute: bool = False,
-        *args,
-        **kwargs,
-    ) -> Dict[str, torch.Tensor]:
-        raise NotImplementedError(
-            f"ModelSpecification::prepare_latents is not implemented for {self.__class__.__name__}"
-        )
+    def prepare_latents(self, **kwargs) -> Dict[str, Any]:
+        for processor in self.latent_model_processors:
+            result = processor(**kwargs)
+            result_keys = set(result.keys())
+            repeat_keys = result_keys.intersection(kwargs.keys())
+            if repeat_keys:
+                logger.warning(
+                    f"Processor {processor.__class__.__name__} returned keys that already exist in "
+                    f"conditions: {repeat_keys}. Overwriting the existing values, but this may not "
+                    f"be intended. Please rename the keys in the processor to avoid conflicts."
+                )
+            kwargs.update(result)
+        return kwargs
+
+    def collate_conditions(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        keys = list(data[0].keys())
+        collated_data = {}
+        for key in keys:
+            if key in IGNORE_KEYS_FOR_COLLATION:
+                collated_data[key] = data[0][key]
+                continue
+            collated_d = [d[key] for d in data]
+            if isinstance(collated_d[0], torch.Tensor):
+                collated_d = torch.cat(collated_d)
+            collated_data[key] = collated_d
+        return collated_data
+
+    def collate_latents(self, data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        keys = list(data[0].keys())
+        collated_data = {}
+        for key in keys:
+            if key in IGNORE_KEYS_FOR_COLLATION:
+                collated_data[key] = data[0][key]
+                continue
+            collated_d = [d[key] for d in data]
+            if isinstance(collated_d[0], torch.Tensor):
+                collated_d = torch.cat(collated_d)
+            collated_data[key] = collated_d
+        return collated_data
 
     def forward(
-        self, transformer: torch.nn.Module, generator: Optional[torch.Generator] = None, *args, **kwargs
+        self, transformer: torch.nn.Module, generator: Optional[torch.Generator] = None, **kwargs
     ) -> Dict[str, torch.Tensor]:
         raise NotImplementedError(f"ModelSpecification::forward is not implemented for {self.__class__.__name__}")
 
@@ -188,23 +222,6 @@ class ModelSpecification:
         raise NotImplementedError(
             f"ModelSpecification::apply_tensor_parallel is not implemented for {self.__class__.__name__}"
         )
-
-    def _add_condition(self, name: str, condition: Processor) -> None:
-        self.conditions[name] = condition
-
-    def _remove_condition(self, name: str) -> None:
-        if name in self.conditions:
-            self.conditions.pop(name)
-
-    # @staticmethod
-    # def _prepare_condition(
-    #     processor: Processor,
-    #     *args,
-    #     **kwargs,
-    # ) -> Dict[str, torch.Tensor]:
-    #     accepted_parameters = get_parameter_names(processor, "__call__")
-    #     condition_parameters = get_processor_parameters_from_dict(accepted_parameters, kwargs)
-    #     return processor(*args, **condition_parameters)
 
     def _load_configs(self) -> None:
         self._load_transformer_config()

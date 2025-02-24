@@ -1,8 +1,6 @@
-import logging
 import traceback
 
-from finetrainers import SFTTrainer, TrainingType, parse_arguments, get_logger
-from finetrainers.constants import FINETRAINERS_LOG_LEVEL
+from finetrainers import SFTTrainer, TrainingType, get_logger, parse_arguments
 from finetrainers.models import get_model_specifiction_cls
 
 
@@ -49,12 +47,7 @@ def main():
         else:
             raise ValueError(f"Training type {args.training_type} not supported.")
 
-        trainer.prepare_models()
-        trainer.prepare_trainable_parameters()
-        trainer.prepare_for_training()
-        trainer.prepare_dataset()
-        trainer.train()
-        # trainer.evaluate()
+        trainer.run()
 
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt. Exiting...")

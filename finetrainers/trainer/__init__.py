@@ -1,1 +1,1 @@
-from .sft_trainer import SFTTrainer
+from .sft_trainer.trainer import SFTTrainer

@@ -106,8 +106,10 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
                 return self._mesh
             try:
                 return self._mesh[name]
-            except KeyError:
-                return None
+            except (KeyError, RuntimeError):
+                if self._mesh.ndim == 0:
+                    return None
+                return self._mesh
 
         if self._mesh is not None:
             return _get_mesh()

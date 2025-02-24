@@ -10,4 +10,5 @@ from .dataset import (
     VideoWebDataset,
     initialize_dataset,
 )
-from .utils import DatasetConfig, find_files
+from .precomputation import DistributedDataPreprocessor, PreprocessedDataIterable
+from .utils import find_files

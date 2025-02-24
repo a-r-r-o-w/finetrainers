@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -8,7 +9,6 @@ from diffusers.utils import get_logger
 from .constants import DEFAULT_IMAGE_RESOLUTION_BUCKETS, DEFAULT_VIDEO_RESOLUTION_BUCKETS, FINETRAINERS_LOG_LEVEL
 from .models import SUPPORTED_MODEL_CONFIGS
 from .parallel import ParallelBackendEnum
-from .processors import SUPPORTED_CONDITIONS, ProcessorType
 from .utils import get_non_null_items
 
 
@@ -114,18 +114,15 @@ class Args:
     video_reshape_mode (`str`, defaults to `None`):
         All input videos are reshaped to this mode. Choose between ['center', 'random', 'none'].
         TODO(aryan): We don't support this.
-    caption_dropout_p (`float`, defaults to `0.00`):
-        Probability of dropout for the caption tokens. This is useful to improve the unconditional generation
-        quality of the model.
-    caption_dropout_technique (`str`, defaults to `empty`):
-        Technique to use for caption dropout. Choose between ['empty', 'zero']. Some models apply caption dropout
-        by setting the prompt condition to an empty string, while others zero-out the text embedding tensors.
-    precompute_conditions (`bool`, defaults to `False`):
-        Whether or not to precompute the conditionings for the model. This is useful for faster training, and
-        reduces the memory requirements.
     remove_common_llm_caption_prefixes (`bool`, defaults to `False`):
         Whether or not to remove common LLM caption prefixes. This is useful for improving the quality of the
         generated text.
+    precomputation_items (`int`, defaults to `512`):
+        Number of data samples to precompute at once for memory-efficient training. The higher this value,
+        the more disk memory will be used to save the precomputed samples (conditions and latents).
+    precomputation_dir (`str`, defaults to `None`):
+        The directory where the precomputed samples will be stored. If not provided, the precomputed samples
+        will be stored in a temporary directory of the output directory.
 
     DATALOADER_ARGUMENTS
     --------------------
@@ -171,8 +168,6 @@ class Args:
         Type of training to perform. Choose between ['lora'].
     seed (`int`, defaults to `42`):
         A seed for reproducible training.
-    conditions (`List[str]`, defaults to `[]`):
-        List of conditions to use for training. To get a list of conditions, run `python train.py --list_conditions`.
     batch_size (`int`, defaults to `1`):
         Per-device batch size.
     train_steps (`int`, defaults to `1000`):
@@ -318,8 +313,9 @@ class Args:
     image_resolution_buckets: List[Tuple[int, int]] = None
     video_resolution_buckets: List[Tuple[int, int, int]] = None
     video_reshape_mode: Optional[str] = None
-    precompute_conditions: bool = False
     remove_common_llm_caption_prefixes: bool = False
+    precomputation_items: int = 512
+    precomputation_dir: Optional[str] = None
 
     # Dataloader arguments
     dataloader_num_workers: int = 0
@@ -340,7 +336,6 @@ class Args:
     # Training arguments
     training_type: str = None
     seed: int = 42
-    conditions: List[str] = []
     batch_size: int = 1
     train_steps: int = 1000
     max_data_samples: int = 2**64
@@ -387,11 +382,6 @@ class Args:
     nccl_timeout: int = 600  # 10 minutes, considering that validation may be performed
     report_to: str = "wandb"
 
-    # Condition-specfic arguments
-    # 1. Caption Dropout
-    caption_dropout_p: float = 0.00
-    caption_dropout_technique: str = "empty"
-
     def to_dict(self) -> Dict[str, Any]:
         parallel_arguments = {
             "pp_degree": self.pp_degree,
@@ -435,8 +425,9 @@ class Args:
             "image_resolution_buckets": self.image_resolution_buckets,
             "video_resolution_buckets": self.video_resolution_buckets,
             "video_reshape_mode": self.video_reshape_mode,
-            "precompute_conditions": self.precompute_conditions,
             "remove_common_llm_caption_prefixes": self.remove_common_llm_caption_prefixes,
+            "precomputation_items": self.precomputation_items,
+            "precomputation_dir": self.precomputation_dir,
         }
         dataset_arguments = get_non_null_items(dataset_arguments)
 
@@ -461,7 +452,6 @@ class Args:
         training_arguments = {
             "training_type": self.training_type,
             "seed": self.seed,
-            "conditions": self.conditions,
             "batch_size": self.batch_size,
             "train_steps": self.train_steps,
             "max_data_samples": self.max_data_samples,
@@ -517,13 +507,6 @@ class Args:
         }
         miscellaneous_arguments = get_non_null_items(miscellaneous_arguments)
 
-        condition_arguments = {
-            "text": {
-                "caption_dropout_p": self.caption_dropout_p,
-                "caption_dropout_technique": self.caption_dropout_technique,
-            },
-        }
-
         return {
             "parallel_arguments": parallel_arguments,
             "model_arguments": model_arguments,
@@ -534,18 +517,16 @@ class Args:
             "optimizer_arguments": optimizer_arguments,
             "validation_arguments": validation_arguments,
             "miscellaneous_arguments": miscellaneous_arguments,
-            "condition_arguments": condition_arguments,
         }
 
 
 _LIST_MODELS = "--list_models"
-_LIST_CONDITIONS = "--list_conditions"
 
 
 def parse_arguments() -> Args:
     parser = argparse.ArgumentParser()
 
-    special_args = [_LIST_MODELS, _LIST_CONDITIONS]
+    special_args = [_LIST_MODELS]
     if any(arg in sys.argv for arg in special_args):
         _add_helper_arguments(parser)
         args = parser.parse_args()
@@ -563,12 +544,13 @@ def parse_arguments() -> Args:
         _add_miscellaneous_arguments(parser)
 
         args, remaining_args = parser.parse_known_args()
-        args = _add_opt_in_arguments(parser, remaining_args, args)
+        print(f"Remaining arguments: {remaining_args}")
         return _map_to_args_type(args)
 
 
 def validate_args(args: Args):
-    _validated_model_args(args)
+    _validate_model_args(args)
+    _validate_dataset_args(args)
     _validate_training_args(args)
     _validate_validation_args(args)
 
@@ -731,14 +713,21 @@ def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
         help="All input videos are reshaped to this mode. Choose between ['center', 'random', 'none']",
     )
     parser.add_argument(
-        "--precompute_conditions",
-        action="store_true",
-        help="Whether or not to precompute the conditionings for the model.",
-    )
-    parser.add_argument(
         "--remove_common_llm_caption_prefixes",
         action="store_true",
         help="Whether or not to remove common LLM caption prefixes.",
+    )
+    parser.add_argument(
+        "--precomputation_items",
+        type=int,
+        default=512,
+        help="Number of items to precompute at a time. The higher this value, the more disk space is required.",
+    )
+    parser.add_argument(
+        "--precomputation_dir",
+        type=str,
+        default=None,
+        help="Directory to store precomputed items. If not provided, the precomputed items are stored in a temporary directory in the output directory.",
     )
 
 
@@ -829,14 +818,6 @@ def _add_training_arguments(parser: argparse.ArgumentParser) -> None:
         help="Type of training to perform. Choose between ['lora', 'full-finetune']",
     )
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
-    parser.add_argument(
-        "--conditions",
-        type=str,
-        default=[],
-        nargs="+",
-        choices=SUPPORTED_CONDITIONS,
-        help="List of conditions to use for training.",
-    )
     parser.add_argument(
         "--batch_size",
         type=int,
@@ -1075,40 +1056,11 @@ def _add_miscellaneous_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_opt_in_arguments(
-    parser: argparse.ArgumentParser, remaining_args: List[str], args: argparse.Namespace
-) -> Dict[str, Any]:
-    condition_subparser = parser.add_subparsers(dest="condition_subparser", help="Condition-specific arguments.")
-
-    # Caption dropout arguments
-    if any(
-        condition_name in args.conditions
-        for condition_name in [ProcessorType.CAPTION_TEXT_DROPOUT, ProcessorType.CAPTION_EMBEDDING_DROPOUT]
-    ):
-        caption_dropout_parser = condition_subparser.add_parser(
-            "caption_dropout", help="Arguments for caption dropout."
-        )
-        caption_dropout_parser.add_argument(
-            "--caption_dropout_p",
-            type=float,
-            default=0.00,
-            help="Probability of dropout for the caption tokens.",
-        )
-        args = parser.parse_args(remaining_args, namespace=args)
-
-    return args
-
-
 def _add_helper_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--list_models",
         action="store_true",
         help="List all the supported models.",
-    )
-    parser.add_argument(
-        "--list_conditions",
-        action="store_true",
-        help="List all the supported conditions.",
     )
 
 
@@ -1167,8 +1119,9 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.image_resolution_buckets = args.image_resolution_buckets or DEFAULT_IMAGE_RESOLUTION_BUCKETS
     result_args.video_resolution_buckets = args.video_resolution_buckets or DEFAULT_VIDEO_RESOLUTION_BUCKETS
     result_args.video_reshape_mode = args.video_reshape_mode
-    result_args.precompute_conditions = args.precompute_conditions
     result_args.remove_common_llm_caption_prefixes = args.remove_common_llm_caption_prefixes
+    result_args.precomputation_items = args.precomputation_items
+    result_args.precomputation_dir = args.precomputation_dir or os.path.join(args.output_dir, "precomputed")
 
     # Dataloader arguments
     result_args.dataloader_num_workers = args.dataloader_num_workers
@@ -1189,7 +1142,6 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     # Training arguments
     result_args.training_type = args.training_type
     result_args.seed = args.seed
-    result_args.conditions = args.conditions
     result_args.batch_size = args.batch_size
     result_args.train_steps = args.train_steps
     result_args.max_data_samples = args.max_data_samples
@@ -1236,22 +1188,18 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.nccl_timeout = args.nccl_timeout
     result_args.report_to = args.report_to
 
-    # Condition-specific arguments
-    if any(
-        condition_name in args.conditions
-        for condition_name in [ProcessorType.CAPTION_TEXT_DROPOUT, ProcessorType.CAPTION_EMBEDDING_DROPOUT]
-    ):
-        result_args.caption_dropout_p = args.caption_dropout_p
-        result_args.caption_dropout_technique = args.caption_dropout_technique
-
     return result_args
 
 
-def _validated_model_args(args: Args):
+def _validate_model_args(args: Args):
     if args.training_type == "full-finetune":
         assert (
             "transformer" not in args.layerwise_upcasting_modules
         ), "Layerwise upcasting is not supported for full-finetune training"
+
+
+def _validate_dataset_args(args: Args):
+    assert args.precomputation_items % args.batch_size == 0, "Precomputation items should be divisible by batch size"
 
 
 def _validate_training_args(args: Args):
@@ -1261,13 +1209,6 @@ def _validate_training_args(args: Args):
         assert (
             args.target_modules is not None and len(args.target_modules) > 0
         ), "Target modules are required for LoRA training"
-
-    if args.model_name == "ltx_video":
-        if ProcessorType.T5 not in args.conditions:
-            logger.warning(
-                "T5 condition is required for training LTXVideo. To not receive this warning please add 't5' to `--conditions`."
-            )
-            args.conditions.append(ProcessorType.T5)
 
 
 def _validate_validation_args(args: Args):
@@ -1280,6 +1221,3 @@ def _display_helper_messages(args: argparse.Namespace):
         print("Supported models:")
         for index, model_name in enumerate(SUPPORTED_MODEL_CONFIGS.keys()):
             print(f"  {index + 1}. {model_name}")
-
-    elif args.list_conditions:
-        print(f"Supported conditions: {SUPPORTED_CONDITIONS}")

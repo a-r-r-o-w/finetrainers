@@ -24,7 +24,7 @@ def delete_files(dirs: Union[str, List[str], Path, List[Path]]) -> None:
     if not isinstance(dirs, list):
         dirs = [dirs]
     dirs = [Path(d) if isinstance(d, str) else d for d in dirs]
-    logger.info(f"Deleting files: {dirs}")
+    logger.debug(f"Deleting files: {dirs}")
     for dir in dirs:
         if not dir.exists():
             continue
