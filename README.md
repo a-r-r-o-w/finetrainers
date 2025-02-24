@@ -158,10 +158,14 @@ If you would like to use a custom dataset, refer to the dataset preparation guid
 ## Featured Projects
 
 Checkout some amazing projects citing `finetrainers`:
-
 - [SkyworkAI's SkyReels-A1](https://github.com/SkyworkAI/SkyReels-A1)
-- [Eisneim's LTX Image-to-Video](https://github.com/eisneim/ltx_lora_training_i2v_t2v/)
+- [eisneim's LTX Image-to-Video](https://github.com/eisneim/ltx_lora_training_i2v_t2v/)
+- [wileewang's TransPixar](https://github.com/wileewang/TransPixar)
 - [Feizc's Video-In-Context](https://github.com/feizc/Video-In-Context)
+
+Checkout the following UIs built for `finetrainers`:
+- [jbilcke's VideoModelStudio](https://github.com/jbilcke-hf/VideoModelStudio)
+- [neph1's finetrainers-ui](https://github.com/neph1/finetrainers-ui)
 
 ## Acknowledgements
 
