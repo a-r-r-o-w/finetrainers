@@ -112,25 +112,36 @@ If you are using LLM-captioned videos, it is common to see many unwanted startin
 
 ## Validation Dataset Format
 
-TODO(aryan): explain things here.
+Arguments related to validation are:
+- `--validation_dataset_file`: Path to the validation dataset file. Supported formats are CSV, JSON, JSONL, PARQUET, and ARROW. Note: PARQUET and ARROW have not been tested after a major refactor, but should most likely work. (TODO(aryan): look into this)
+- `--validation_steps`: Interval of training steps after which validation should be performed.
+- `--enable_model_cpu_offload`: If set, CPU offloading will be enabled during validation. Note that this has not been tested for FSDP, TP, or DDP after a major refactor, but should most likely work for single GPU training,
 
 > [!IMPORTANT]
 >
-> When using `dp_shards > 1` or `tp_degree > 1`, you must make sure that the number of data samples contained
-
-Supported dataset formats: CSV, JSON, PARQUET, ARROW
+> When using `dp_shards > 1` or `tp_degree > 1`, you must make sure that the number of data samples contained is a multiple of `dp_shards * tp_degree`. If this is not the case, the training will fail due to a NCCL timeout. This will be improved/fixed in the future.
 
 - Must contain "caption" as a column. If an image must be provided for validation (for example, image-to-video inference), then the "image_path" field must be provided. If a video must be provided for validation (for example, video-to-video inference), then the "video_path" field must be provided. Other fields like "num_inference_steps", "height", "width", "num_frames", and "frame_rate" can be provided too but are optional.
 
-CSV Example:
+#### CSV Example
 
-TODO(aryan)
+<details>
+<summary>Click to expand</summary>
 
-----------------
+```csv
+caption,image_path,video_path,num_inference_steps,height,width,num_frames,frame_rate
+"A black and white animated scene unfolds with an anthropomorphic goat surrounded by musical notes and symbols, suggesting a playful environment. Mickey Mouse appears, leaning forward in curiosity as the goat remains still. The goat then engages with Mickey, who bends down to converse or react. The dynamics shift as Mickey grabs the goat, potentially in surprise or playfulness, amidst a minimalistic background. The scene captures the evolving relationship between the two characters in a whimsical, animated setting, emphasizing their interactions and emotions.",,"/raid/aryan/finetrainers-dummy-dataset-disney/a3c275fc2eb0a67168a7c58a6a9adb14.mp4",50,480,768,49,25
+"<SECOND_CAPTION>",,"/path/to/second.mp4",50,512,704,161,25
+```
 
-JSON Example:
+</details>
 
-- Must contain "data" field, which should be a list of dictionaries. Each dictionary corresponds to one validation video that will be generated with the selected configuration of generation parameters.
+#### JSON Example
+
+Must contain "data" field, which should be a list of dictionaries. Each dictionary corresponds to one validation video that will be generated with the selected configuration of generation parameters.
+
+<details>
+<summary>Click to expand</summary>
 
 ```json
 {
@@ -144,9 +155,19 @@ JSON Example:
       "width": 768,
       "num_frames": 49,
       "frame_rate": 25
+    },
+    {
+      "caption": "<SECOND_CAPTION>",
+      "image_path": "",
+      "video_path": "/path/to/second.mp4",
+      "num_inference_steps": 50,
+      "height": 512,
+      "width": 704,
+      "num_frames": 161,
+      "frame_rate": 25
     }
   ]
 }
 ```
 
-----------------
+</details>

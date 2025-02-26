@@ -10,7 +10,7 @@ If you would like to add a new model, please follow these steps:
 
 - Create a new file in the `finetrainers/models` directory with the model name (if it's new), or use the same directory if it's a variant of an existing model.
 - Implement the model specification in the file. For more details on what a model specification should look like, see the [ModelSpecification](TODO(aryan): add link) documentation.
-- Update the supported configs in `finetrainers/models/__init__.py` to include the new model and the training types supported.
+- Update the supported configs in `finetrainers/config.py` to include the new model and the training types supported.
 - Add a dummy model specification in the `tests/models` directory.
 - Make sure to test training with the following settings:
   - Single GPU

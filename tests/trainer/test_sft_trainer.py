@@ -16,7 +16,7 @@ os.environ["FINETRAINERS_LOG_LEVEL"] = "DEBUG"
 project_root = pathlib.Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
-from finetrainers import Args, SFTTrainer, TrainingType, get_logger  # noqa
+from finetrainers import BaseArgs, SFTTrainer, TrainingType, get_logger  # noqa
 
 from ..models.dummy.base_specification import DummyLTXVideoModelSpecification  # noqa
 
@@ -50,8 +50,8 @@ class SFTTrainerFastTestsMixin:
     def tearDown(self):
         self.tmpdir.cleanup()
 
-    def get_base_args(self) -> Args:
-        args = Args()
+    def get_base_args(self) -> BaseArgs:
+        args = BaseArgs()
         args.data_root = self.tmpdir.name
         args.train_steps = 10
         args.batch_size = 1
@@ -61,17 +61,17 @@ class SFTTrainerFastTestsMixin:
         args.precomputation_dir = os.path.join(self.tmpdir.name, "precomputed")
         return args
 
-    def get_args(self) -> Args:
+    def get_args(self) -> BaseArgs:
         raise NotImplementedError("`get_args` must be implemented in the subclass.")
 
-    def _test_training(self, args: Args):
+    def _test_training(self, args: BaseArgs):
         model_specification = DummyLTXVideoModelSpecification()
         trainer = SFTTrainer(args, model_specification)
         trainer.run()
 
 
 class SFTTrainerLoRATests___PTD(SFTTrainerFastTestsMixin, unittest.TestCase):
-    def get_args(self) -> Args:
+    def get_args(self) -> BaseArgs:
         args = self.get_base_args()
         args.parallel_backend = "ptd"
         args.training_type = TrainingType.LORA
@@ -130,7 +130,7 @@ class SFTTrainerLoRATests___PTD(SFTTrainerFastTestsMixin, unittest.TestCase):
 
 
 class SFTTrainerFullFinetuneTests___PTD(SFTTrainerFastTestsMixin, unittest.TestCase):
-    def get_args(self) -> Args:
+    def get_args(self) -> BaseArgs:
         args = self.get_base_args()
         args.parallel_backend = "ptd"
         args.training_type = TrainingType.FULL_FINETUNE

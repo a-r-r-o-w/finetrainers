@@ -1,7 +1,9 @@
+import sys
 import traceback
 
-from finetrainers import SFTTrainer, TrainingType, get_logger, parse_arguments
-from finetrainers.models import get_model_specifiction_cls
+from finetrainers import BaseArgs, SFTTrainer, TrainingType, get_logger
+from finetrainers.config import _get_model_specifiction_cls
+from finetrainers.trainer.sft_trainer.config import SFTFullRankConfig, SFTLowRankConfig
 
 
 logger = get_logger()
@@ -20,9 +22,27 @@ def main():
         )
 
     try:
-        args = parse_arguments()
+        args = BaseArgs()
 
-        model_specification_cls = get_model_specifiction_cls(args.model_name, args.training_type)
+        argv = [y.strip() for x in sys.argv for y in x.split()]
+        training_type_index = argv.index("--training_type")
+        if training_type_index == -1:
+            raise ValueError("Training type not provided in command line arguments.")
+
+        training_type = argv[training_type_index + 1]
+        training_cls = None
+        if training_type == TrainingType.LORA:
+            training_cls = SFTLowRankConfig
+        elif training_type == TrainingType.FULL_FINETUNE:
+            training_cls = SFTFullRankConfig
+        else:
+            raise ValueError(f"Training type {training_type} not supported.")
+
+        training_config = training_cls()
+        args.extend_args(training_config.add_args, training_config.map_args, training_config.validate_args)
+        args = args.parse_args()
+
+        model_specification_cls = _get_model_specifiction_cls(args.model_name, args.training_type)
         model_specification = model_specification_cls(
             pretrained_model_name_or_path=args.pretrained_model_name_or_path,
             tokenizer_id=args.tokenizer_id,

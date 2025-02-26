@@ -13,6 +13,7 @@ FSDP dump:
 - https://github.com/pytorch/pytorch/pull/125394: monkey-patch method for FSDP pre/post-hooks to be triggered for method other than `forward`
 - https://github.com/pytorch/pytorch/pull/127786:
 - https://github.com/pytorch/pytorch/pull/130949:
+- Sanity saver: create optimizers after parallelizing/activation-checkpointing models
 
 DTensor:
 - https://github.com/pytorch/pytorch/issues/88838

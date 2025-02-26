@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
 
 import datasets.distributed
 import diffusers
@@ -18,18 +18,20 @@ from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
 from ... import data, logging, optimizer, parallel, patches, utils
-from ...args import Args, validate_args
-from ...models import ModelSpecification, TrainingType
+from ...config import TrainingType
 from ...state import State, TrainState
+
+
+if TYPE_CHECKING:
+    from ...args import BaseArgs
+    from ...models import ModelSpecification
 
 
 logger = logging.get_logger()
 
 
 class SFTTrainer:
-    def __init__(self, args: Args, model_specification: ModelSpecification) -> None:
-        validate_args(args)
-
+    def __init__(self, args: "BaseArgs", model_specification: "ModelSpecification") -> None:
         self.args = args
         self.state = State()
         self.state.train_state = TrainState()
@@ -295,12 +297,6 @@ class SFTTrainer:
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory before training start: {json.dumps(memory_statistics, indent=4)}")
 
-        # In some cases, the scheduler needs to be loaded with specific config (e.g. in CogVideoX). Since we need
-        # to able to load all diffusion components from a specific checkpoint folder during validation, we need to
-        # ensure the scheduler config is serialized as well.
-        if self.args.training_type == TrainingType.FULL_FINETUNE:
-            self.model_specification.save_model(self.args.output_dir, scheduler=self.scheduler)
-
         global_batch_size = self.args.batch_size * parallel_backend._dp_degree
         info = {
             "trainable parameters": self.state.num_trainable_parameters,
@@ -347,6 +343,7 @@ class SFTTrainer:
         )
         precomputed_condition_iterator: Iterable[Dict[str, Any]] = None
         precomputed_latent_iterator: Iterable[Dict[str, Any]] = None
+        requires_gradient_step = True
 
         while (
             train_state.step < self.args.train_steps and train_state.observed_data_samples < self.args.max_data_samples
@@ -368,6 +365,10 @@ class SFTTrainer:
                 condition_model_conditions = self.model_specification.collate_conditions(condition_batch)
                 latent_model_conditions = self.model_specification.collate_latents(latent_batch)
             except StopIteration:
+                if requires_gradient_step:
+                    self.optimizer.step()
+                    self.lr_scheduler.step()
+                    requires_gradient_step = False
                 logger.info("Data exhausted. Exiting training loop.")
                 break
 
@@ -382,7 +383,7 @@ class SFTTrainer:
             latent_model_conditions = utils.make_contiguous(latent_model_conditions)
             condition_model_conditions = utils.make_contiguous(condition_model_conditions)
 
-            # 3. Forawrd pass
+            # 3. Forward pass
             sigmas = utils.prepare_sigmas(
                 scheduler=self.scheduler,
                 sigmas=scheduler_sigmas,
@@ -426,6 +427,7 @@ class SFTTrainer:
                 # Average loss across batch dimension
                 loss = loss.mean()
                 loss.backward()
+                requires_gradient_step = True
 
             # 5. Clip gradients
             model_parts = [self.transformer]
@@ -437,8 +439,11 @@ class SFTTrainer:
             )
 
             # 6. Step optimizer & log metrics
-            self.optimizer.step()
-            self.lr_scheduler.step()
+            if train_state.step % self.args.gradient_accumulation_steps == 0:
+                # TODO(aryan): revisit no_sync() for FSDP
+                self.optimizer.step()
+                self.lr_scheduler.step()
+                requires_gradient_step = False
 
             logs = {}
             if grad_norm is not None:

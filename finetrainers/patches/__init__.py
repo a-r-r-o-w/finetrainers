@@ -1,11 +1,15 @@
 from typing import TYPE_CHECKING
 
-from ..args import Args
-from ..models import ModelType, TrainingType
-from ..parallel import ParallelBackendType
+
+if TYPE_CHECKING:
+    from ..args import BaseArgs
+    from ..parallel import ParallelBackendType
 
 
-def perform_patches_for_training(args: Args, parallel_backend: ParallelBackendType) -> None:
+def perform_patches_for_training(args: "BaseArgs", parallel_backend: "ParallelBackendType") -> None:
+    # To avoid circular imports
+    from ..config import ModelType, TrainingType
+
     if args.model_name == ModelType.LTX_VIDEO:
         from .models.ltx_video import patch
 
