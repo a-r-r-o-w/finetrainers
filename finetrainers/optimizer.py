@@ -72,6 +72,10 @@ class SchedulerWrapper:
         for scheduler in self.schedulers:
             scheduler.step()
 
+    def get_last_lr(self) -> List[float]:
+        # TODO(aryan): look into this later. Currently calling it leads to NCCL hang?????
+        return {f"lr_{idx}": scheduler.get_last_lr() for idx, scheduler in enumerate(self.schedulers)}
+
     def get_lr_scheduler_state(self) -> Dict[str, Any]:
         state_dict = {}
         if len(self.schedulers) == 1:

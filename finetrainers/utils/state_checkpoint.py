@@ -2,7 +2,7 @@ import functools
 import pathlib
 import shutil
 import time
-from typing import TYPE_CHECKING, Any, Dict, List, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 import torch
 import torch.distributed.checkpoint
@@ -51,6 +51,7 @@ class PTDCheckpointManager:
         checkpointing_limit: int,
         output_dir: str,
         enable: bool = True,
+        _callback_fn: Callable[[Dict[str, Any]], Dict[str, Any]] = None,
         _prefix: str = "finetrainers_step",
     ) -> None:
         self.states = states
@@ -67,11 +68,12 @@ class PTDCheckpointManager:
         self.checkpointing_limit = checkpointing_limit
         self.output_dir = pathlib.Path(output_dir)
         self.enable = enable
+        self._callback_fn = _callback_fn
         self._prefix = _prefix
 
         logger.info(f"Checkpointing enabled. Checkpoints will be stored in '{self.output_dir}'")
 
-    def save(self, step: int = -1, force: bool = False) -> str:
+    def save(self, step: int = -1, force: bool = False, *, _device: torch.device, _is_main_process: bool) -> str:
         if not self._should_checkpoint(step, force):
             return None
 
@@ -82,8 +84,15 @@ class PTDCheckpointManager:
         logger.info(
             f"Saved checkpoint in {end_time - begin_time:.2f} seconds at step {step}. Directory: {checkpoint_dir}"
         )
-
         self._purge_stale_checkpoints()
+
+        state_dicts = [
+            gather_state_dict_on_cpu_rank0(model, _device, is_main_process=_is_main_process)
+            for model in self.states["model"].model
+        ]
+        if self._callback_fn is not None:
+            list(map(self._callback_fn, state_dicts))
+
         return checkpoint_dir.as_posix()
 
     def load(self, step: int = -1) -> bool:
@@ -144,3 +153,51 @@ class PTDCheckpointManager:
         for checkpoint in checkpoints[self.checkpointing_limit :]:
             logger.info(f"Deleting stale checkpoint: {checkpoint}")
             shutil.rmtree(checkpoint, ignore_errors=True)
+
+
+def gather_state_dict_on_cpu_rank0(
+    model, device: Optional[torch.device] = None, *, is_main_process: bool
+) -> Dict[str, Any]:
+    cpu_state_dict = {}
+    sharded_sd = model.state_dict()
+    for param_name, param in sharded_sd.items():
+        if param.is_cpu:
+            # Move back to device if offloaded to CPU
+            param = param.to(device)
+        if hasattr(param, "_local_tensor"):
+            # Gather DTensor
+            param = param.full_tensor()
+        if is_main_process:
+            cpu_state_dict[param_name] = param.cpu()
+        torch.distributed.barrier()
+    return cpu_state_dict
+
+
+# # Copied from pytorch (torch/distributed/checkpoint/format_utils.py) to support callbacks to modify state_dict
+# def dcp_to_torch_save(
+#     dcp_checkpoint_dir: Union[str, os.PathLike],
+#     torch_save_path: Union[str, os.PathLike],
+#     callback_fn: Callable[[Dict[str, Any]], Dict[str, Any]] = None,
+# ):
+#     """
+#     Given a directory containing a DCP checkpoint, this function will convert it into a
+#     Torch save file.
+
+#     Args:
+#         dcp_checkpoint_dir: Directory containing the DCP checkpoint.
+#         torch_save_path: Filename to store the converted Torch save file.
+#         callback_fn: Optional callback function that takes the state_dict as input and returns a modified state_dict.
+
+#     .. warning::
+#         To avoid OOM, it's recommended to only run this function on a single rank.
+#     """
+#     state_dict = {}
+#     _load_state_dict(
+#         state_dict,
+#         storage_reader=FileSystemReader(dcp_checkpoint_dir),
+#         planner=_EmptyStateDictLoadPlanner(),
+#         no_dist=True,
+#     )
+#     if callback_fn is not None:
+#         state_dict = callback_fn(state_dict)
+#     torch.save(state_dict, torch_save_path)

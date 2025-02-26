@@ -160,6 +160,7 @@ class ModelSpecification:
                 collated_data[key] = data[0][key]
                 continue
             collated_d = [d[key] for d in data]
+            # TODO(aryan): Support multi-resolution collation
             if isinstance(collated_d[0], torch.Tensor):
                 collated_d = torch.cat(collated_d)
             collated_data[key] = collated_d
@@ -184,29 +185,34 @@ class ModelSpecification:
     ) -> List[ArtifactType]:
         raise NotImplementedError(f"ModelSpecification::validation is not implemented for {self.__class__.__name__}")
 
-    def save_lora_weights(
+    def _save_lora_weights(
         self,
         directory: str,
-        transformer_layers: List[torch.nn.Parameter],
-        # TODO(aryan): add support for text encoders
+        transformer: torch.nn.Module,
+        transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
+        scheduler: Optional[SchedulerType] = None,
     ) -> None:
+        r"""
+        Save the lora state dicts of the model to the given directory.
+
+        This API is not backwards compatible and will be changed in near future.
+        """
         raise NotImplementedError(
             f"ModelSpecification::save_lora_weights is not implemented for {self.__class__.__name__}"
         )
 
-    def load_model(self) -> Dict[str, torch.nn.Module]:
-        raise NotImplementedError(f"ModelSpecification::load_model is not implemented for {self.__class__.__name__}")
-
-    def save_model(
+    def _save_model(
         self,
         directory: str,
-        text_encoder: Optional[torch.nn.Module] = None,
-        text_encoder_2: Optional[torch.nn.Module] = None,
-        text_encoder_3: Optional[torch.nn.Module] = None,
-        transformer: Optional[torch.nn.Module] = None,
-        vae: Optional[torch.nn.Module] = None,
+        transformer: torch.nn.Module,
+        transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
     ) -> None:
+        r"""
+        Save the state dicts to the given directory.
+
+        This API is not backwards compatible and will be changed in near future.
+        """
         raise NotImplementedError(f"ModelSpecification::save_model is not implemented for {self.__class__.__name__}")
 
     def apply_tensor_parallel(

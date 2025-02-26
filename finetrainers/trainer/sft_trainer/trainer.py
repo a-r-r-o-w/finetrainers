@@ -1,7 +1,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 import datasets.distributed
 import diffusers
@@ -14,7 +14,7 @@ from diffusers.hooks import apply_layerwise_casting
 from diffusers.training_utils import cast_training_params
 from diffusers.utils import export_to_video
 from huggingface_hub import create_repo, upload_folder
-from peft import LoraConfig
+from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
 from ... import data, logging, optimizer, parallel, patches, utils
@@ -89,12 +89,6 @@ class SFTTrainer:
         diffusion_components = self.model_specification.load_diffusion_models()
         self._set_components(diffusion_components)
 
-        if self.vae is not None:
-            if self.args.enable_slicing:
-                self.vae.enable_slicing()
-            if self.args.enable_tiling:
-                self.vae.enable_tiling()
-
         if self.state.parallel_backend.pipeline_parallel_enabled:
             raise NotImplementedError(
                 "Pipeline parallelism is not supported yet. This will be supported in the future."
@@ -143,40 +137,6 @@ class SFTTrainer:
         if self.args.training_type == TrainingType.LORA and not parallel_backend.data_sharding_enabled:
             cast_training_params([self.transformer], dtype=torch.float32)
 
-        # For training LoRAs, we can be a little more optimal. Currently, the OptimizerWrapper only accepts torch::nn::Module.
-        # This causes us to loop over all the parameters (even ones that don't require gradients, as in LoRA) at each optimizer
-        # step. This is OK (see https://github.com/pytorch/pytorch/blob/2f40f789dafeaa62c4e4b90dbf4a900ff6da2ca4/torch/optim/sgd.py#L85-L99)
-        # but can be optimized a bit by maybe creating a simple wrapper module encompassing the actual parameters that require
-        # gradients. TODO(aryan): look into it in the future.
-        model_parts = [self.transformer]
-        self.state.num_trainable_parameters = sum(
-            p.numel() for m in model_parts for p in m.parameters() if p.requires_grad
-        )
-
-        # Setup distributed optimizer and lr scheduler
-        logger.info("Initializing optimizer and lr scheduler")
-        self.state.train_state = TrainState()
-        self.optimizer = optimizer.get_optimizer(
-            parallel_backend=self.args.parallel_backend,
-            name=self.args.optimizer,
-            model_parts=model_parts,
-            learning_rate=self.args.lr,
-            beta1=self.args.beta1,
-            beta2=self.args.beta2,
-            beta3=self.args.beta3,
-            epsilon=self.args.epsilon,
-            weight_decay=self.args.weight_decay,
-            fused=False,
-        )
-        self.lr_scheduler = optimizer.get_lr_scheduler(
-            parallel_backend=self.args.parallel_backend,
-            name=self.args.lr_scheduler,
-            optimizer=self.optimizer,
-            num_warmup_steps=self.args.lr_warmup_steps,
-            num_training_steps=self.args.train_steps,
-            # TODO(aryan): handle last_epoch
-        )
-
     def _prepare_for_training(self) -> None:
         # 1. Apply parallelism
         parallel_backend = self.state.parallel_backend
@@ -218,7 +178,6 @@ class SFTTrainer:
             else:
                 dp_mesh_names = ("dp_shard_cp",)
 
-            # reduce_dtype = torch.float32 if self.args.training_type == TrainingType.FULL_FINETUNE else self.args.transformer_dtype
             parallel.apply_fsdp2_ptd(
                 model=self.transformer,
                 dp_mesh=world_mesh[dp_mesh_names],
@@ -239,6 +198,39 @@ class SFTTrainer:
         self._move_components_to_device()
 
         # 2. Prepare optimizer and lr scheduler
+        # For training LoRAs, we can be a little more optimal. Currently, the OptimizerWrapper only accepts torch::nn::Module.
+        # This causes us to loop over all the parameters (even ones that don't require gradients, as in LoRA) at each optimizer
+        # step. This is OK (see https://github.com/pytorch/pytorch/blob/2f40f789dafeaa62c4e4b90dbf4a900ff6da2ca4/torch/optim/sgd.py#L85-L99)
+        # but can be optimized a bit by maybe creating a simple wrapper module encompassing the actual parameters that require
+        # gradients. TODO(aryan): look into it in the future.
+        model_parts = [self.transformer]
+        self.state.num_trainable_parameters = sum(
+            p.numel() for m in model_parts for p in m.parameters() if p.requires_grad
+        )
+
+        # Setup distributed optimizer and lr scheduler
+        logger.info("Initializing optimizer and lr scheduler")
+        self.state.train_state = TrainState()
+        self.optimizer = optimizer.get_optimizer(
+            parallel_backend=self.args.parallel_backend,
+            name=self.args.optimizer,
+            model_parts=model_parts,
+            learning_rate=self.args.lr,
+            beta1=self.args.beta1,
+            beta2=self.args.beta2,
+            beta3=self.args.beta3,
+            epsilon=self.args.epsilon,
+            weight_decay=self.args.weight_decay,
+            fused=False,
+        )
+        self.lr_scheduler = optimizer.get_lr_scheduler(
+            parallel_backend=self.args.parallel_backend,
+            name=self.args.lr_scheduler,
+            optimizer=self.optimizer,
+            num_warmup_steps=self.args.lr_warmup_steps,
+            num_training_steps=self.args.train_steps,
+            # TODO(aryan): handle last_epoch
+        )
         self.optimizer, self.lr_scheduler = parallel_backend.prepare_optimizer(self.optimizer, self.lr_scheduler)
 
         # 3. Initialize trackers, directories and repositories
@@ -249,7 +241,7 @@ class SFTTrainer:
     def _prepare_dataset(self) -> None:
         logger.info("Initializing dataset and dataloader")
 
-        # TODO(aryan): allow configurability
+        # TODO(aryan): allow multiple dataset, shuffling, configurability
         dataset = data.initialize_dataset(self.args.data_root, dataset_type="video", streaming=True, infinite=True)
 
         self.dataset, self.dataloader = self.state.parallel_backend.prepare_dataset(
@@ -260,10 +252,18 @@ class SFTTrainer:
         )
 
     def _prepare_checkpointing(self) -> None:
-        if self.args.parallel_backend == "accelerate" and (
-            self.args.checkpointing_steps > 0 or self.args.resume_from_checkpoint
-        ):
-            raise NotImplementedError("Checkpointing is not supported with Accelerate yet.")
+        parallel_backend = self.state.parallel_backend
+
+        def save_model_hook(state_dict: Dict[str, Any]) -> None:
+            if parallel_backend.is_main_process:
+                if self.args.training_type == TrainingType.LORA:
+                    state_dict = get_peft_model_state_dict(self.transformer, state_dict)
+                    self.model_specification._save_lora_weights(self.args.output_dir, state_dict, self.scheduler)
+                elif self.args.training_type == TrainingType.FULL_FINETUNE:
+                    self.model_specification._save_model(
+                        self.args.output_dir, self.transformer, state_dict, self.scheduler
+                    )
+            parallel_backend.wait_for_everyone()
 
         enable_state_checkpointing = self.args.checkpointing_steps > 0
         self.checkpointer = utils.PTDCheckpointManager(
@@ -276,6 +276,7 @@ class SFTTrainer:
             checkpointing_limit=self.args.checkpointing_limit,
             output_dir=self.args.output_dir,
             enable=enable_state_checkpointing,
+            _callback_fn=save_model_hook,
         )
 
         resume_from_checkpoint = self.args.resume_from_checkpoint
@@ -300,7 +301,6 @@ class SFTTrainer:
         if self.args.training_type == TrainingType.FULL_FINETUNE:
             self.model_specification.save_model(self.args.output_dir, scheduler=self.scheduler)
 
-        # TODO(aryan): handle per-device batch_size > 1
         global_batch_size = self.args.batch_size * parallel_backend._dp_degree
         info = {
             "trainable parameters": self.state.num_trainable_parameters,
@@ -331,6 +331,7 @@ class SFTTrainer:
         scheduler_alphas = (
             scheduler_alphas.to(device=device, dtype=torch.float32) if scheduler_alphas is not None else None
         )
+        timesteps_buffer = []
 
         self.transformer.train()
         data_iterator = iter(self.dataloader)
@@ -344,45 +345,19 @@ class SFTTrainer:
             },
             save_dir=self.args.precomputation_dir,
         )
-        precomputed_condition_iterator: data.PreprocessedDataIterable = None
-        precomputed_latent_iterator: data.PreprocessedDataIterable = None
+        precomputed_condition_iterator: Iterable[Dict[str, Any]] = None
+        precomputed_latent_iterator: Iterable[Dict[str, Any]] = None
 
         while (
             train_state.step < self.args.train_steps and train_state.observed_data_samples < self.args.max_data_samples
         ):
+            # 1. Load & preprocess data if required
             if preprocessor.requires_data:
-                logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
-                condition_components = self.model_specification.load_condition_models()
-                component_names = list(condition_components.keys())
-                component_modules = list(condition_components.values())
-                self._set_components(condition_components)
-                self._move_components_to_device(component_modules)
-                precomputed_condition_iterator = preprocessor.consume(
-                    "condition",
-                    components=condition_components,
-                    data_iterator=data_iterator,
-                    generator=generator,
-                    cache_samples=True,
+                precomputed_condition_iterator, precomputed_latent_iterator = self._prepare_data(
+                    preprocessor, data_iterator
                 )
-                self._delete_components(component_names)
-                del condition_components, component_names, component_modules
 
-                latent_components = self.model_specification.load_latent_models()
-                component_names = list(latent_components.keys())
-                component_modules = list(latent_components.values())
-                self._set_components(latent_components)
-                self._move_components_to_device(component_modules)
-                precomputed_latent_iterator = preprocessor.consume(
-                    "latent",
-                    components=latent_components,
-                    data_iterator=data_iterator,
-                    generator=generator,
-                    use_cached_samples=True,
-                    drop_samples=True,
-                )
-                self._delete_components(component_names)
-                del latent_components, component_names, component_modules
-
+            # 2. Prepare batch
             try:
                 latent_batch, condition_batch = [], []
                 for _ in range(self.args.batch_size):
@@ -390,8 +365,8 @@ class SFTTrainer:
                     latent_item = next(precomputed_latent_iterator)
                     latent_batch.append(latent_item)
                     condition_batch.append(condition_item)
-                latent_model_conditions = self.model_specification.collate_latents(latent_batch)
                 condition_model_conditions = self.model_specification.collate_conditions(condition_batch)
+                latent_model_conditions = self.model_specification.collate_latents(latent_batch)
             except StopIteration:
                 logger.info("Data exhausted. Exiting training loop.")
                 break
@@ -407,6 +382,7 @@ class SFTTrainer:
             latent_model_conditions = utils.make_contiguous(latent_model_conditions)
             condition_model_conditions = utils.make_contiguous(condition_model_conditions)
 
+            # 3. Forawrd pass
             sigmas = utils.prepare_sigmas(
                 scheduler=self.scheduler,
                 sigmas=scheduler_sigmas,
@@ -419,8 +395,7 @@ class SFTTrainer:
                 device=device,
                 generator=self.state.generator,
             )
-            ndim = latent_model_conditions["latents"].ndim
-            sigmas = utils.expand_tensor_dims(sigmas, ndim)
+            sigmas = utils.expand_tensor_dims(sigmas, latent_model_conditions["latents"].ndim)
 
             if parallel_backend.pipeline_parallel_enabled:
                 raise NotImplementedError(
@@ -444,6 +419,7 @@ class SFTTrainer:
                 )
                 weights = utils.expand_tensor_dims(weights, pred.ndim)
 
+                # 4. Compute loss & backward pass
                 loss = weights.float() * (pred.float() - target.float()).pow(2)
                 # Average loss across all but batch dimension
                 loss = loss.mean(list(range(1, loss.ndim)))
@@ -451,7 +427,7 @@ class SFTTrainer:
                 loss = loss.mean()
                 loss.backward()
 
-            # Clip gradients
+            # 5. Clip gradients
             model_parts = [self.transformer]
             grad_norm = utils.torch._clip_grad_norm_while_handling_failing_dtensor_cases(
                 [p for m in model_parts for p in m.parameters()],
@@ -460,6 +436,7 @@ class SFTTrainer:
                 pp_mesh=parallel_backend.get_mesh("pp") if parallel_backend.pipeline_parallel_enabled else None,
             )
 
+            # 6. Step optimizer & log metrics
             self.optimizer.step()
             self.lr_scheduler.step()
 
@@ -485,33 +462,52 @@ class SFTTrainer:
             progress_bar.update(1)
             progress_bar.set_postfix(logs)
 
+            timesteps_buffer.extend([(train_state.step, t) for t in timesteps.detach().cpu().numpy().tolist()])
+
             if train_state.step % self.args.logging_steps == 0:
+                # TODO(aryan): handle non-SchedulerWrapper schedulers (probably not required eventually) since they might not be dicts
+                # TODO(aryan): causes NCCL hang for some reason. look into later
+                # logs.update(self.lr_scheduler.get_last_lr())
+
+                # timesteps_table = wandb.Table(data=timesteps_buffer, columns=["step", "timesteps"])
+                # logs["timesteps"] = wandb.plot.scatter(
+                #     timesteps_table, "step", "timesteps", title="Timesteps distribution"
+                # )
+                timesteps_buffer = []
+
                 parallel_backend.log(logs, step=train_state.step)
                 train_state.log_steps.append(train_state.step)
 
             train_state.global_avg_losses.append(global_avg_loss)
             train_state.global_max_losses.append(global_max_loss)
 
-            self.checkpointer.save(step=train_state.step)
+            # 7. Save checkpoint if required
+            self.checkpointer.save(
+                step=train_state.step, _device=device, _is_main_process=parallel_backend.is_main_process
+            )
 
+            # 8. Perform validation if required
             if train_state.step % self.args.validation_steps == 0:
                 self._validate(step=train_state.step, final_validation=False)
 
-        self.checkpointer.save(train_state.step, force=True)
+        # 9. Final checkpoint, validation & cleanup
+        self.checkpointer.save(
+            train_state.step, force=True, _device=device, _is_main_process=parallel_backend.is_main_process
+        )
         parallel_backend.wait_for_everyone()
         self._validate(step=train_state.step, final_validation=True)
-
-        if parallel_backend.is_main_process:
-            if self.args.push_to_hub:
-                upload_folder(
-                    repo_id=self.state.repo_id,
-                    folder_path=self.args.output_dir,
-                    ignore_patterns=[f"{self.checkpointer._prefix}_*"],
-                )
 
         self._delete_components()
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory after training end: {json.dumps(memory_statistics, indent=4)}")
+
+        # 10. Upload artifacts to hub
+        if parallel_backend.is_main_process and self.args.push_to_hub:
+            upload_folder(
+                repo_id=self.state.repo_id,
+                folder_path=self.args.output_dir,
+                ignore_patterns=[f"{self.checkpointer._prefix}_*"],
+            )
 
         parallel_backend.destroy()
 
@@ -744,34 +740,24 @@ class SFTTrainer:
             component.to(device)
 
     def _set_components(self, components: Dict[str, Any]) -> None:
-        # Set models
-        self.tokenizer = components.get("tokenizer", self.tokenizer)
-        self.tokenizer_2 = components.get("tokenizer_2", self.tokenizer_2)
-        self.tokenizer_3 = components.get("tokenizer_3", self.tokenizer_3)
-        self.text_encoder = components.get("text_encoder", self.text_encoder)
-        self.text_encoder_2 = components.get("text_encoder_2", self.text_encoder_2)
-        self.text_encoder_3 = components.get("text_encoder_3", self.text_encoder_3)
-        self.transformer = components.get("transformer", self.transformer)
-        self.unet = components.get("unet", self.unet)
-        self.vae = components.get("vae", self.vae)
-        self.scheduler = components.get("scheduler", self.scheduler)
+        # fmt: off
+        component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
+        # fmt: on
+
+        for component_name in component_names:
+            existing_component = getattr(self, component_name, None)
+            new_component = components.get(component_name, existing_component)
+            setattr(self, component_name, new_component)
 
     def _delete_components(self, component_names: Optional[List[str]] = None) -> None:
         if component_names is None:
-            component_names = [
-                "tokenizer",
-                "tokenizer_2",
-                "tokenizer_3",
-                "text_encoder",
-                "text_encoder_2",
-                "text_encoder_3",
-                "transformer",
-                "unet",
-                "vae",
-                "scheduler",
-            ]
+            # fmt: off
+            component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
+            # fmt: on
+
         for component_name in component_names:
             setattr(self, component_name, None)
+
         utils.free_memory()
         utils.synchronize_device()
 
@@ -803,7 +789,7 @@ class SFTTrainer:
 
             # Load the transformer weights from the final checkpoint if performing full-finetune
             transformer = None
-            if self.args.training_type == "full-finetune":
+            if self.args.training_type == TrainingType.FULL_FINETUNE:
                 transformer = self.model_specification.load_diffusion_models()["transformer"]
 
             pipeline = self.model_specification.load_pipeline(
@@ -816,12 +802,53 @@ class SFTTrainer:
             )
 
             # Load the LoRA weights if performing LoRA finetuning
-            if self.args.training_type == "lora":
+            if self.args.training_type == TrainingType.LORA:
                 pipeline.load_lora_weights(self.args.output_dir)
 
-        components = [getattr(pipeline, module_name, None) for module_name in module_names]
-        self._move_components_to_device(components)
+        components = {module_name: getattr(pipeline, module_name, None) for module_name in module_names}
+        self._set_components(components)
+        self._move_components_to_device(list(components.values()))
         return pipeline
+
+    def _prepare_data(self, preprocessor: data.DistributedDataPreprocessor, data_iterator):
+        logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
+        condition_components = self.model_specification.load_condition_models()
+        component_names = list(condition_components.keys())
+        component_modules = list(condition_components.values())
+        self._set_components(condition_components)
+        self._move_components_to_device(component_modules)
+        precomputed_condition_iterator = preprocessor.consume(
+            "condition",
+            components=condition_components,
+            data_iterator=data_iterator,
+            generator=self.state.generator,
+            cache_samples=True,
+        )
+        self._delete_components(component_names)
+        del condition_components, component_names, component_modules
+
+        latent_components = self.model_specification.load_latent_models()
+        if self.vae is not None:
+            if self.args.enable_slicing:
+                self.vae.enable_slicing()
+            if self.args.enable_tiling:
+                self.vae.enable_tiling()
+        component_names = list(latent_components.keys())
+        component_modules = list(latent_components.values())
+        self._set_components(latent_components)
+        self._move_components_to_device(component_modules)
+        precomputed_latent_iterator = preprocessor.consume(
+            "latent",
+            components=latent_components,
+            data_iterator=data_iterator,
+            generator=self.state.generator,
+            use_cached_samples=True,
+            drop_samples=True,
+        )
+        self._delete_components(component_names)
+        del latent_components, component_names, component_modules
+
+        return precomputed_condition_iterator, precomputed_latent_iterator
 
     def _get_training_info(self) -> Dict[str, Any]:
         info = self.args.to_dict()

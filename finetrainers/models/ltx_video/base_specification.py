@@ -1,8 +1,9 @@
+import os
 import random
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
+from accelerate import init_empty_weights
 from diffusers import (
     AutoencoderKLLTXVideo,
     FlowMatchEulerDiscreteScheduler,
@@ -18,7 +19,7 @@ from ... import functional as FF
 from ...logging import get_logger
 from ...parallel import ParallelBackendEnum
 from ...processors import ProcessorMixin, T5Processor
-from ...typing import ArtifactType
+from ...typing import ArtifactType, SchedulerType
 from ...utils import get_non_null_items
 from ..modeling_utils import ModelSpecification
 
@@ -228,16 +229,6 @@ class LTXVideoModelSpecification(ModelSpecification):
 
         return pipe
 
-    def collate_fn(self, batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torch.Tensor]:
-        if "image" in batch[0][0]:
-            image_or_video = torch.stack([x["image"] for x in batch[0]])
-        else:
-            image_or_video = torch.stack([x["video"] for x in batch[0]])
-        return {
-            "text": [x["text"] for x in batch[0]],
-            "image_or_video": image_or_video,
-        }
-
     @torch.no_grad()
     def prepare_conditions(
         self,
@@ -378,21 +369,35 @@ class LTXVideoModelSpecification(ModelSpecification):
         video = pipeline(**generation_kwargs).frames[0]
         return [data.VideoArtifact(value=video)]
 
-    def save_lora_weights(self, directory: str, transformer_layers: List[torch.nn.Parameter]) -> None:
-        LTXPipeline.save_lora_weights(directory, transformer_layers)
-
-    def save_model(
+    def _save_lora_weights(
         self,
         directory: str,
-        transformer: Optional[LTXVideoTransformer3DModel] = None,
-        scheduler: Optional[FlowMatchEulerDiscreteScheduler] = None,
+        transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
+        scheduler: Optional[SchedulerType] = None,
+        *args,
         **kwargs,
     ) -> None:
-        directory = Path(directory)
-        if transformer is not None:
-            transformer.save_pretrained((directory / "transformer").as_posix())
+        # TODO(aryan): this needs refactoring
+        if transformer_state_dict is not None:
+            LTXPipeline.save_lora_weights(directory, transformer_state_dict, safe_serialization=True)
         if scheduler is not None:
-            scheduler.save_pretrained((directory / "scheduler").as_posix())
+            scheduler.save_pretrained(os.path.join(directory, "scheduler"))
+
+    def _save_model(
+        self,
+        directory: str,
+        transformer: LTXVideoTransformer3DModel,
+        transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
+        scheduler: Optional[SchedulerType] = None,
+    ) -> None:
+        # TODO(aryan): this needs refactoring
+        if transformer_state_dict is not None:
+            with init_empty_weights():
+                transformer_copy = LTXVideoTransformer3DModel.from_config(transformer.config)
+            transformer_copy.load_state_dict(transformer_state_dict, strict=True, assign=True)
+            transformer_copy.save_pretrained(os.path.join(directory, "transformer"))
+        if scheduler is not None:
+            scheduler.save_pretrained(os.path.join(directory, "scheduler"))
 
     def apply_tensor_parallel(
         self,
