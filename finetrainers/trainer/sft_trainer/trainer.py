@@ -121,7 +121,7 @@ class SFTTrainer:
             )
 
         transformer_lora_config = None
-        if self.args.training_type == "lora":
+        if self.args.training_type == TrainingType.LORA:
             transformer_lora_config = LoraConfig(
                 r=self.args.rank,
                 lora_alpha=self.args.lora_alpha,
@@ -136,11 +136,8 @@ class SFTTrainer:
 
         # Make sure the trainable params are in float32 if data sharding is not enabled. For FSDP, we need all
         # parameters to be of the same dtype.
-        if self.args.training_type == "lora":
-            casting_dtype = (
-                torch.float32 if not parallel_backend.data_sharding_enabled else self.args.transformer_dtype
-            )
-            cast_training_params([self.transformer], dtype=casting_dtype)
+        if self.args.training_type == TrainingType.LORA and not parallel_backend.data_sharding_enabled:
+            cast_training_params([self.transformer], dtype=torch.float32)
 
         # For training LoRAs, we can be a little more optimal. Currently, the OptimizerWrapper only accepts torch::nn::Module.
         # This causes us to loop over all the parameters (even ones that don't require gradients, as in LoRA) at each optimizer
@@ -216,7 +213,8 @@ class SFTTrainer:
                 dp_mesh_names = ("dp_replicate", "dp_shard_cp")
             else:
                 dp_mesh_names = ("dp_shard_cp",)
-
+            
+            # reduce_dtype = torch.float32 if self.args.training_type == TrainingType.FULL_FINETUNE else self.args.transformer_dtype
             parallel.apply_fsdp2_ptd(
                 model=self.transformer,
                 dp_mesh=world_mesh[dp_mesh_names],
@@ -250,13 +248,15 @@ class SFTTrainer:
         # TODO(aryan): allow configurability
         dataset = data.initialize_dataset(self.args.data_root, dataset_type="video", streaming=True, infinite=True)
 
-        # TODO(aryan): support batch size > 1
         self.dataset, self.dataloader = self.state.parallel_backend.prepare_dataset(
             dataset,
             batch_size=1,
             num_workers=self.args.dataloader_num_workers,
             pin_memory=self.args.pin_memory,
         )
+
+    def _prepare_checkpointing(self) -> None:
+        pass
 
     def _train(self) -> None:
         logger.info("Starting training")
@@ -447,11 +447,11 @@ class SFTTrainer:
 
             # Clip gradients
             model_parts = [self.transformer]
-            grad_norm = utils.torch_utils._clip_grad_norm_while_handling_failing_dtensor_cases(
+            grad_norm = utils.torch._clip_grad_norm_while_handling_failing_dtensor_cases(
                 [p for m in model_parts for p in m.parameters()],
                 self.args.max_grad_norm,
                 foreach=True,
-                pp_mesh=parallel_backend.get_mesh()["pp"] if parallel_backend.pipeline_parallel_enabled else None,
+                pp_mesh=parallel_backend.get_mesh("pp") if parallel_backend.pipeline_parallel_enabled else None,
             )
 
             self.optimizer.step()
@@ -466,7 +466,7 @@ class SFTTrainer:
                 or parallel_backend.context_parallel_enabled
             ):
                 loss = loss.detach()
-                dp_cp_mesh = parallel_backend.get_mesh()["dp_cp"]
+                dp_cp_mesh = parallel_backend.get_mesh("dp_cp")
                 global_avg_loss, global_max_loss = (
                     parallel.dist_mean(loss, dp_cp_mesh),
                     parallel.dist_max(loss, dp_cp_mesh),

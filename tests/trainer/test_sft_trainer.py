@@ -57,7 +57,7 @@ class SFTTrainerFastTestsMixin:
         args.batch_size = 1
         args.gradient_checkpointing = True
         args.output_dir = self.tmpdir.name
-        args.precomputation_items = self.num_data_files - 1
+        args.precomputation_items = self.num_data_files // 2
         args.precomputation_dir = os.path.join(self.tmpdir.name, "precomputed")
         return args
 
@@ -103,24 +103,24 @@ class SFTTrainerLoRATests___PTD(SFTTrainerFastTestsMixin, unittest.TestCase):
         args.batch_size = 2
         self._test_training(args)
 
-    # def test___dp_shards_2___batch_size_1(self):
-    #     args = self.get_args()
-    #     args.dp_shards = 2
-    #     args.batch_size = 1
-    #     self._test_lora(args)
+    def test___dp_shards_2___batch_size_1(self):
+        args = self.get_args()
+        args.dp_shards = 2
+        args.batch_size = 1
+        self._test_training(args)
 
-    # def test___dp_shards_2___batch_size_2(self):
-    #     args = self.get_args()
-    #     args.dp_shards = 2
-    #     args.batch_size = 1
-    #     self._test_lora(args)
+    def test___dp_shards_2___batch_size_2(self):
+        args = self.get_args()
+        args.dp_shards = 2
+        args.batch_size = 1
+        self._test_training(args)
 
-    # def test___dp_degree_2___dp_shards_2___batch_size_1(self):
-    #     args = self.get_args()
-    #     args.dp_degree = 2
-    #     args.dp_shards = 2
-    #     args.batch_size = 1
-    #     self._test_lora(args)
+    def test___dp_degree_2___dp_shards_2___batch_size_1(self):
+        args = self.get_args()
+        args.dp_degree = 2
+        args.dp_shards = 2
+        args.batch_size = 1
+        self._test_training(args)
 
     def test___tp_degree_2___batch_size_2(self):
         args = self.get_args()
