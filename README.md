@@ -153,5 +153,5 @@ If you would like to use a custom dataset, refer to the dataset preparation guid
 
 ## Acknowledgements
 
-* `finetrainers` builds on top of a body of great open-source libraries: `transformers`, `accelerate`, `peft`, `diffusers`, `bitsandbytes`, `torchao`, `deepspeed` -- to name a few.
+* `finetrainers` builds on top of & takes inspiration from great open-source libraries - `transformers`, `accelerate`, `torchtune`, `torchtitan`, `peft`, `diffusers`, `bitsandbytes`, `torchao` and `deepspeed` - to name a few.
 * Some of the design choices of `finetrainers` were inspired by [`SimpleTuner`](https://github.com/bghira/SimpleTuner).

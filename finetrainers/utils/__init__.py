@@ -16,6 +16,7 @@ from .file import delete_files, find_files, string_to_filename
 from .hub import save_model_card
 from .memory import bytes_to_gigabytes, free_memory, get_memory_statistics, make_contiguous
 from .model import resolve_component_cls
+from .state_checkpoint import PTDCheckpointManager
 from .torch import (
     align_device_and_dtype,
     clip_grad_norm_,

@@ -5,24 +5,46 @@ This directory contains the training-related specifications for all the models w
 - inference example
 - numbers on memory consumption
 
-By default, we don't include any validation-related arguments in the example training commands. To enable validation inference, one can pass:
+By default, we don't include any validation-related arguments in the example training commands. To enable validation inference every 500 steps, one can add the following arguments:
 
 ```diff
-+ --validation_prompts "$ID_TOKEN A black and white animated scene unfolds with an anthropomorphic goat surrounded by musical notes and symbols, suggesting a playful environment. Mickey Mouse appears, leaning forward in curiosity as the goat remains still. The goat then engages with Mickey, who bends down to converse or react. The dynamics shift as Mickey grabs the goat, potentially in surprise or playfulness, amidst a minimalistic background. The scene captures the evolving relationship between the two characters in a whimsical, animated setting, emphasizing their interactions and emotions.@@@49x512x768:::$ID_TOKEN A woman with long brown hair and light skin smiles at another woman with long blonde hair. The woman with brown hair wears a black jacket and has a small, barely noticeable mole on her right cheek. The camera angle is a close-up, focused on the woman with brown hair's face. The lighting is warm and natural, likely from the setting sun, casting a soft glow on the scene. The scene appears to be real-life footage@@@49x512x768" \
-+ --num_validation_videos 1 \
-+ --validation_steps 100
++ --validation_dataset_file <Path to a CSV/JSON/PARQUET/ARROW> \
++ --validation_steps 500
 ```
 
-Supported models:
-- [CogVideoX](./cogvideox.md)
-- [LTX-Video](./ltx_video.md)
-- [HunyuanVideo](./hunyuan_video.md)
+Arguments for training are documented in the code. For more information, please run `python train.py --help`.
 
-Supported training types:
-- LoRA (`--training_type lora`)
-- Full finetuning (`--training_type full-finetune`)
+## Support matrix
 
-Arguments for training are well-documented in the code. For more information, please run `python train.py --help`.
+The following table shows the algorithms supported for training and the models they are supported for:
+
+| Model                                     | SFT | Control | ControlNet | Distillation |
+|:-----------------------------------------:|:---:|:-------:|:----------:|:------------:|
+| [CogVideoX](./cogvideox.md)             | 🤗 | 😡 | 😡 | 😡 |
+| [LTX-Video](./ltx_video.md)             | 🤗 | 😡 | 😡 | 😡 |
+| [HunyuanVideo](./hunyuan_video.md))     | 🤗 | 😡 | 😡 | 😡 |
+
+For launching SFT Training:
+- `--training_type lora`: Trains a new set of low-rank weights of the model, yielding a smaller adapter model. Currently, only LoRA is supported from [🤗 PEFT](https://github.com/huggingface/peft)
+- `--training_type full-finetune`: Trains the full-rank weights of the model, yielding a full-parameter trained model.
+
+Any model architecture loadable in diffusers/transformers for above models can be used for training. For example, [SkyReels-T2V](https://huggingface.co/Skywork/SkyReels-V1-Hunyuan-T2V) is a finetune of HunyuanVideo, which is compatible for continual training out-of-the-box. Custom models can be loaded either by writing your own [ModelSpecification](TODO(aryan): add link) or by using the following set of arguments:
+- `--tokenizer_id`, `--tokenizer_2_id`, `--tokenizer_3_id`: The tokenizers to use for training in conjunction with text encoder conditioning models.
+- `--text_encoder_id`, `--text_encoder_2_id`, `--text_encoder_3_id`: The text encoder conditioning models.
+- `--transformer_id`: The transformer model to use for training.
+- `--vae_id`: The VAE model to use for training.
+
+The above arguments should take care of most training scenarios. For any custom training scenarios, please use your own implementation of a `ModelSpecification`. These arguments should be used only if one wants to override the default components loaded from `--pretrained_model_name_or_path`. Similar to each of these arguments, there exists a set of `--<ARG>_dtype` argument to specify the precision of each component.
+
+## Resuming training
+
+To resume training, the following arguments can be used:
+- `--checkpointing_steps`: The interval of training steps that should be completed after which the training state should be saved.
+- `--checkpointing_limit`: The maximum number of checkpoints that should be saved at once. If the limit is reached, the oldest checkpoint is purged.
+- `--resume_from_checkpoint <STEP_OR_LATEST>`: Can be an integer or the string `"latest"`. If an integer is provided, training will resume from that step if a checkpoint corresponding to it exists. If `"latest"` is provided, training will resume from the latest checkpoint in the `--output_dir`.
+
+> [!IMPORTANT]
+> The `--resume_from_checkpoint` argument is only compatible if the parallel backend and degrees of parallelism are the same from the previous training run. For example, changing `--dp_degree 2 --dp_shards 1` from past run to `--dp_degree 1 --dp_shards 2` in current run will not work.
 
 ## How do we handle `mixed_precision`?
 

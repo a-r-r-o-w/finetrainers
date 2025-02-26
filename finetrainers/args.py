@@ -261,6 +261,12 @@ class Args:
         Timeout for the NCCL communication.
     report_to (`str`, defaults to `wandb`):
         The name of the logger to use for logging training metrics. Choose between ['wandb'].
+    verbose (`int`, defaults to `1`):
+        Whether or not to print verbose logs.
+            - 0: Diffusers/Transformers warning logging on local main process only
+            - 1: Diffusers/Transformers info logging on local main process only
+            - 2: Diffusers/Transformers debug logging on local main process only
+            - 3: Diffusers/Transformers debug logging on all processes
     """
 
     # Parallel arguments
@@ -306,7 +312,7 @@ class Args:
     # Dataset arguments
     data_root: str = None
     dataset_file: Optional[str] = None
-    # TODO(aryan): these might not be needed
+    # TODO(aryan): these might not be needed ====
     video_column: str = None
     caption_column: str = None
     id_token: Optional[str] = None
@@ -314,6 +320,7 @@ class Args:
     video_resolution_buckets: List[Tuple[int, int, int]] = None
     video_reshape_mode: Optional[str] = None
     remove_common_llm_caption_prefixes: bool = False
+    # ===========================================
     precomputation_items: int = 512
     precomputation_dir: Optional[str] = None
 
@@ -381,6 +388,7 @@ class Args:
     init_timeout: int = 300  # 5 minutes
     nccl_timeout: int = 600  # 10 minutes, considering that validation may be performed
     report_to: str = "wandb"
+    verbose: int = 1
 
     def to_dict(self) -> Dict[str, Any]:
         parallel_arguments = {
@@ -504,6 +512,7 @@ class Args:
             "init_timeout": self.init_timeout,
             "nccl_timeout": self.nccl_timeout,
             "report_to": self.report_to,
+            "verbose": self.verbose,
         }
         miscellaneous_arguments = get_non_null_items(miscellaneous_arguments)
 
@@ -544,7 +553,6 @@ def parse_arguments() -> Args:
         _add_miscellaneous_arguments(parser)
 
         args, remaining_args = parser.parse_known_args()
-        print(f"Remaining arguments: {remaining_args}")
         return _map_to_args_type(args)
 
 
@@ -1054,6 +1062,13 @@ def _add_miscellaneous_arguments(parser: argparse.ArgumentParser) -> None:
         choices=["none", "wandb"],
         help="The integration to report the results and logs to.",
     )
+    parser.add_argument(
+        "--verbose",
+        type=int,
+        default=0,
+        choices=[0, 1, 2, 3],
+        help="Enable verbose logging. 0: informational logging on local main process, 1: debug logging on local main process, 2: debug logging on all processes.",
+    )
 
 
 def _add_helper_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1187,6 +1202,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> Args:
     result_args.init_timeout = args.init_timeout
     result_args.nccl_timeout = args.nccl_timeout
     result_args.report_to = args.report_to
+    result_args.verbose = args.verbose
 
     return result_args
 

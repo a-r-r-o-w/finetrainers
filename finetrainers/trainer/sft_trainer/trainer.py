@@ -58,6 +58,9 @@ class SFTTrainer:
         self.optimizer = None
         self.lr_scheduler = None
 
+        # Checkpoint manager
+        self.checkpointer = None
+
         self._init_distributed()
         self._init_config_options()
 
@@ -72,6 +75,7 @@ class SFTTrainer:
             self._prepare_trainable_parameters()
             self._prepare_for_training()
             self._prepare_dataset()
+            self._prepare_checkpointing()
             self._train()
             # trainer._evaluate()
         except Exception as e:
@@ -213,7 +217,7 @@ class SFTTrainer:
                 dp_mesh_names = ("dp_replicate", "dp_shard_cp")
             else:
                 dp_mesh_names = ("dp_shard_cp",)
-            
+
             # reduce_dtype = torch.float32 if self.args.training_type == TrainingType.FULL_FINETUNE else self.args.transformer_dtype
             parallel.apply_fsdp2_ptd(
                 model=self.transformer,
@@ -256,7 +260,29 @@ class SFTTrainer:
         )
 
     def _prepare_checkpointing(self) -> None:
-        pass
+        if self.args.parallel_backend == "accelerate" and (
+            self.args.checkpointing_steps > 0 or self.args.resume_from_checkpoint
+        ):
+            raise NotImplementedError("Checkpointing is not supported with Accelerate yet.")
+
+        enable_state_checkpointing = self.args.checkpointing_steps > 0
+        self.checkpointer = utils.PTDCheckpointManager(
+            dataloader=self.dataloader,
+            model_parts=[self.transformer],
+            optimizers=self.optimizer,
+            schedulers=self.lr_scheduler,
+            states={"train_state": self.state.train_state},
+            checkpointing_steps=self.args.checkpointing_steps,
+            checkpointing_limit=self.args.checkpointing_limit,
+            output_dir=self.args.output_dir,
+            enable=enable_state_checkpointing,
+        )
+
+        resume_from_checkpoint = self.args.resume_from_checkpoint
+        if resume_from_checkpoint == "latest":
+            resume_from_checkpoint = -1
+        if resume_from_checkpoint is not None:
+            self.checkpointer.load(resume_from_checkpoint)
 
     def _train(self) -> None:
         logger.info("Starting training")
@@ -285,29 +311,9 @@ class SFTTrainer:
         }
         logger.info(f"Training configuration: {json.dumps(info, indent=4)}")
 
-        train_state.global_step = 0
-        train_state.observed_data_samples = 0
-        # first_epoch = 0
-        initial_global_step = 0
-
-        # TODO(aryan): handle resuming from checkpoint later
-        # # Potentially load in the weights and states from a previous save
-        # (
-        #     resume_from_checkpoint_path,
-        #     initial_global_step,
-        #     global_step,
-        #     first_epoch,
-        # ) = utils.get_latest_ckpt_path_to_resume_from(
-        #     resume_from_checkpoint=self.args.resume_from_checkpoint,
-        #     num_update_steps_per_epoch=self.state.num_update_steps_per_epoch,
-        #     output_dir=self.args.output_dir,
-        # )
-        # if resume_from_checkpoint_path:
-        #     self.state.accelerator.load_state(resume_from_checkpoint_path)
-
         progress_bar = tqdm(
             range(0, self.args.train_steps),
-            initial=initial_global_step,
+            initial=train_state.step,
             desc="Training steps",
             disable=not parallel_backend.is_local_main_process,
         )
@@ -481,35 +487,26 @@ class SFTTrainer:
 
             if train_state.step % self.args.logging_steps == 0:
                 parallel_backend.log(logs, step=train_state.step)
+                train_state.log_steps.append(train_state.step)
 
-            train_state.log_steps.append(train_state.step)
             train_state.global_avg_losses.append(global_avg_loss)
             train_state.global_max_losses.append(global_max_loss)
 
-            # TODO(aryan): handle checkpointing
+            self.checkpointer.save(step=train_state.step)
+
             if train_state.step % self.args.validation_steps == 0:
                 self._validate(step=train_state.step, final_validation=False)
 
-        parallel_backend.wait_for_everyone()
-
-        if parallel_backend.is_main_process:
-            # TODO(aryan): handle compiled models by unwrapping and exporting model
-            # transformer = utils.unwrap_model(accelerator, self.transformer)
-
-            # if self.args.training_type == "lora":
-            #     transformer_lora_layers = get_peft_model_state_dict(transformer)
-            #     self.model_specification.save_lora_weights(self.args.output_dir, transformer_lora_layers)
-            # else:
-            #     self.model_specification.save_model(self.args.output_dir, transformer=transformer)
-            pass
-
+        self.checkpointer.save(train_state.step, force=True)
         parallel_backend.wait_for_everyone()
         self._validate(step=train_state.step, final_validation=True)
 
         if parallel_backend.is_main_process:
             if self.args.push_to_hub:
                 upload_folder(
-                    repo_id=self.state.repo_id, folder_path=self.args.output_dir, ignore_patterns=["checkpoint-*"]
+                    repo_id=self.state.repo_id,
+                    folder_path=self.args.output_dir,
+                    ignore_patterns=[f"{self.checkpointer._prefix}_*"],
                 )
 
         self._delete_components()
@@ -686,8 +683,28 @@ class SFTTrainer:
             utils.enable_determinism(self.args.seed, world_mesh)
 
     def _init_logging(self) -> None:
-        transformers.utils.logging.set_verbosity_warning()
-        diffusers.utils.logging.set_verbosity_info()
+        transformers_log_level = transformers.utils.logging.set_verbosity_error
+        diffusers_log_level = diffusers.utils.logging.set_verbosity_error
+
+        if self.args.verbose == 0:
+            if self.state.parallel_backend.is_local_main_process:
+                transformers_log_level = transformers.utils.logging.set_verbosity_warning
+                diffusers_log_level = diffusers.utils.logging.set_verbosity_warning
+        elif self.args.verbose == 1:
+            if self.state.parallel_backend.is_local_main_process:
+                transformers_log_level = transformers.utils.logging.set_verbosity_info
+                diffusers_log_level = diffusers.utils.logging.set_verbosity_info
+        elif self.args.verbose == 2:
+            if self.state.parallel_backend.is_local_main_process:
+                transformers_log_level = transformers.utils.logging.set_verbosity_debug
+                diffusers_log_level = diffusers.utils.logging.set_verbosity_debug
+        else:
+            transformers_log_level = transformers.utils.logging.set_verbosity_debug
+            diffusers_log_level = diffusers.utils.logging.set_verbosity_debug
+
+        transformers_log_level()
+        diffusers_log_level()
+
         logging._set_parallel_backend(self.state.parallel_backend)
         logger.info("Initialized FineTrainers")
 
