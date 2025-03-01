@@ -375,6 +375,7 @@ class SFTTrainer:
             batch_size=self.args.batch_size, dim_keys=self.model_specification._resolution_dim_keys
         )
         requires_gradient_step = True
+        accumulated_loss = 0.0
 
         while (
             train_state.step < self.args.train_steps and train_state.observed_data_samples < self.args.max_data_samples
@@ -416,7 +417,6 @@ class SFTTrainer:
             train_state.observed_num_tokens += latent_model_conditions["latents"].numel() // patch_size
 
             logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
-            self.optimizer.zero_grad()
 
             utils.align_device_and_dtype(latent_model_conditions, device, self.args.transformer_dtype)
             utils.align_device_and_dtype(condition_model_conditions, device, self.args.transformer_dtype)
@@ -438,36 +438,34 @@ class SFTTrainer:
             )
             sigmas = utils.expand_tensor_dims(sigmas, latent_model_conditions["latents"].ndim)
 
-            if parallel_backend.pipeline_parallel_enabled:
-                raise NotImplementedError(
-                    "Pipeline parallelism is not supported yet. This will be supported in the future."
-                )
-            else:
-                pred, target, sigmas = self.model_specification.forward(
-                    transformer=self.transformer,
-                    scheduler=self.scheduler,
-                    condition_model_conditions=condition_model_conditions,
-                    latent_model_conditions=latent_model_conditions,
-                    sigmas=sigmas,
-                )
+            pred, target, sigmas = self.model_specification.forward(
+                transformer=self.transformer,
+                scheduler=self.scheduler,
+                condition_model_conditions=condition_model_conditions,
+                latent_model_conditions=latent_model_conditions,
+                sigmas=sigmas,
+            )
 
-                timesteps = (sigmas * 1000.0).long()
-                weights = utils.prepare_loss_weights(
-                    scheduler=self.scheduler,
-                    alphas=scheduler_alphas[timesteps] if scheduler_alphas is not None else None,
-                    sigmas=sigmas,
-                    flow_weighting_scheme=self.args.flow_weighting_scheme,
-                )
-                weights = utils.expand_tensor_dims(weights, pred.ndim)
+            timesteps = (sigmas * 1000.0).long()
+            weights = utils.prepare_loss_weights(
+                scheduler=self.scheduler,
+                alphas=scheduler_alphas[timesteps] if scheduler_alphas is not None else None,
+                sigmas=sigmas,
+                flow_weighting_scheme=self.args.flow_weighting_scheme,
+            )
+            weights = utils.expand_tensor_dims(weights, pred.ndim)
 
-                # 4. Compute loss & backward pass
-                loss = weights.float() * (pred.float() - target.float()).pow(2)
-                # Average loss across all but batch dimension
-                loss = loss.mean(list(range(1, loss.ndim)))
-                # Average loss across batch dimension
-                loss = loss.mean()
-                loss.backward()
-                requires_gradient_step = True
+            # 4. Compute loss & backward pass
+            loss = weights.float() * (pred.float() - target.float()).pow(2)
+            # Average loss across all but batch dimension
+            loss = loss.mean(list(range(1, loss.ndim)))
+            # Average loss across batch dimension
+            loss = loss.mean()
+            if self.args.gradient_accumulation_steps > 1:
+                loss = loss / self.args.gradient_accumulation_steps
+            accumulated_loss += loss
+            loss.backward()
+            requires_gradient_step = True
 
             # 5. Clip gradients
             model_parts = [self.transformer]
@@ -479,32 +477,38 @@ class SFTTrainer:
             )
 
             # 6. Step optimizer & log metrics
+            logs = {}
+
             if train_state.step % self.args.gradient_accumulation_steps == 0:
                 # TODO(aryan): revisit no_sync() for FSDP
                 # TODO(aryan): average the gradients for accumulation?
                 self.optimizer.step()
                 self.lr_scheduler.step()
+                self.optimizer.zero_grad()
+
+                if grad_norm is not None:
+                    logs["grad_norm"] = grad_norm if isinstance(grad_norm, float) else grad_norm.detach().item()
+                if (
+                    parallel_backend.data_replication_enabled
+                    or parallel_backend.data_sharding_enabled
+                    or parallel_backend.context_parallel_enabled
+                ):
+                    accumulated_loss = accumulated_loss.detach()
+                    dp_cp_mesh = parallel_backend.get_mesh("dp_cp")
+                    global_avg_loss, global_max_loss = (
+                        parallel.dist_mean(accumulated_loss, dp_cp_mesh),
+                        parallel.dist_max(accumulated_loss, dp_cp_mesh),
+                    )
+                else:
+                    global_avg_loss = global_max_loss = accumulated_loss.detach().item()
+
+                logs["global_avg_loss"] = global_avg_loss
+                logs["global_max_loss"] = global_max_loss
+                train_state.global_avg_losses.append(global_avg_loss)
+                train_state.global_max_losses.append(global_max_loss)
+                accumulated_loss = 0.0
                 requires_gradient_step = False
 
-            logs = {}
-            if grad_norm is not None:
-                logs["grad_norm"] = grad_norm if isinstance(grad_norm, float) else grad_norm.detach().item()
-            if (
-                parallel_backend.data_replication_enabled
-                or parallel_backend.data_sharding_enabled
-                or parallel_backend.context_parallel_enabled
-            ):
-                loss = loss.detach()
-                dp_cp_mesh = parallel_backend.get_mesh("dp_cp")
-                global_avg_loss, global_max_loss = (
-                    parallel.dist_mean(loss, dp_cp_mesh),
-                    parallel.dist_max(loss, dp_cp_mesh),
-                )
-            else:
-                global_avg_loss = global_max_loss = loss.detach().item()
-
-            logs["global_avg_loss"] = global_avg_loss
-            logs["global_max_loss"] = global_max_loss
             progress_bar.update(1)
             progress_bar.set_postfix(logs)
 
@@ -526,9 +530,6 @@ class SFTTrainer:
 
                 parallel_backend.log(logs, step=train_state.step)
                 train_state.log_steps.append(train_state.step)
-
-            train_state.global_avg_losses.append(global_avg_loss)
-            train_state.global_max_losses.append(global_max_loss)
 
             # 7. Save checkpoint if required
             self.checkpointer.save(

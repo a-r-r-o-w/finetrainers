@@ -11,6 +11,7 @@ from torch.distributed.checkpoint.state_dict import (
 from torch.distributed.checkpoint.stateful import Stateful
 
 from .parallel import ParallelBackendEnum
+from .utils.import_utils import is_bitsandbytes_available
 
 
 class OptimizerWrapper(Stateful):
@@ -101,6 +102,9 @@ def get_optimizer(
     fused: bool = False,
 ) -> Union[torch.optim.Optimizer, OptimizerWrapper]:
     name = name.lower()
+
+    _raise_errors_if_packages_not_available(name)
+
     if name == "adam":
         optimizer_cls = torch.optim.Adam
         optimizer_kwargs = {
@@ -119,6 +123,47 @@ def get_optimizer(
             "weight_decay": weight_decay,
             "fused": fused,
         }
+    elif name == "adam-bnb":
+        from bitsandbytes.optim import Adam
+
+        optimizer_cls = Adam
+        optimizer_kwargs = {
+            "lr": learning_rate,
+            "betas": (beta1, beta2),
+            "eps": epsilon,
+            "weight_decay": weight_decay,
+        }
+    elif name == "adamw-bnb":
+        from bitsandbytes.optim import AdamW
+
+        optimizer_cls = AdamW
+        optimizer_kwargs = {
+            "lr": learning_rate,
+            "betas": (beta1, beta2),
+            "eps": epsilon,
+            "weight_decay": weight_decay,
+        }
+    elif name == "adam-bnb-8bit":
+        from bitsandbytes.optim import Adam8bit
+
+        optimizer_cls = Adam8bit
+        optimizer_kwargs = {
+            "lr": learning_rate,
+            "betas": (beta1, beta2),
+            "eps": epsilon,
+            "weight_decay": weight_decay,
+        }
+    elif name == "adamw-bnb-8bit":
+        from bitsandbytes.optim import AdamW8bit
+
+        optimizer_cls = AdamW8bit
+        optimizer_kwargs = {
+            "lr": learning_rate,
+            "betas": (beta1, beta2),
+            "eps": epsilon,
+            "weight_decay": weight_decay,
+        }
+
     # TODO(aryan): handle bitsandbytes and torchao
     else:
         raise ValueError(f"Unsupported optimizer: {name}")
@@ -390,3 +435,15 @@ def get_polynomial_decay_schedule_with_warmup(
             return decay / lr_init  # as LambdaLR multiplies by lr_init
 
     return lr_lambda
+
+
+def _raise_errors_if_packages_not_available(name: str) -> None:
+    name_split = name.split("-")
+    if len(name_split) < 2:
+        return
+    package_name = name_split[1]
+    if package_name == "bnb":
+        if not is_bitsandbytes_available():
+            raise ImportError(
+                f"Please install bitsandbytes by running `pip install bitsandbytes` to use the {name} optimizer."
+            )

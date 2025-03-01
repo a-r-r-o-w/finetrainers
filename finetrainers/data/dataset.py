@@ -392,7 +392,7 @@ class IterableDatasetPreprocessingWrapper(
         id_token: Optional[str] = None,
         image_resolution_buckets: List[Tuple[int, int]] = None,
         video_resolution_buckets: List[Tuple[int, int, int]] = None,
-        reshape_mode: str = "lanczos",
+        reshape_mode: str = "bicubic",
         remove_common_llm_caption_prefixes: bool = False,
         **kwargs,
     ):

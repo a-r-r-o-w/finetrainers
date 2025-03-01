@@ -21,7 +21,7 @@ def resize_crop_video(video: torch.Tensor, size: Tuple[int, int]) -> torch.Tenso
     return center_crop_video(video, size)
 
 
-def lanczos_resize_video(video: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
+def bicubic_resize_video(video: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
     num_frames, num_channels, height, width = video.shape
     video = F.interpolate(video, size=size, mode="bicubic", align_corners=False)
     return video
@@ -50,7 +50,7 @@ def find_nearest_video_resolution(
 def resize_to_nearest_bucket_video(
     video: torch.Tensor,
     resolution_buckets: List[Tuple[int, int, int]],
-    resize_mode: Literal["center_crop", "resize_crop", "lanczos"] = "lanczos",
+    resize_mode: Literal["center_crop", "resize_crop", "bicubic"] = "bicubic",
 ) -> torch.Tensor:
     """
     Resizes a video tensor to the nearest resolution bucket using the specified mode.
@@ -64,7 +64,7 @@ def resize_to_nearest_bucket_video(
         resolution_buckets (`List[Tuple[int, int, int]]`):
             Available (num_frames, height, width) resolution buckets.
         resize_mode (`str`):
-            One of ["center_crop", "resize_crop", "lanczos"].
+            One of ["center_crop", "resize_crop", "bicubic"].
 
     Returns:
         `torch.Tensor`:
@@ -88,9 +88,9 @@ def resize_to_nearest_bucket_video(
         return center_crop_video(video, (target_h, target_w))
     elif resize_mode == "resize_crop":
         return resize_crop_video(video, (target_h, target_w))
-    elif resize_mode == "lanczos":
-        return lanczos_resize_video(video, (target_h, target_w))
+    elif resize_mode == "bicubic":
+        return bicubic_resize_video(video, (target_h, target_w))
     else:
         raise ValueError(
-            f"Invalid resize_mode: {resize_mode}. Choose from 'center_crop', 'resize_crop', or 'lanczos'."
+            f"Invalid resize_mode: {resize_mode}. Choose from 'center_crop', 'resize_crop', or 'bicubic'."
         )

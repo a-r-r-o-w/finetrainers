@@ -114,7 +114,7 @@ class BaseArgs:
                 resolution. This parameter must be provided if `dataset_type` is 'video'.
             - "reshape_mode": (`str`)
                 All input images/videos are reshaped using this mode. Choose between the following:
-                ["center_crop", "random_crop", "lanczos"].
+                ["center_crop", "random_crop", "bicubic"].
             - "remove_common_llm_caption_prefixes": (`boolean`)
                 Whether or not to remove common LLM caption prefixes. See `~constants.py` for the list of common prefixes.
     dataset_shuffle_buffer_size (`int`, defaults to `1`):
@@ -196,7 +196,9 @@ class BaseArgs:
     OPTIMIZER ARGUMENTS
     -------------------
     optimizer (`str`, defaults to `adamw`):
-        The optimizer type to use. Choose between ['adam', 'adamw'].
+        The optimizer type to use. Choose between the following:
+            - Torch optimizers: ["adam", "adamw"]
+            - Bitsandbytes optimizers: ["adam-bnb", "adamw-bnb", "adam-bnb-8bit", "adamw-bnb-8bit"]
     lr (`float`, defaults to `1e-4`):
         Initial learning rate (after the potential warmup period) to use.
     lr_scheduler (`str`, defaults to `cosine_with_restarts`):
@@ -666,7 +668,12 @@ def _add_optimizer_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--lr_warmup_steps", type=int, default=500)
     parser.add_argument("--lr_num_cycles", type=int, default=1)
     parser.add_argument("--lr_power", type=float, default=1.0)
-    parser.add_argument("--optimizer", type=lambda s: s.lower(), default="adam", choices=["adam", "adamw"])
+    parser.add_argument(
+        "--optimizer",
+        type=lambda s: s.lower(),
+        default="adam",
+        choices=["adam", "adamw", "adam-bnb", "adamw-bnb", "adam-bnb-8bit", "adamw-bnb-8bit"],
+    )
     parser.add_argument("--beta1", type=float, default=0.9)
     parser.add_argument("--beta2", type=float, default=0.95)
     parser.add_argument("--beta3", type=float, default=None)

@@ -84,8 +84,10 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
         dp_mesh = self.get_mesh("dp_replicate")
         if dp_mesh is None:
             dp_mesh = self.get_mesh()
-        dp_local_rank = dp_mesh.get_local_rank()
-        dp_world_size = dp_mesh.size()
+        if self.world_size > 1:
+            dp_local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
+        else:
+            dp_local_rank, dp_world_size = 0, 1
         dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, dp_local_rank, dp_world_size)
         logger.debug("PytorchDTensorParallelBackend::prepare_dataset completed!")
         return dataset
@@ -96,7 +98,10 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
         dp_mesh = self.get_mesh("dp_replicate")
         if dp_mesh is None:
             dp_mesh = self.get_mesh()
-        dp_local_rank = dp_mesh.get_local_rank()
+        if self.world_size > 1:
+            dp_local_rank = dp_mesh.get_local_rank()
+        else:
+            dp_local_rank = 0
         dataloader = DPDataLoader(dp_local_rank, dataset, batch_size=batch_size, num_workers=num_workers)
         logger.debug("PytorchDTensorParallelBackend::prepare_dataloader completed!")
         return dataloader

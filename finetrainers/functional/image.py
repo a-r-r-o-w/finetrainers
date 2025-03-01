@@ -21,7 +21,7 @@ def resize_crop_image(image: torch.Tensor, size: Tuple[int, int]) -> torch.Tenso
     return center_crop_image(image, size)
 
 
-def lanczos_resize_image(image: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
+def bicubic_resize_image(image: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
     return F.interpolate(image, size=size, mode="bicubic", align_corners=False)
 
 
@@ -38,7 +38,7 @@ def find_nearest_resolution_image(image: torch.Tensor, resolution_buckets: List[
 def resize_to_nearest_bucket_image(
     image: torch.Tensor,
     resolution_buckets: List[Tuple[int, int]],
-    resize_mode: Literal["center_crop", "resize_crop", "lanczos"] = "lanczos",
+    resize_mode: Literal["center_crop", "resize_crop", "bicubic"] = "bicubic",
 ) -> torch.Tensor:
     target_size = find_nearest_resolution_image(image, resolution_buckets)
 
@@ -46,9 +46,9 @@ def resize_to_nearest_bucket_image(
         return center_crop_image(image, target_size)
     elif resize_mode == "resize_crop":
         return resize_crop_image(image, target_size)
-    elif resize_mode == "lanczos":
-        return lanczos_resize_image(image, target_size)
+    elif resize_mode == "bicubic":
+        return bicubic_resize_image(image, target_size)
     else:
         raise ValueError(
-            f"Invalid resize_mode: {resize_mode}. Choose from 'center_crop', 'resize_crop', or 'lanczos'."
+            f"Invalid resize_mode: {resize_mode}. Choose from 'center_crop', 'resize_crop', or 'bicubic'."
         )
