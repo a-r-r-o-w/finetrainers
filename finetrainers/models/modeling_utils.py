@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from diffusers import DiffusionPipeline
@@ -71,6 +71,13 @@ class ModelSpecification:
         self.vae_config: Dict[str, Any] = None
 
         self._load_configs()
+
+    # TODO(aryan): revisit how to do this better without user having to worry about it
+    @property
+    def _resolution_dim_keys(self) -> Dict[str, Tuple[int, ...]]:
+        raise NotImplementedError(
+            f"ModelSpecification::_resolution_dim_keys is not implemented for {self.__class__.__name__}"
+        )
 
     def load_condition_models(self) -> Dict[str, torch.nn.Module]:
         raise NotImplementedError(

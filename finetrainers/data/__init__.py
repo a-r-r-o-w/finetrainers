@@ -8,7 +8,10 @@ from .dataset import (
     VideoCaptionFileDataset,
     VideoFolderDataset,
     VideoWebDataset,
+    combine_datasets,
     initialize_dataset,
+    wrap_iterable_dataset_for_preprocessing,
 )
 from .precomputation import DistributedDataPreprocessor, PreprocessedDataIterable
+from .sampler import ResolutionSampler
 from .utils import find_files

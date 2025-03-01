@@ -1,12 +1,12 @@
 import argparse
 import os
+import pathlib
 import sys
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional
 
 import torch
 
 from .config import SUPPORTED_MODEL_CONFIGS, ModelType, TrainingType
-from .constants import DEFAULT_IMAGE_RESOLUTION_BUCKETS, DEFAULT_VIDEO_RESOLUTION_BUCKETS
 from .logging import get_logger
 from .parallel import ParallelBackendEnum
 from .utils import get_non_null_items
@@ -90,32 +90,36 @@ class BaseArgs:
 
     DATASET ARGUMENTS
     -----------------
-    data_root (`str`):
-        A folder containing the training data.
-    dataset_file (`str`, defaults to `None`):
-        Path to a CSV/JSON/JSONL file containing metadata for training. This should be provided if you're not using
-        a directory dataset format containing a simple `prompts.txt` and `videos.txt`/`images.txt` for example.
-    video_column (`str`):
-        The column of the dataset containing videos. Or, the name of the file in `data_root` folder containing the
-        line-separated path to video data.
-    caption_column (`str`):
-        The column of the dataset containing the instance prompt for each video. Or, the name of the file in
-        `data_root` folder containing the line-separated instance prompts.
-    id_token (`str`, defaults to `None`):
-        Identifier token appended to the start of each prompt if provided. This is useful for LoRA-type training.
-    image_resolution_buckets (`List[Tuple[int, int]]`, defaults to `None`):
-        Resolution buckets for images. This should be a list of integer tuples, where each tuple represents the
-        resolution (height, width) of the image. All images will be resized to the nearest bucket resolution.
-    video_resolution_buckets (`List[Tuple[int, int, int]]`, defaults to `None`):
-        Resolution buckets for videos. This should be a list of integer tuples, where each tuple represents the
-        resolution (num_frames, height, width) of the video. All videos will be resized to the nearest bucket
-        resolution.
-    video_reshape_mode (`str`, defaults to `None`):
-        All input videos are reshaped to this mode. Choose between ['center', 'random', 'none'].
-        TODO(aryan): We don't support this.
-    remove_common_llm_caption_prefixes (`bool`, defaults to `False`):
-        Whether or not to remove common LLM caption prefixes. This is useful for improving the quality of the
-        generated text.
+    dataset_config (`str`):
+        File to a dataset file containing information about training data. This file can contain information about one or
+        more datasets in JSON format. The file must have a key called "datasets", which is a list of dictionaries. Each
+        dictionary must contain the following keys:
+            - "data_root": (`str`)
+                The root directory containing the dataset. This parameter must be provided if `dataset_file` is not provided.
+            - "dataset_file": (`str`)
+                Path to a CSV/JSON/JSONL/PARQUET/ARROW/HF_HUB_DATASET file containing metadata for training. This parameter
+                must be provided if `data_root` is not provided.
+            - "dataset_type": (`str`)
+                Type of dataset. Choose between ['image', 'video'].
+            - "id_token": (`str`)
+                Identifier token appended to the start of each prompt if provided. This is useful for LoRA-type training
+                for single subject/concept/style training, but is not necessary.
+            - "image_resolution_buckets": (`List[Tuple[int, int]]`)
+                Resolution buckets for image. This should be a list of tuples containing 2 values, where each tuple
+                represents the resolution (height, width). All images will be resized to the nearest bucket resolution.
+                This parameter must be provided if `dataset_type` is 'image'.
+            - "video_resolution_buckets": (`List[Tuple[int, int, int]]`)
+                Resolution buckets for video. This should be a list of tuples containing 3 values, where each tuple
+                represents the resolution (num_frames, height, width). All videos will be resized to the nearest bucket
+                resolution. This parameter must be provided if `dataset_type` is 'video'.
+            - "reshape_mode": (`str`)
+                All input images/videos are reshaped using this mode. Choose between the following:
+                ["center_crop", "random_crop", "lanczos"].
+            - "remove_common_llm_caption_prefixes": (`boolean`)
+                Whether or not to remove common LLM caption prefixes. See `~constants.py` for the list of common prefixes.
+    dataset_shuffle_buffer_size (`int`, defaults to `1`):
+        The buffer size for shuffling the dataset. This is useful for shuffling the dataset before training. The default
+        value of `1` means that the dataset will not be shuffled.
     precomputation_items (`int`, defaults to `512`):
         Number of data samples to precompute at once for memory-efficient training. The higher this value,
         the more disk memory will be used to save the precomputed samples (conditions and latents).
@@ -303,17 +307,8 @@ class BaseArgs:
     ]
 
     # Dataset arguments
-    data_root: str = None
-    dataset_file: Optional[str] = None
-    # TODO(aryan): these might not be needed ====
-    video_column: str = None
-    caption_column: str = None
-    id_token: Optional[str] = None
-    image_resolution_buckets: List[Tuple[int, int]] = None
-    video_resolution_buckets: List[Tuple[int, int, int]] = None
-    video_reshape_mode: Optional[str] = None
-    remove_common_llm_caption_prefixes: bool = False
-    # ===========================================
+    dataset_config: str = None
+    dataset_shuffle_buffer_size: int = 1
     precomputation_items: int = 512
     precomputation_dir: Optional[str] = None
 
@@ -415,15 +410,8 @@ class BaseArgs:
         model_arguments = get_non_null_items(model_arguments)
 
         dataset_arguments = {
-            "data_root": self.data_root,
-            "dataset_file": self.dataset_file,
-            "video_column": self.video_column,
-            "caption_column": self.caption_column,
-            "id_token": self.id_token,
-            "image_resolution_buckets": self.image_resolution_buckets,
-            "video_resolution_buckets": self.video_resolution_buckets,
-            "video_reshape_mode": self.video_reshape_mode,
-            "remove_common_llm_caption_prefixes": self.remove_common_llm_caption_prefixes,
+            "dataset_config": self.dataset_config,
+            "dataset_shuffle_buffer_size": self.dataset_shuffle_buffer_size,
             "precomputation_items": self.precomputation_items,
             "precomputation_dir": self.precomputation_dir,
         }
@@ -572,7 +560,6 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 def _validate_args(args: BaseArgs):
     _validate_model_args(args)
     _validate_dataset_args(args)
-    _validate_training_args(args)
     _validate_validation_args(args)
 
 
@@ -627,32 +614,8 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
-    def parse_resolution_bucket(resolution_bucket: str) -> Tuple[int, ...]:
-        return tuple(map(int, resolution_bucket.split("x")))
-
-    def parse_image_resolution_bucket(resolution_bucket: str) -> Tuple[int, int]:
-        resolution_bucket = parse_resolution_bucket(resolution_bucket)
-        assert (
-            len(resolution_bucket) == 2
-        ), f"Expected 2D resolution bucket, got {len(resolution_bucket)}D resolution bucket"
-        return resolution_bucket
-
-    def parse_video_resolution_bucket(resolution_bucket: str) -> Tuple[int, int, int]:
-        resolution_bucket = parse_resolution_bucket(resolution_bucket)
-        assert (
-            len(resolution_bucket) == 3
-        ), f"Expected 3D resolution bucket, got {len(resolution_bucket)}D resolution bucket"
-        return resolution_bucket
-
-    parser.add_argument("--data_root", type=str, required=True)
-    parser.add_argument("--dataset_file", type=str, default=None)
-    parser.add_argument("--video_column", type=str, default="video")
-    parser.add_argument("--caption_column", type=str, default="text")
-    parser.add_argument("--id_token", type=str, default=None)
-    parser.add_argument("--image_resolution_buckets", type=parse_image_resolution_bucket, default=None, nargs="+")
-    parser.add_argument("--video_resolution_buckets", type=parse_video_resolution_bucket, default=None, nargs="+")
-    parser.add_argument("--video_reshape_mode", type=str, default=None)
-    parser.add_argument("--remove_common_llm_caption_prefixes", action="store_true")
+    parser.add_argument("--dataset_config", type=str, required=True)
+    parser.add_argument("--dataset_shuffle_buffer_size", type=int, default=1)
     parser.add_argument("--precomputation_items", type=int, default=512)
     parser.add_argument("--precomputation_dir", type=str, default=None)
 
@@ -781,18 +744,8 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.layerwise_upcasting_skip_modules_pattern = args.layerwise_upcasting_skip_modules_pattern
 
     # Dataset arguments
-    if args.data_root is None and args.dataset_file is None:
-        raise ValueError("At least one of `data_root` or `dataset_file` should be provided.")
-
-    result_args.data_root = args.data_root
-    result_args.dataset_file = args.dataset_file
-    result_args.video_column = args.video_column
-    result_args.caption_column = args.caption_column
-    result_args.id_token = args.id_token
-    result_args.image_resolution_buckets = args.image_resolution_buckets or DEFAULT_IMAGE_RESOLUTION_BUCKETS
-    result_args.video_resolution_buckets = args.video_resolution_buckets or DEFAULT_VIDEO_RESOLUTION_BUCKETS
-    result_args.video_reshape_mode = args.video_reshape_mode
-    result_args.remove_common_llm_caption_prefixes = args.remove_common_llm_caption_prefixes
+    result_args.dataset_config = args.dataset_config
+    result_args.dataset_shuffle_buffer_size = args.dataset_shuffle_buffer_size
     result_args.precomputation_items = args.precomputation_items
     result_args.precomputation_dir = args.precomputation_dir or os.path.join(args.output_dir, "precomputed")
 
@@ -870,11 +823,13 @@ def _validate_model_args(args: BaseArgs):
 
 
 def _validate_dataset_args(args: BaseArgs):
-    assert args.precomputation_items % args.batch_size == 0, "Precomputation items should be divisible by batch size"
-
-
-def _validate_training_args(args: BaseArgs):
-    pass
+    dataset_config = pathlib.Path(args.dataset_config)
+    if not dataset_config.exists():
+        raise ValueError(f"Dataset config file {args.dataset_config} does not exist.")
+    if args.dataset_shuffle_buffer_size < 1:
+        raise ValueError("Dataset shuffle buffer size must be greater than 0.")
+    if args.precomputation_items < 1:
+        raise ValueError("Precomputation items must be greater than 0.")
 
 
 def _validate_validation_args(args: BaseArgs):

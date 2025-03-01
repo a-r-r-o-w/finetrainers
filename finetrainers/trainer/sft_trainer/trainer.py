@@ -1,4 +1,5 @@
 import json
+import math
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
@@ -243,15 +244,31 @@ class SFTTrainer:
     def _prepare_dataset(self) -> None:
         logger.info("Initializing dataset and dataloader")
 
-        # TODO(aryan): allow multiple dataset, shuffling, configurability
-        dataset = data.initialize_dataset(self.args.data_root, dataset_type="video", streaming=True, infinite=True)
+        with open(self.args.dataset_config, "r") as file:
+            dataset_configs = json.load(file)["datasets"]
+        logger.info(f"Training configured to use {len(dataset_configs)} datasets")
 
-        self.dataset, self.dataloader = self.state.parallel_backend.prepare_dataset(
-            dataset,
-            batch_size=1,
-            num_workers=self.args.dataloader_num_workers,
-            pin_memory=self.args.pin_memory,
+        datasets = []
+        for config in dataset_configs:
+            data_root = config.pop("data_root", None)
+            dataset_file = config.pop("dataset_file", None)
+            if data_root is not None and dataset_file is not None:
+                raise ValueError("Both data_root and dataset_file cannot be provided in the same dataset config.")
+            dataset_name_or_root = data_root or dataset_file
+            dataset_type = config.pop("dataset_type")
+            dataset = data.initialize_dataset(dataset_name_or_root, dataset_type, streaming=True, infinite=True)
+            logger.info(f"Initialized dataset: {dataset_name_or_root}")
+            dataset = self.state.parallel_backend.prepare_dataset(dataset)
+            dataset = data.wrap_iterable_dataset_for_preprocessing(dataset, dataset_type, config)
+            datasets.append(dataset)
+
+        dataset = data.combine_datasets(datasets, buffer_size=self.args.dataset_shuffle_buffer_size, shuffle=True)
+        dataloader = self.state.parallel_backend.prepare_dataloader(
+            dataset, batch_size=1, num_workers=self.args.dataloader_num_workers, pin_memory=self.args.pin_memory
         )
+
+        self.dataset = dataset
+        self.dataloader = dataloader
 
     def _prepare_checkpointing(self) -> None:
         parallel_backend = self.state.parallel_backend
@@ -319,6 +336,17 @@ class SFTTrainer:
             generator = generator.manual_seed(self.args.seed)
         self.state.generator = generator
 
+        patch_size = 1
+        if (
+            getattr(self.transformer.config, "patch_size", None) is not None
+            and getattr(self.transformer.config, "patch_size_t", None) is not None
+        ):
+            patch_size = self.transformer.config.patch_size * self.transformer.config.patch_size_t
+        elif isinstance(getattr(self.transformer.config, "patch_size", None), int):
+            patch_size = self.transformer.config.patch_size
+        elif isinstance(getattr(self.transformer.config, "patch_size", None), (list, tuple)):
+            patch_size = math.prod(self.transformer.config.patch_size)
+
         scheduler_sigmas = utils.get_scheduler_sigmas(self.scheduler)
         scheduler_sigmas = (
             scheduler_sigmas.to(device=device, dtype=torch.float32) if scheduler_sigmas is not None else None
@@ -343,6 +371,9 @@ class SFTTrainer:
         )
         precomputed_condition_iterator: Iterable[Dict[str, Any]] = None
         precomputed_latent_iterator: Iterable[Dict[str, Any]] = None
+        sampler = data.ResolutionSampler(
+            batch_size=self.args.batch_size, dim_keys=self.model_specification._resolution_dim_keys
+        )
         requires_gradient_step = True
 
         while (
@@ -350,20 +381,21 @@ class SFTTrainer:
         ):
             # 1. Load & preprocess data if required
             if preprocessor.requires_data:
+                # TODO(aryan): We should do the following here:
+                # - Force checkpoint the trainable models, optimizers, schedulers and train state
+                # - Do the precomputation
+                # - Load the checkpointed models, optimizers, schedulers and train state back, and continue training
+                # This way we can be more memory efficient again, since the latest rewrite of precomputation removed
+                # this logic.
                 precomputed_condition_iterator, precomputed_latent_iterator = self._prepare_data(
                     preprocessor, data_iterator
                 )
 
             # 2. Prepare batch
             try:
-                latent_batch, condition_batch = [], []
-                for _ in range(self.args.batch_size):
-                    condition_item = next(precomputed_condition_iterator)
-                    latent_item = next(precomputed_latent_iterator)
-                    latent_batch.append(latent_item)
-                    condition_batch.append(condition_item)
-                condition_model_conditions = self.model_specification.collate_conditions(condition_batch)
-                latent_model_conditions = self.model_specification.collate_latents(latent_batch)
+                condition_item = next(precomputed_condition_iterator)
+                latent_item = next(precomputed_latent_iterator)
+                sampler.consume(condition_item, latent_item)
             except StopIteration:
                 if requires_gradient_step:
                     self.optimizer.step()
@@ -372,8 +404,16 @@ class SFTTrainer:
                 logger.info("Data exhausted. Exiting training loop.")
                 break
 
+            if sampler.is_ready:
+                condition_batch, latent_batch = sampler.get_batch()
+                condition_model_conditions = self.model_specification.collate_conditions(condition_batch)
+                latent_model_conditions = self.model_specification.collate_latents(latent_batch)
+            else:
+                continue
+
             train_state.step += 1
             train_state.observed_data_samples += self.args.batch_size * parallel_backend._dp_degree
+            train_state.observed_num_tokens += latent_model_conditions["latents"].numel() // patch_size
 
             logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
             self.optimizer.zero_grad()
@@ -441,6 +481,7 @@ class SFTTrainer:
             # 6. Step optimizer & log metrics
             if train_state.step % self.args.gradient_accumulation_steps == 0:
                 # TODO(aryan): revisit no_sync() for FSDP
+                # TODO(aryan): average the gradients for accumulation?
                 self.optimizer.step()
                 self.lr_scheduler.step()
                 requires_gradient_step = False
@@ -479,6 +520,9 @@ class SFTTrainer:
                 #     timesteps_table, "step", "timesteps", title="Timesteps distribution"
                 # )
                 timesteps_buffer = []
+
+                logs["observed_data_samples"] = train_state.observed_data_samples
+                logs["observed_num_tokens"] = train_state.observed_num_tokens
 
                 parallel_backend.log(logs, step=train_state.step)
                 train_state.log_steps.append(train_state.step)

@@ -1,7 +1,7 @@
 import datetime
 import os
 import pathlib
-from typing import Optional, Tuple
+from typing import Optional
 
 import datasets.distributed
 import torch
@@ -80,23 +80,29 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
         logger.debug("Applied PytorchDTensorParallel::apply_ddp to model.")
         return model
 
-    def prepare_dataset(
-        self,
-        dataset: torch.utils.data.IterableDataset,
-        batch_size: int = 1,
-        num_workers: int = 0,
-        pin_memory: bool = False,
-    ) -> Tuple[torch.utils.data.IterableDataset, DPDataLoader]:
+    def prepare_dataset(self, dataset: torch.utils.data.IterableDataset) -> torch.utils.data.IterableDataset:
         dp_mesh = self.get_mesh("dp_replicate")
         if dp_mesh is None:
             dp_mesh = self.get_mesh()
         dp_local_rank = dp_mesh.get_local_rank()
         dp_world_size = dp_mesh.size()
         dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, dp_local_rank, dp_world_size)
-        dataloader = DPDataLoader(self.local_rank, dataset, batch_size=batch_size, num_workers=num_workers)
-        return dataset, dataloader
+        logger.debug("PytorchDTensorParallelBackend::prepare_dataset completed!")
+        return dataset
+
+    def prepare_dataloader(
+        self, dataset: torch.utils.data.IterableDataset, batch_size: int, num_workers: int, pin_memory: bool
+    ) -> DPDataLoader:
+        dp_mesh = self.get_mesh("dp_replicate")
+        if dp_mesh is None:
+            dp_mesh = self.get_mesh()
+        dp_local_rank = dp_mesh.get_local_rank()
+        dataloader = DPDataLoader(dp_local_rank, dataset, batch_size=batch_size, num_workers=num_workers)
+        logger.debug("PytorchDTensorParallelBackend::prepare_dataloader completed!")
+        return dataloader
 
     def prepare_optimizer(self, optimizer, lr_scheduler):
+        logger.debug("PytorchDTensorParallelBackend::prepare_optimizer completed!")
         return optimizer, lr_scheduler
 
     def get_mesh(self, name: Optional[str] = None) -> torch.distributed.DeviceMesh:

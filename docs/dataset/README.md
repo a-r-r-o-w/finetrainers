@@ -1,7 +1,5 @@
 # Dataset
 
-TODO(aryan): requires rewrite. Also need to handle `caption_column` correctly. Need ot mention that `file_name` is a must for CSV/JSON/JSONL formats for `datasets` to be able to map correctly.
-
 ## Training Dataset Format
 
 Dataset loading format support is very limited at the moment. This will be improved in the future. For now, we support the following formats:
@@ -171,3 +169,21 @@ Must contain "data" field, which should be a list of dictionaries. Each dictiona
 ```
 
 </details>
+
+## Understanding how datasets are loaded
+
+For memory efficient training, it is important to precompute conditional and latent embeddings. If this is not done, we will need to keep the conditioning models in memory, which can be memory intensive. To avoid this, we implement some abstractions that allow us to do the following efficiently:
+- Loading datasets
+- Chaining multiple datasets together
+- Splitting datasets across data replicas
+- Preprocessing datasets to user-configured resolution buckets
+- Precomputing embeddings without exhaustively using too much disk space
+
+The following is a high-level overview of how datasets are loaded and preprocessed:
+
+- Initially, the dataset is lazy loaded using the HF `datasets` library. Every dataset is loaded in streaming and infinite mode. This means that the dataset will be loaded indefinitely until some end conditions (e.g. user-configured training steps is completed). Users can chain together multiple datasets too! For example, if you only have high resolution data available, but want to perform multi-resolution training at certain lower resolutions too, you would have to perform the resizing manually and chain the data together. Finetrainers makes this easier by allowing you to specify multiple different, or same, datasets with different resolutions.
+- The dataset is split across data replicas (GPUs groups that perform data parallelism). Each data replica will have a non-overlapping subset of the overall dataset.
+- If multiple datasets have been provided, they will be chained together. Shuffling can also be done to ensure better dataset regularization. This is done by shuffling the iterable datasets in a buffer of user-configured `--dataset_shuffle_buffer_size`. For small datasets, it is recommended to not shuffle and use the default value of `1`. For larger datasets, there is a significant overhead the higher this value is set to, so it is recommended to keep it low (< 1000) [this is because we store the data in memory in a not-so-clever way yet].
+- The dataset is preprocessed to the user-configured resolution buckets. This is done by resizing the images/videos to the specified resolution buckets. This is also necessary for collation when using batch_size > 1.
+- The dataset is precomputed for embeddings and stored to disk. This is done in batches of user-configured `--precompute_batch_size`. This is done to avoid exhausting disk space. The smaller this value, the more number of times conditioning models will be loaded upon precomputation exhaustion. The larger this value, the more disk space will be used.
+- When data points are required for training, they are loaded from disk on the main process and dispatched to data replicas. [TODO: this needs some improvements to speedup training eventually]

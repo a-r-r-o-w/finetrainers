@@ -17,3 +17,10 @@ def dropout_embeddings_to_zero(embed: torch.Tensor, dropout_p: float = 0) -> tor
         return embed
     embed = torch.zeros_like(embed)
     return embed
+
+
+def remove_prefix(text: str, prefixes: List[str]) -> str:
+    for prefix in prefixes:
+        if text.startswith(prefix):
+            return text.removeprefix(prefix).strip()
+    return text

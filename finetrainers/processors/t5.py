@@ -13,8 +13,8 @@ class T5Processor(ProcessorMixin):
 
     Args:
         output_names (`List[str]`):
-            The names of the outputs that the processor returns. The first output is the embeddings of the input text
-            and the second output is the attention mask for the input text.
+            The names of the outputs that the processor should return. The first output is the embeddings of the input
+            text and the second output is the attention mask for the input text.
     """
 
     def __init__(self, output_names: List[str]):

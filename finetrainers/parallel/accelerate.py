@@ -1,6 +1,6 @@
 import datetime
 import pathlib
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
 from diffusers.utils import is_accelerate_available
@@ -96,18 +96,23 @@ class AccelerateParallelBackend(BaseParallelBackend):
         logger.debug("Applied AccelerateParallel::apply_ddp to model.")
         return model
 
-    def prepare_dataset(
+    def prepare_dataset(self, dataset: torch.utils.data.IterableDataset) -> torch.utils.data.IterableDataset:
+        logger.debug("AccelerateParallelBackend::prepare_dataset completed!")
+        return dataset
+
+    def prepare_dataloader(
         self,
         dataset: torch.utils.data.IterableDataset,
         batch_size: int = 1,
         num_workers: int = 0,
         pin_memory: bool = False,
-    ) -> Tuple[torch.utils.data.IterableDataset, DataLoader]:
+    ) -> DataLoader:
         dataloader = torch.utils.data.DataLoader(
             dataset, batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory
         )
         dataloader = self._accelerator.prepare_data_loader(dataloader)
-        return dataset, dataloader
+        logger.debug("AccelerateParallelBackend::prepare_dataloader completed!")
+        return dataloader
 
     def prepare_optimizer(self, optimizer, lr_scheduler):
         optimizer = self._accelerator.prepare_optimizer(optimizer)

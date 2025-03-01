@@ -20,11 +20,6 @@ There are various algorithms for parallel training. Currently, we only support:
 - [HSDP](https://pytorch.org/docs/stable/fsdp.html)
 - [TP](https://pytorch.org/docs/stable/distributed.tensor.parallel.html)
 
-| Backend    | DDP | FSDP1 | FSDP2 | HSDP | TP  |
-|------------|-----|-------|-------|------|-----|
-| PTD        | 🤗 | 😡 | 🤗 | 🤗 | 🤗 |
-| Accelerate | 🤗 | 😡 | 😡 | 😡 | 😡 |
-
 ## Training
 
 The following parameters are relevant for launching training:

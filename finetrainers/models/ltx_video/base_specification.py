@@ -118,6 +118,12 @@ class LTXVideoModelSpecification(ModelSpecification):
         self.condition_model_processors = condition_model_processors
         self.latent_model_processors = latent_model_processors
 
+    @property
+    def _resolution_dim_keys(self):
+        return {
+            "latents": (2, 3, 4),
+        }
+
     def load_condition_models(self) -> Dict[str, torch.nn.Module]:
         if self.tokenizer_id is not None:
             tokenizer = AutoTokenizer.from_pretrained(

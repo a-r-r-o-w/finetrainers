@@ -1,4 +1,6 @@
 import pathlib
+import random
+from typing import Any, Dict, List, Optional, Tuple
 
 import datasets
 import datasets.data_files
@@ -11,6 +13,7 @@ import torch.distributed.checkpoint.stateful
 from diffusers.utils import load_image, load_video
 
 from .. import constants
+from .. import functional as FF
 from ..logging import get_logger
 from . import utils
 
@@ -379,6 +382,97 @@ class ValidationDataset(torch.utils.data.IterableDataset):
             yield sample
 
 
+class IterableDatasetPreprocessingWrapper(
+    torch.utils.data.IterableDataset, torch.distributed.checkpoint.stateful.Stateful
+):
+    def __init__(
+        self,
+        dataset: torch.utils.data.IterableDataset,
+        dataset_type: str,
+        id_token: Optional[str] = None,
+        image_resolution_buckets: List[Tuple[int, int]] = None,
+        video_resolution_buckets: List[Tuple[int, int, int]] = None,
+        reshape_mode: str = "lanczos",
+        remove_common_llm_caption_prefixes: bool = False,
+        **kwargs,
+    ):
+        super().__init__()
+
+        self.dataset = dataset
+        self.dataset_type = dataset_type
+        self.id_token = id_token
+        self.image_resolution_buckets = image_resolution_buckets
+        self.video_resolution_buckets = video_resolution_buckets
+        self.reshape_mode = reshape_mode
+        self.remove_common_llm_caption_prefixes = remove_common_llm_caption_prefixes
+
+    def __iter__(self):
+        for sample in iter(self.dataset):
+            if self.dataset_type == "image":
+                if self.image_resolution_buckets:
+                    sample["image"] = FF.resize_to_nearest_bucket_image(
+                        sample["image"], self.image_resolution_buckets, self.reshape_mode
+                    )
+            elif self.dataset_type == "video":
+                if self.video_resolution_buckets:
+                    sample["video"] = FF.resize_to_nearest_bucket_video(
+                        sample["video"], self.video_resolution_buckets, self.reshape_mode
+                    )
+
+            if self.remove_common_llm_caption_prefixes:
+                sample["caption"] = FF.remove_prefix(sample["caption"], constants.COMMON_LLM_START_PHRASES)
+
+            if self.id_token is not None:
+                sample["caption"] = f"{self.id_token} {sample['caption']}"
+
+            yield sample
+
+    def load_state_dict(self, state_dict):
+        self.dataset.load_state_dict(state_dict["dataset"])
+
+    def state_dict(self):
+        return {"dataset": self.dataset.state_dict()}
+
+
+class IterableCombinedDataset(torch.utils.data.IterableDataset, torch.distributed.checkpoint.stateful.Stateful):
+    def __init__(self, datasets: List[torch.utils.data.IterableDataset], buffer_size: int, shuffle: bool = False):
+        super().__init__()
+
+        self.datasets = datasets
+        self.buffer_size = buffer_size
+        self.shuffle = shuffle
+
+    def __iter__(self):
+        iterators = [iter(dataset) for dataset in self.datasets]
+        buffer = []
+        per_iter = max(1, self.buffer_size // len(iterators))
+
+        for it in iterators:
+            for _ in range(per_iter):
+                try:
+                    buffer.append((it, next(it)))
+                except StopIteration:
+                    continue
+
+        while len(buffer) > 0:
+            idx = 0
+            if self.shuffle:
+                idx = random.randint(0, len(buffer) - 1)
+            current_it, sample = buffer.pop(idx)
+            yield sample
+            try:
+                buffer.append((current_it, next(current_it)))
+            except StopIteration:
+                pass
+
+    def load_state_dict(self, state_dict):
+        for dataset, dataset_state_dict in zip(self.datasets, state_dict["datasets"]):
+            dataset.load_state_dict(dataset_state_dict)
+
+    def state_dict(self):
+        return {"datasets": [dataset.state_dict() for dataset in self.datasets]}
+
+
 # TODO(aryan): maybe write a test for this
 def initialize_dataset(
     dataset_name_or_root: str, dataset_type: str = "video", streaming: bool = True, infinite: bool = False
@@ -420,6 +514,18 @@ def initialize_dataset(
             dataset = VideoCaptionFileDataset(root.as_posix())
 
     return dataset
+
+
+def combine_datasets(
+    datasets: List[torch.utils.data.IterableDataset], buffer_size: int, shuffle: bool = False
+) -> torch.utils.data.IterableDataset:
+    return IterableCombinedDataset(datasets=datasets, buffer_size=buffer_size, shuffle=shuffle)
+
+
+def wrap_iterable_dataset_for_preprocessing(
+    dataset: torch.utils.data.IterableDataset, dataset_type: str, config: Dict[str, Any]
+) -> torch.utils.data.IterableDataset:
+    return IterableDatasetPreprocessingWrapper(dataset, dataset_type, **config)
 
 
 def _initialize_webdataset(
