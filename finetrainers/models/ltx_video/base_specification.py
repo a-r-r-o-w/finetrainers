@@ -11,6 +11,7 @@ from diffusers import (
     LTXPipeline,
     LTXVideoTransformer3DModel,
 )
+from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from PIL.Image import Image
 from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Tokenizer
 
@@ -53,6 +54,7 @@ class LTXLatentEncodeProcessor(ProcessorMixin):
         image: Optional[torch.Tensor] = None,
         video: Optional[torch.Tensor] = None,
         generator: Optional[torch.Generator] = None,
+        compute_posterior: bool = True,
     ) -> Dict[str, torch.Tensor]:
         device = vae.device
         dtype = vae.dtype
@@ -64,8 +66,17 @@ class LTXLatentEncodeProcessor(ProcessorMixin):
         video = video.to(device=device, dtype=vae.dtype)
         video = video.permute(0, 2, 1, 3, 4).contiguous()  # [B, F, C, H, W] -> [B, C, F, H, W]
 
-        latents = vae.encode(video).latent_dist.sample(generator=generator)
-        latents = latents.to(dtype=dtype)
+        if compute_posterior:
+            latents = vae.encode(video).latent_dist.sample(generator=generator)
+            latents = latents.to(dtype=dtype)
+        else:
+            if vae.use_slicing and video.shape[0] > 1:
+                encoded_slices = [vae._encode(x_slice) for x_slice in video.split(1)]
+                moments = torch.cat(encoded_slices)
+            else:
+                moments = vae._encode(video)
+            latents = moments.to(dtype=dtype)
+
         _, _, num_frames, height, width = latents.shape
 
         return {
@@ -263,9 +274,17 @@ class LTXVideoModelSpecification(ModelSpecification):
         image: Optional[torch.Tensor] = None,
         video: Optional[torch.Tensor] = None,
         generator: Optional[torch.Generator] = None,
+        compute_posterior: bool = True,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
-        conditions = {"vae": vae, "image": image, "video": video, "generator": generator, **kwargs}
+        conditions = {
+            "vae": vae,
+            "image": image,
+            "video": video,
+            "generator": generator,
+            "compute_posterior": compute_posterior,
+            **kwargs,
+        }
         input_keys = set(conditions.keys())
         conditions = super().prepare_latents(**conditions)
         conditions = {k: v for k, v in conditions.items() if k not in input_keys}
@@ -278,13 +297,20 @@ class LTXVideoModelSpecification(ModelSpecification):
         latent_model_conditions: Dict[str, torch.Tensor],
         sigmas: torch.Tensor,
         generator: Optional[torch.Generator] = None,
+        compute_posterior: bool = True,
         **kwargs,
     ) -> Tuple[torch.Tensor, ...]:
         # TODO(aryan): make this configurable? Should it be?
         first_frame_conditioning_p = 0.1
         min_first_frame_sigma = 0.25
 
-        latents = latent_model_conditions.pop("latents")
+        if compute_posterior:
+            latents = latent_model_conditions.pop("latents")
+        else:
+            posterior = DiagonalGaussianDistribution(latent_model_conditions.pop("latents"))
+            latents = posterior.sample(generator=generator)
+            del posterior
+
         latents_mean = latent_model_conditions.pop("latents_mean")
         latents_std = latent_model_conditions.pop("latents_std")
 

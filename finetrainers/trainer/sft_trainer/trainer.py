@@ -1,3 +1,4 @@
+import functools
 import json
 import math
 import os
@@ -252,11 +253,19 @@ class SFTTrainer:
         for config in dataset_configs:
             data_root = config.pop("data_root", None)
             dataset_file = config.pop("dataset_file", None)
+            dataset_type = config.pop("dataset_type")
+
             if data_root is not None and dataset_file is not None:
                 raise ValueError("Both data_root and dataset_file cannot be provided in the same dataset config.")
+
             dataset_name_or_root = data_root or dataset_file
-            dataset_type = config.pop("dataset_type")
             dataset = data.initialize_dataset(dataset_name_or_root, dataset_type, streaming=True, infinite=True)
+
+            if not dataset._precomputable_once and self.args.precomputation_once:
+                raise ValueError(
+                    f"Dataset {dataset_name_or_root} does not support precomputing all embeddings at once."
+                )
+
             logger.info(f"Initialized dataset: {dataset_name_or_root}")
             dataset = self.state.parallel_backend.prepare_dataset(dataset)
             dataset = data.wrap_iterable_dataset_for_preprocessing(dataset, dataset_type, config)
@@ -365,7 +374,9 @@ class SFTTrainer:
             num_items=self.args.precomputation_items,
             processor_fn={
                 "condition": self.model_specification.prepare_conditions,
-                "latent": self.model_specification.prepare_latents,
+                "latent": functools.partial(
+                    self.model_specification.prepare_latents, compute_posterior=not self.args.precomputation_once
+                ),
             },
             save_dir=self.args.precomputation_dir,
         )
@@ -414,7 +425,9 @@ class SFTTrainer:
 
             train_state.step += 1
             train_state.observed_data_samples += self.args.batch_size * parallel_backend._dp_degree
-            train_state.observed_num_tokens += latent_model_conditions["latents"].numel() // patch_size
+
+            lmc_latents = latent_model_conditions["latents"]
+            train_state.observed_num_tokens += math.prod(lmc_latents.shape[:-1]) // patch_size
 
             logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
 
@@ -444,6 +457,7 @@ class SFTTrainer:
                 condition_model_conditions=condition_model_conditions,
                 latent_model_conditions=latent_model_conditions,
                 sigmas=sigmas,
+                compute_posterior=not self.args.precomputation_once,
             )
 
             timesteps = (sigmas * 1000.0).long()
@@ -463,8 +477,8 @@ class SFTTrainer:
             loss = loss.mean()
             if self.args.gradient_accumulation_steps > 1:
                 loss = loss / self.args.gradient_accumulation_steps
-            accumulated_loss += loss
             loss.backward()
+            accumulated_loss += loss.detach().item()
             requires_gradient_step = True
 
             # 5. Clip gradients
@@ -493,14 +507,13 @@ class SFTTrainer:
                     or parallel_backend.data_sharding_enabled
                     or parallel_backend.context_parallel_enabled
                 ):
-                    accumulated_loss = accumulated_loss.detach()
                     dp_cp_mesh = parallel_backend.get_mesh("dp_cp")
                     global_avg_loss, global_max_loss = (
-                        parallel.dist_mean(accumulated_loss, dp_cp_mesh),
-                        parallel.dist_max(accumulated_loss, dp_cp_mesh),
+                        parallel.dist_mean(torch.tensor([accumulated_loss], device=device), dp_cp_mesh),
+                        parallel.dist_max(torch.tensor([accumulated_loss], device=device), dp_cp_mesh),
                     )
                 else:
-                    global_avg_loss = global_max_loss = accumulated_loss.detach().item()
+                    global_avg_loss = global_max_loss = accumulated_loss
 
                 logs["global_avg_loss"] = global_avg_loss
                 logs["global_max_loss"] = global_max_loss
@@ -862,12 +875,17 @@ class SFTTrainer:
 
     def _prepare_data(self, preprocessor: data.DistributedDataPreprocessor, data_iterator):
         logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
+        if self.args.precomputation_once:
+            consume_fn = preprocessor.consume_once
+        else:
+            consume_fn = preprocessor.consume
+
         condition_components = self.model_specification.load_condition_models()
         component_names = list(condition_components.keys())
         component_modules = list(condition_components.values())
         self._set_components(condition_components)
         self._move_components_to_device(component_modules)
-        precomputed_condition_iterator = preprocessor.consume(
+        precomputed_condition_iterator = consume_fn(
             "condition",
             components=condition_components,
             data_iterator=data_iterator,
@@ -887,7 +905,7 @@ class SFTTrainer:
         component_modules = list(latent_components.values())
         self._set_components(latent_components)
         self._move_components_to_device(component_modules)
-        precomputed_latent_iterator = preprocessor.consume(
+        precomputed_latent_iterator = consume_fn(
             "latent",
             components=latent_components,
             data_iterator=data_iterator,

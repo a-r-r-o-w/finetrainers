@@ -1,11 +1,11 @@
 from ._artifact import ImageArtifact, VideoArtifact
 from .dataloader import DPDataLoader
 from .dataset import (
-    ImageCaptionFileDataset,
+    ImageCaptionFilePairDataset,
     ImageFolderDataset,
     ImageWebDataset,
     ValidationDataset,
-    VideoCaptionFileDataset,
+    VideoCaptionFilePairDataset,
     VideoFolderDataset,
     VideoWebDataset,
     combine_datasets,

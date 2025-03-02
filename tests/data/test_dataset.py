@@ -14,9 +14,9 @@ sys.path.append(str(project_root))
 import decord  # noqa
 
 from finetrainers.data import (  # noqa
-    ImageCaptionFileDataset,
+    ImageCaptionFilePairDataset,
     ImageFolderDataset,
-    VideoCaptionFileDataset,
+    VideoCaptionFilePairDataset,
     VideoFolderDataset,
     VideoWebDataset,
     ValidationDataset,
@@ -38,7 +38,7 @@ class ImageCaptionFileDatasetFastTests(unittest.TestCase):
             Image.new("RGB", (64, 64)).save(data_file.as_posix())
             self.data_files.append((pathlib.Path(self.tmpdir.name) / data_file).as_posix())
 
-        self.dataset = ImageCaptionFileDataset(self.tmpdir.name)
+        self.dataset = ImageCaptionFilePairDataset(self.tmpdir.name)
 
     def tearDown(self):
         self.tmpdir.cleanup()
@@ -109,7 +109,7 @@ class VideoCaptionFileDatasetFastTests(unittest.TestCase):
             export_to_video([Image.new("RGB", (64, 64))] * 4, data_file.as_posix(), fps=2)
             self.data_files.append((pathlib.Path(self.tmpdir.name) / data_file).as_posix())
 
-        self.dataset = VideoCaptionFileDataset(self.tmpdir.name)
+        self.dataset = VideoCaptionFilePairDataset(self.tmpdir.name)
 
     def tearDown(self):
         self.tmpdir.cleanup()

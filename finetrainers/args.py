@@ -126,6 +126,11 @@ class BaseArgs:
     precomputation_dir (`str`, defaults to `None`):
         The directory where the precomputed samples will be stored. If not provided, the precomputed samples
         will be stored in a temporary directory of the output directory.
+    precomputation_once (`bool`, defaults to `False`):
+        Precompute embeddings from all datasets at once before training. This is useful to save time during training
+        with smaller datasets. If set to `False`, will save disk space by precomputing embeddings on-the-fly during
+        training when required. Make sure to set `precomputation_items` to a reasonable value in line with the size
+        of your dataset(s).
 
     DATALOADER_ARGUMENTS
     --------------------
@@ -313,6 +318,7 @@ class BaseArgs:
     dataset_shuffle_buffer_size: int = 1
     precomputation_items: int = 512
     precomputation_dir: Optional[str] = None
+    precomputation_once: bool = False
 
     # Dataloader arguments
     dataloader_num_workers: int = 0
@@ -416,6 +422,7 @@ class BaseArgs:
             "dataset_shuffle_buffer_size": self.dataset_shuffle_buffer_size,
             "precomputation_items": self.precomputation_items,
             "precomputation_dir": self.precomputation_dir,
+            "precomputation_once": self.precomputation_once,
         }
         dataset_arguments = get_non_null_items(dataset_arguments)
 
@@ -620,6 +627,7 @@ def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dataset_shuffle_buffer_size", type=int, default=1)
     parser.add_argument("--precomputation_items", type=int, default=512)
     parser.add_argument("--precomputation_dir", type=str, default=None)
+    parser.add_argument("--precomputation_once", action="store_true")
 
 
 def _add_dataloader_arguments(parser: argparse.ArgumentParser) -> None:
@@ -755,6 +763,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.dataset_shuffle_buffer_size = args.dataset_shuffle_buffer_size
     result_args.precomputation_items = args.precomputation_items
     result_args.precomputation_dir = args.precomputation_dir or os.path.join(args.output_dir, "precomputed")
+    result_args.precomputation_once = args.precomputation_once
 
     # Dataloader arguments
     result_args.dataloader_num_workers = args.dataloader_num_workers
