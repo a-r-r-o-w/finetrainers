@@ -1,0 +1,14 @@
+{
+  "datasets": [
+    {
+      "data_root": "finetrainers/crush-smol",
+      "dataset_type": "video",
+      "id_token": "PIKA_CRUSH",
+      "video_resolution_buckets": [
+        [81, 480, 768]
+      ],
+      "reshape_mode": "bicubic",
+      "remove_common_llm_caption_prefixes": true
+    }
+  ]
+}
