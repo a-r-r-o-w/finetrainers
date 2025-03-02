@@ -658,20 +658,21 @@ class SFTTrainer:
                 if parallel_backend.is_main_process and artifact.file_extension == "mp4":
                     main_process_prompts_to_filenames[PROMPT] = filename
 
+                caption = f"{PROMPT} | (filename: {output_filename})"
                 if artifact.type == "image" and artifact.value is not None:
                     logger.debug(
                         f"Saving image from rank={parallel_backend.rank} to {output_filename}",
                         local_main_process_only=False,
                     )
                     artifact.value.save(output_filename)
-                    all_processes_artifacts.append(wandb.Image(output_filename, caption=PROMPT))
+                    all_processes_artifacts.append(wandb.Image(output_filename, caption=caption))
                 elif artifact.type == "video" and artifact.value is not None:
                     logger.debug(
                         f"Saving video from rank={parallel_backend.rank} to {output_filename}",
                         local_main_process_only=False,
                     )
                     export_to_video(artifact.value, output_filename, fps=EXPORT_FPS)
-                    all_processes_artifacts.append(wandb.Video(output_filename, caption=PROMPT))
+                    all_processes_artifacts.append(wandb.Video(output_filename, caption=caption))
 
         # 3. Cleanup & log artifacts
         parallel_backend.wait_for_everyone()
