@@ -1,8 +1,8 @@
 # finetrainers 🧪
 
-`cogvideox-factory` was renamed to `finetrainers`. If you're looking to train CogVideoX or Mochi with the legacy training scripts, please refer to [this](./training/README.md) README instead. Everything in the `training/` directory will be eventually moved and supported under `finetrainers`.
-
 FineTrainers is a work-in-progress library to support (accessible) training of video models. Our first priority is to support LoRA training for all popular video models in [Diffusers](https://github.com/huggingface/diffusers), and eventually other methods like controlnets, control-loras, distillation, etc.
+
+`cogvideox-factory` was renamed to `finetrainers`. If you're looking to train CogVideoX or Mochi with the legacy training scripts, please refer to [this](./training/README.md) README instead. Everything in the `training/` directory will be eventually moved and supported under `finetrainers`.
 
 <table align="center">
 <tr>
@@ -12,17 +12,20 @@ FineTrainers is a work-in-progress library to support (accessible) training of v
 
 ## News
 
-- 🔥 **2024-01-15**: Support for naive FP8 weight-casting training added! This allows training HunyuanVideo in under 24 GB upto specific resolutions.
-- 🔥 **2024-01-13**: Support for T2V full-finetuning added! Thanks to @ArEnSc for taking up the initiative!
-- 🔥 **2024-01-03**: Support for T2V LoRA finetuning of [CogVideoX](https://huggingface.co/docs/diffusers/main/api/pipelines/cogvideox) added! 
+- 🔥 **2025-02-12**: We have shipped a set of tooling to curate small and high-quality video datasets for fine-tuning. See [datasets](./docs/dataset/README.md) documentation page for details!
+- 🔥 **2025-02-12**: Check out [eisneim/ltx_lora_training_i2v_t2v](https://github.com/eisneim/ltx_lora_training_i2v_t2v/)! It builds off of `finetrainers` to support image to video training for LTX-Video and STG guidance for inference.
+- 🔥 **2025-01-15**: Support for naive FP8 weight-casting training added! This allows training HunyuanVideo in under 24 GB upto specific resolutions.
+- 🔥 **2025-01-13**: Support for T2V full-finetuning added! Thanks to [@ArEnSc](https://github.com/ArEnSc) for taking up the initiative!
+- 🔥 **2025-01-03**: Support for T2V LoRA finetuning of [CogVideoX](https://huggingface.co/docs/diffusers/main/api/pipelines/cogvideox) added!
 - 🔥 **2024-12-20**: Support for T2V LoRA finetuning of [Hunyuan Video](https://huggingface.co/docs/diffusers/main/api/pipelines/hunyuan_video) added! We would like to thank @SHYuanBest for his work on a training script [here](https://github.com/huggingface/diffusers/pull/10254).
 - 🔥 **2024-12-18**: Support for T2V LoRA finetuning of [LTX Video](https://huggingface.co/docs/diffusers/main/api/pipelines/ltx_video) added!
 
 ## Table of Contents
 
-* [Quickstart](#quickstart)
-* [Support Matrix](#support-matrix)
-* [Acknowledgements](#acknowledgements)
+- [Quickstart](#quickstart)
+- [Support Matrix](#support-matrix)
+- [Featured Projects](#featured-projects)
+- [Acknowledgements](#acknowledgements)
 
 ## Quickstart
 
@@ -42,7 +45,7 @@ To get started quickly with example training scripts on the main development bra
 
 The following are some simple datasets/HF orgs with good datasets to test training with quickly:
 - [Disney Video Generation Dataset](https://huggingface.co/datasets/Wild-Heart/Disney-VideoGeneration-Dataset)
-- [bigdatapw's Video Dataset Collection](https://huggingface.co/bigdata-pw)
+- [bigdatapw Video Dataset Collection](https://huggingface.co/bigdata-pw)
 - [Finetrainers HF Dataset Collection](https://huggingface.co/finetrainers)
 
 Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./examples/training/) to learn more about supported models for training & example reproducible training launch scripts.
@@ -69,6 +72,18 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 <sub><sup>^</sup>Noted for training-only, no validation, at resolution `49x512x768`, with pre-computation, using **BF16** weights & gradient checkpointing.</sub>
 
 If you would like to use a custom dataset, refer to the dataset preparation guide [here](./docs/dataset/README.md).
+
+## Featured Projects 🔥
+
+Checkout some amazing projects citing `finetrainers`:
+- [SkyworkAI's SkyReels-A1](https://github.com/SkyworkAI/SkyReels-A1)
+- [eisneim's LTX Image-to-Video](https://github.com/eisneim/ltx_lora_training_i2v_t2v/)
+- [wileewang's TransPixar](https://github.com/wileewang/TransPixar)
+- [Feizc's Video-In-Context](https://github.com/feizc/Video-In-Context)
+
+Checkout the following UIs built for `finetrainers`:
+- [jbilcke's VideoModelStudio](https://github.com/jbilcke-hf/VideoModelStudio)
+- [neph1's finetrainers-ui](https://github.com/neph1/finetrainers-ui)
 
 ## Acknowledgements
 
