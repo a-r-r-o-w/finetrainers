@@ -26,115 +26,34 @@ FineTrainers is a work-in-progress library to support (accessible) training of v
 
 ## Quickstart
 
-Clone the repository and make sure the requirements are installed: `pip install -r requirements.txt` and install `diffusers` from source by `pip install git+https://github.com/huggingface/diffusers`. The requirements specify `diffusers>=0.32.1`, but it is always recommended to use the `main` branch for the latest features and bugfixes.
+Clone the repository and make sure the requirements are installed: `pip install -r requirements.txt` and install `diffusers` from source by `pip install git+https://github.com/huggingface/diffusers`. The requirements specify `diffusers>=0.32.1`, but it is always recommended to use the `main` branch of Diffusers for the latest features and bugfixes. Note that the `main` branch for `finetrainers` is also the development branch, and stable support should be expected from the release tags.
 
-Then download a dataset:
+Checkout to the latest release tag:
 
 ```bash
-# install `huggingface_hub`
-huggingface-cli download \
-  --repo-type dataset Wild-Heart/Disney-VideoGeneration-Dataset \
-  --local-dir video-dataset-disney
+git fetch --all --tags
+git checkout tags/v0.0.1
 ```
 
-Then launch LoRA fine-tuning. Below we provide an example for LTX-Video. We refer the users to [`docs/training`](./docs/training/) to learn more details.
+Follow the instructions mentioned in the [README](https://github.com/a-r-r-o-w/finetrainers/tree/v0.0.1) for the release tag.
+
+To get started quickly with example training scripts on the main development branch, refer to the following:
+- [LTX-Video Pika Effects Crush](./examples/training/ltx_video/)
+
+The following are some simple datasets/HF orgs with good datasets to test training with quickly:
+- [Disney Video Generation Dataset](https://huggingface.co/datasets/Wild-Heart/Disney-VideoGeneration-Dataset)
+- [bigdatapw's Video Dataset Collection](https://huggingface.co/bigdata-pw)
+- [Finetrainers HF Dataset Collection](https://huggingface.co/finetrainers)
+
+Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./examples/training/) to learn more about supported models for training & example reproducible training launch scripts.
 
 > [!IMPORTANT] 
 > It is recommended to use Pytorch 2.5.1 or above for training. Previous versions can lead to completely black videos, OOM errors, or other issues and are not tested.
 
-<details>
-<summary>Training command</summary>
-
-TODO: LTX does not do too well with the disney dataset. We will update this to use a better example soon.
-
-```bash
-#!/bin/bash
-export WANDB_MODE="offline"
-export NCCL_P2P_DISABLE=1
-export TORCH_NCCL_ENABLE_MONITORING=0
-export FINETRAINERS_LOG_LEVEL=DEBUG
-
-GPU_IDS="0,1"
-
-DATA_ROOT="/path/to/video-dataset-disney"
-CAPTION_COLUMN="prompt.txt"
-VIDEO_COLUMN="videos.txt"
-OUTPUT_DIR="/path/to/output/directory/ltx-video/ltxv_disney"
-
-ID_TOKEN="BW_STYLE"
-
-# Model arguments
-model_cmd="--model_name ltx_video \
-  --pretrained_model_name_or_path Lightricks/LTX-Video"
-
-# Dataset arguments
-dataset_cmd="--data_root $DATA_ROOT \
-  --video_column $VIDEO_COLUMN \
-  --caption_column $CAPTION_COLUMN \
-  --id_token $ID_TOKEN \
-  --video_resolution_buckets 49x512x768 \
-  --caption_dropout_p 0.05"
-
-# Dataloader arguments
-dataloader_cmd="--dataloader_num_workers 0"
-
-# Diffusion arguments
-diffusion_cmd="--flow_weighting_scheme logit_normal"
-
-# Training arguments
-training_cmd="--training_type lora \
-  --seed 42 \
-  --batch_size 1 \
-  --train_steps 3000 \
-  --rank 128 \
-  --lora_alpha 128 \
-  --target_modules to_q to_k to_v to_out.0 \
-  --gradient_accumulation_steps 4 \
-  --gradient_checkpointing \
-  --checkpointing_steps 500 \
-  --checkpointing_limit 2 \
-  --enable_slicing \
-  --enable_tiling"
-
-# Optimizer arguments
-optimizer_cmd="--optimizer adamw \
-  --lr 3e-5 \
-  --lr_scheduler constant_with_warmup \
-  --lr_warmup_steps 100 \
-  --lr_num_cycles 1 \
-  --beta1 0.9 \
-  --beta2 0.95 \
-  --weight_decay 1e-4 \
-  --epsilon 1e-8 \
-  --max_grad_norm 1.0"
-
-# Miscellaneous arguments
-miscellaneous_cmd="--tracker_name finetrainers-ltxv \
-  --output_dir $OUTPUT_DIR \
-  --nccl_timeout 1800 \
-  --report_to wandb"
-
-cmd="accelerate launch --config_file accelerate_configs/uncompiled_2.yaml --gpu_ids $GPU_IDS train.py \
-  $model_cmd \
-  $dataset_cmd \
-  $dataloader_cmd \
-  $diffusion_cmd \
-  $training_cmd \
-  $optimizer_cmd \
-  $miscellaneous_cmd"
-
-echo "Running command: $cmd"
-eval $cmd
-echo -ne "-------------------- Finished executing script --------------------\n\n"
-```
-
-</details>
-
-Here we are using two GPUs. But one can do single-GPU training by setting `GPU_IDS=0`. By default, we are using some simple optimizations to reduce memory consumption (such as gradient checkpointing). Please refer to [docs/training/optimizations](./docs/training/optimization.md) to learn about the memory optimizations currently supported.
-
-For inference, refer [here](./docs/training/ltx_video.md#inference). For docs related to the other supported model, refer [here](./docs/training/).
-
 ## Support Matrix
+
+> [!NOTE]
+> The following numbers were obtained from the [release branch](https://github.com/a-r-r-o-w/finetrainers/tree/v0.0.1). The `main` branch is unstable at the moment and may use higher memory.
 
 <div align="center">
 

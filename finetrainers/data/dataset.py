@@ -604,9 +604,18 @@ class IterableDatasetPreprocessingWrapper(
                     )
             elif self.dataset_type == "video":
                 if self.video_resolution_buckets:
-                    sample["video"] = FF.resize_to_nearest_bucket_video(
+                    sample["video"], _first_frame_only = FF.resize_to_nearest_bucket_video(
                         sample["video"], self.video_resolution_buckets, self.reshape_mode
                     )
+                    if _first_frame_only:
+                        msg = (
+                            "The number of frames in the video is less than the minimum bucket size "
+                            "specified. The first frame is being used as a single frame video. This "
+                            "message is logged at the first occurence and for every 128th occurence "
+                            "after that."
+                        )
+                        logger.log_freq("WARNING", "BUCKET_TEMPORAL_SIZE_UNAVAILABLE", msg, frequency=128)
+                        sample["video"] = sample["video"][0]
 
             if self.remove_common_llm_caption_prefixes:
                 sample["caption"] = FF.remove_prefix(sample["caption"], constants.COMMON_LLM_START_PHRASES)

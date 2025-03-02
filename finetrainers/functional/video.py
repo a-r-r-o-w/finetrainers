@@ -56,7 +56,6 @@ def resize_to_nearest_bucket_video(
     Resizes a video tensor to the nearest resolution bucket using the specified mode.
     - It first finds a frame match with <= T frames.
     - Then, it selects the closest height/width bucket.
-    - Only if no frame bucket matches (all are > T), it interpolates frames up.
 
     Args:
         video (`torch.Tensor`):
@@ -74,22 +73,21 @@ def resize_to_nearest_bucket_video(
 
     # Adjust frame count: only interpolate frames if no lesser/equal frame count exists
     num_frames, num_channels, height, width = video.shape
+    _first_frame_only = False
     if num_frames > target_frames:
         # Downsample: Select frames evenly
         indices = torch.linspace(0, num_frames - 1, target_frames).long()
         video = video[indices, :, :, :]
     elif num_frames < target_frames:
-        # Upsample: Interpolate along temporal dimension
-        video = F.interpolate(video.permute(1, 2, 3, 0), size=target_frames, mode="linear", align_corners=False)
-        video = video.permute(3, 0, 1, 2)  # Restore shape (T, C, H, W)
+        _first_frame_only = False
 
     # Resize spatial resolution
     if resize_mode == "center_crop":
-        return center_crop_video(video, (target_h, target_w))
+        return center_crop_video(video, (target_h, target_w)), _first_frame_only
     elif resize_mode == "resize_crop":
-        return resize_crop_video(video, (target_h, target_w))
+        return resize_crop_video(video, (target_h, target_w)), _first_frame_only
     elif resize_mode == "bicubic":
-        return bicubic_resize_video(video, (target_h, target_w))
+        return bicubic_resize_video(video, (target_h, target_w)), _first_frame_only
     else:
         raise ValueError(
             f"Invalid resize_mode: {resize_mode}. Choose from 'center_crop', 'resize_crop', or 'bicubic'."
