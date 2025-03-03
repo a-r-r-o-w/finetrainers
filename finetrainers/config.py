@@ -5,12 +5,14 @@ from .models import ModelSpecification
 from .models.cogvideox import COGVIDEOX_T2V_FULL_FINETUNE_CONFIG, COGVIDEOX_T2V_LORA_CONFIG
 from .models.hunyuan_video import HUNYUAN_VIDEO_T2V_FULL_FINETUNE_CONFIG, HUNYUAN_VIDEO_T2V_LORA_CONFIG
 from .models.ltx_video import LTXVideoModelSpecification
+from .models.wan import WanModelSpecification
 
 
 class ModelType(str, Enum):
     HUNYUAN_VIDEO = "hunyuan_video"
     LTX_VIDEO = "ltx_video"
     COGVIDEOX = "cogvideox"
+    WAN = "wan"
 
 
 class TrainingType(str, Enum):
@@ -30,6 +32,10 @@ SUPPORTED_MODEL_CONFIGS = {
     ModelType.COGVIDEOX: {
         TrainingType.LORA: COGVIDEOX_T2V_LORA_CONFIG,
         TrainingType.FULL_FINETUNE: COGVIDEOX_T2V_FULL_FINETUNE_CONFIG,
+    },
+    ModelType.WAN: {
+        TrainingType.LORA: WanModelSpecification,
+        TrainingType.FULL_FINETUNE: WanModelSpecification,
     },
 }
 
