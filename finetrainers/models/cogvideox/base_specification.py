@@ -311,7 +311,11 @@ class CogVideoXModelSpecification(ModelSpecification):
         noisy_latents = scheduler.add_noise(latents, noise, timesteps)
 
         batch_size, num_frames, num_channels, height, width = latents.shape
-        ofs_emb = None if getattr(self.transformer_config, "ofs_embed_dim", None) is None else latents.new_full((batch_size,), fill_value=2.0)
+        ofs_emb = (
+            None
+            if getattr(self.transformer_config, "ofs_embed_dim", None) is None
+            else latents.new_full((batch_size,), fill_value=2.0)
+        )
 
         image_rotary_emb = (
             prepare_rotary_positional_embeddings(
