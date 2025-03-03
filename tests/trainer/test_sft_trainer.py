@@ -1,5 +1,6 @@
 # torchrun --nnodes=1 --nproc_per_node=1 -m pytest -s tests/trainer/test_sft_trainer.py
 
+import json
 import os
 import pathlib
 import sys
@@ -17,6 +18,7 @@ project_root = pathlib.Path(__file__).resolve().parents[2]
 sys.path.append(str(project_root))
 
 from finetrainers import BaseArgs, SFTTrainer, TrainingType, get_logger  # noqa
+from finetrainers.trainer.sft_trainer.config import SFTLowRankConfig, SFTFullRankConfig  # noqa
 
 from ..models.dummy.base_specification import DummyLTXVideoModelSpecification  # noqa
 
@@ -47,12 +49,28 @@ class SFTTrainerFastTestsMixin:
                 prompt = f"A cat ruling the world - {i}"
                 f.write(f'{i}.mp4,"{prompt}"\n')
 
+        dataset_config = {
+            "datasets": [
+                {
+                    "data_root": self.tmpdir.name,
+                    "dataset_type": "video",
+                    "id_token": "TEST",
+                    "video_resolution_buckets": [[self.num_frames, self.height, self.width]],
+                    "reshape_mode": "bicubic",
+                }
+            ]
+        }
+
+        self.dataset_config_filename = pathlib.Path(self.tmpdir.name) / "dataset_config.json"
+        with open(self.dataset_config_filename.as_posix(), "w") as f:
+            json.dump(dataset_config, f)
+
     def tearDown(self):
         self.tmpdir.cleanup()
 
     def get_base_args(self) -> BaseArgs:
         args = BaseArgs()
-        args.data_root = self.tmpdir.name
+        args.dataset_config = self.dataset_config_filename.as_posix()
         args.train_steps = 10
         args.batch_size = 1
         args.gradient_checkpointing = True
@@ -76,6 +94,7 @@ class SFTTrainerLoRATests___PTD(SFTTrainerFastTestsMixin, unittest.TestCase):
         args.parallel_backend = "ptd"
         args.training_type = TrainingType.LORA
         args.rank = 4
+        args.lora_alpha = 4
         args.target_modules = ["to_q", "to_k", "to_v", "to_out.0"]
         return args
 

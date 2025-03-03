@@ -6,6 +6,8 @@ import datasets
 import datasets.data_files
 import datasets.distributed
 import datasets.exceptions
+import huggingface_hub
+import huggingface_hub.errors
 import numpy as np
 import PIL.Image
 import torch
@@ -692,7 +694,12 @@ def initialize_dataset(
     # 4. If there is a dataset name, we use the ImageWebDataset or VideoWebDataset class.
     assert dataset_type in ["image", "video"]
 
-    if repo_exists(dataset_name_or_root, repo_type="dataset"):
+    try:
+        does_repo_exist_on_hub = repo_exists(dataset_name_or_root, repo_type="dataset")
+    except huggingface_hub.errors.HFValidationError:
+        does_repo_exist_on_hub = False
+
+    if does_repo_exist_on_hub:
         return _initialize_hub_dataset(dataset_name_or_root, dataset_type, infinite)
     else:
         return _initialize_local_dataset(dataset_name_or_root, dataset_type, infinite)

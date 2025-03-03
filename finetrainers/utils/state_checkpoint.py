@@ -145,7 +145,7 @@ class PTDCheckpointManager:
         return checkpoints[-1] if len(checkpoints) > 0 else None
 
     def _purge_stale_checkpoints(self) -> None:
-        if self.checkpointing_limit <= 0:
+        if self.checkpointing_limit is None or self.checkpointing_limit <= 0:
             return
         checkpoints = sorted(
             self.output_dir.glob(f"{self._prefix}_*"), key=lambda x: int(x.name.split("_")[-1]), reverse=True
