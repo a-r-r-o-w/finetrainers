@@ -28,7 +28,7 @@ logger = get_logger()
 
 class WanLatentEncodeProcessor(ProcessorMixin):
     r"""
-    Processor to encode image/video into latents using the LTX VAE.
+    Processor to encode image/video into latents using the Wan VAE.
 
     Args:
         output_names (`List[str]`):

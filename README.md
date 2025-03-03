@@ -41,7 +41,8 @@ git checkout tags/v0.0.1
 Follow the instructions mentioned in the [README](https://github.com/a-r-r-o-w/finetrainers/tree/v0.0.1) for the release tag.
 
 To get started quickly with example training scripts on the main development branch, refer to the following:
-- [LTX-Video Pika Effects Crush](./examples/training/ltx_video/)
+- [LTX-Video Pika Effects Crush](./examples/training/sft/ltx_video/crush_smol_lora/)
+- [Wan T2V Pika Effects Crush](./examples/training/sft/wan/crush_smol_lora/)
 
 The following are some simple datasets/HF orgs with good datasets to test training with quickly:
 - [Disney Video Generation Dataset](https://huggingface.co/datasets/Wild-Heart/Disney-VideoGeneration-Dataset)
@@ -60,11 +61,12 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 
 <div align="center">
 
-| **Model Name**                                   | **Tasks**     | **Min. LoRA VRAM<sup>*</sup>**     | **Min. Full Finetuning VRAM<sup>^</sup>**     |
-|:------------------------------------------------:|:-------------:|:----------------------------------:|:---------------------------------------------:|
-| [LTX-Video](./docs/training/ltx_video.md)        | Text-to-Video | 5 GB                               | 21 GB                                         |
-| [HunyuanVideo](./docs/training/hunyuan_video.md) | Text-to-Video | 32 GB                              | OOM                                           |
-| [CogVideoX-5b](./docs/training/cogvideox.md)     | Text-to-Video | 18 GB                              | 53 GB                                         |
+| **Model Name**                                 | **Tasks**     | **Min. LoRA VRAM<sup>*</sup>**     | **Min. Full Finetuning VRAM<sup>^</sup>**     |
+|:----------------------------------------------:|:-------------:|:----------------------------------:|:---------------------------------------------:|
+| [LTX-Video](./docs/models/ltx_video.md)        | Text-to-Video | 5 GB                               | 21 GB                                         |
+| [HunyuanVideo](./docs/models/hunyuan_video.md) | Text-to-Video | 32 GB                              | OOM                                           |
+| [CogVideoX-5b](./docs/models/cogvideox.md)     | Text-to-Video | 18 GB                              | 53 GB                                         |
+| [Wan](./docs/models/wan.md)                    | Text-to-Video | TODO                               | TODO                                          |
 
 </div>
 
