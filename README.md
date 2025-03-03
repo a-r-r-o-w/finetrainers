@@ -12,7 +12,9 @@ FineTrainers is a work-in-progress library to support (accessible) training of v
 
 ## News
 
-- 🔥 **2025-02-12**: We have shipped a set of tooling to curate small and high-quality video datasets for fine-tuning. See [datasets](./docs/dataset/README.md) documentation page for details!
+- 🔥 **2025-03-03**: Wan T2V support added!
+- 🔥 **2025-03-03**: We have shipped a complete refactor to support multi-backend distributed training, better precomputation handling for big datasets, model specification format (externally usable for training custom models), FSDP & more.
+- 🔥 **2025-02-12**: We have shipped a set of tooling to curate small and high-quality video datasets for fine-tuning. See [video-dataset-scripts](https://github.com/huggingface/video-dataset-scripts) documentation page for details!
 - 🔥 **2025-02-12**: Check out [eisneim/ltx_lora_training_i2v_t2v](https://github.com/eisneim/ltx_lora_training_i2v_t2v/)! It builds off of `finetrainers` to support image to video training for LTX-Video and STG guidance for inference.
 - 🔥 **2025-01-15**: Support for naive FP8 weight-casting training added! This allows training HunyuanVideo in under 24 GB upto specific resolutions.
 - 🔥 **2025-01-13**: Support for T2V full-finetuning added! Thanks to [@ArEnSc](https://github.com/ArEnSc) for taking up the initiative!
@@ -40,8 +42,11 @@ git checkout tags/v0.0.1
 
 Follow the instructions mentioned in the [README](https://github.com/a-r-r-o-w/finetrainers/tree/v0.0.1) for the release tag.
 
+#### Using the main branch
+
 To get started quickly with example training scripts on the main development branch, refer to the following:
 - [LTX-Video Pika Effects Crush](./examples/training/sft/ltx_video/crush_smol_lora/)
+- [CogVideoX Pika Effects Crush](./examples/training/sft/cogvideox/crush_smol_lora/)
 - [Wan T2V Pika Effects Crush](./examples/training/sft/wan/crush_smol_lora/)
 
 The following are some simple datasets/HF orgs with good datasets to test training with quickly:
@@ -52,7 +57,7 @@ The following are some simple datasets/HF orgs with good datasets to test traini
 Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./examples/training/) to learn more about supported models for training & example reproducible training launch scripts.
 
 > [!IMPORTANT] 
-> It is recommended to use Pytorch 2.5.1 or above for training. Previous versions can lead to completely black videos, OOM errors, or other issues and are not tested.
+> It is recommended to use Pytorch 2.5.1 or above for training. Previous versions can lead to completely black videos, OOM errors, or other issues and are not tested. For fully reproducible training, please use the same environment as mentioned in [environment.md](./docs/environment.md).
 
 ## Support Matrix
 
@@ -78,6 +83,7 @@ If you would like to use a custom dataset, refer to the dataset preparation guid
 ## Featured Projects 🔥
 
 Checkout some amazing projects citing `finetrainers`:
+- [Diffusion as Shader](https://github.com/IGL-HKUST/DiffusionAsShader)
 - [SkyworkAI's SkyReels-A1](https://github.com/SkyworkAI/SkyReels-A1)
 - [eisneim's LTX Image-to-Video](https://github.com/eisneim/ltx_lora_training_i2v_t2v/)
 - [wileewang's TransPixar](https://github.com/wileewang/TransPixar)

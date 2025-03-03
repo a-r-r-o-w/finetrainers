@@ -227,10 +227,11 @@ class WanModelSpecification(ModelSpecification):
         if not training:
             pipe.transformer.to(self.transformer_dtype)
 
-        if enable_slicing:
-            pipe.vae.enable_slicing()
-        if enable_tiling:
-            pipe.vae.enable_tiling()
+        # TODO(aryan): add support in diffusers
+        # if enable_slicing:
+        #     pipe.vae.enable_slicing()
+        # if enable_tiling:
+        #     pipe.vae.enable_tiling()
         if enable_model_cpu_offload:
             pipe.enable_model_cpu_offload()
 
