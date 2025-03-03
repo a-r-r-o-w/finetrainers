@@ -20,13 +20,14 @@ sys.path.append(str(project_root))
 from finetrainers import BaseArgs, SFTTrainer, TrainingType, get_logger  # noqa
 from finetrainers.trainer.sft_trainer.config import SFTLowRankConfig, SFTFullRankConfig  # noqa
 
-from ..models.dummy.base_specification import DummyLTXVideoModelSpecification  # noqa
+from ..models.ltx_video.base_specification import DummyLTXVideoModelSpecification  # noqa
 
 
 logger = get_logger()
 
 
 class SFTTrainerFastTestsMixin:
+    model_specification_cls = None
     num_data_files = 4
     num_frames = 4
     height = 64
@@ -83,12 +84,12 @@ class SFTTrainerFastTestsMixin:
         raise NotImplementedError("`get_args` must be implemented in the subclass.")
 
     def _test_training(self, args: BaseArgs):
-        model_specification = DummyLTXVideoModelSpecification()
+        model_specification = self.model_specification_cls()
         trainer = SFTTrainer(args, model_specification)
         trainer.run()
 
 
-class SFTTrainerLoRATests___PTD(SFTTrainerFastTestsMixin, unittest.TestCase):
+class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
     def get_args(self) -> BaseArgs:
         args = self.get_base_args()
         args.parallel_backend = "ptd"
@@ -148,7 +149,7 @@ class SFTTrainerLoRATests___PTD(SFTTrainerFastTestsMixin, unittest.TestCase):
         self._test_training(args)
 
 
-class SFTTrainerFullFinetuneTests___PTD(SFTTrainerFastTestsMixin, unittest.TestCase):
+class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
     def get_args(self) -> BaseArgs:
         args = self.get_base_args()
         args.parallel_backend = "ptd"
@@ -203,3 +204,11 @@ class SFTTrainerFullFinetuneTests___PTD(SFTTrainerFastTestsMixin, unittest.TestC
         args.tp_degree = 2
         args.batch_size = 1
         self._test_training(args)
+
+
+class SFTTrainerLTXVideoLoRATests___PTD(SFTTrainerLoRATestsMixin___PTD, unittest.TestCase):
+    model_specification_cls = DummyLTXVideoModelSpecification
+
+
+class SFTTrainerLTXVideoFullFinetuneTests___PTD(SFTTrainerFullFinetuneTestsMixin___PTD, unittest.TestCase):
+    model_specification_cls = DummyLTXVideoModelSpecification
