@@ -790,8 +790,9 @@ def _initialize_webdataset(
 def _has_data_caption_file_pairs(root: Union[pathlib.Path, List[str]], remote: bool = False) -> bool:
     # TODO(aryan): this logic can be improved
     if not remote:
-        caption_files = utils.find_files(root.as_posix(), "*.txt", depth=0, remote=remote)
+        caption_files = utils.find_files(root.as_posix(), "*.txt", depth=0)
         for caption_file in caption_files:
+            caption_file = pathlib.Path(caption_file)
             for extension in [*constants.SUPPORTED_IMAGE_FILE_EXTENSIONS, *constants.SUPPORTED_VIDEO_FILE_EXTENSIONS]:
                 data_filename = caption_file.with_suffix(f".{extension}")
                 if data_filename.exists():
@@ -810,7 +811,7 @@ def _has_data_caption_file_pairs(root: Union[pathlib.Path, List[str]], remote: b
 def _has_data_file_caption_file_lists(root: Union[pathlib.Path, List[str]], remote: bool = False) -> bool:
     # TODO(aryan): this logic can be improved
     if not remote:
-        file_list = set(root.iterdir())
+        file_list = {x.name for x in root.iterdir()}
         has_caption_files = any(file in file_list for file in COMMON_CAPTION_FILES)
         has_video_files = any(file in file_list for file in COMMON_VIDEO_FILES)
         has_image_files = any(file in file_list for file in COMMON_IMAGE_FILES)

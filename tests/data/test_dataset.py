@@ -22,6 +22,7 @@ from finetrainers.data import (  # noqa
     VideoFolderDataset,
     VideoWebDataset,
     ValidationDataset,
+    initialize_dataset,
 )
 from finetrainers.data.utils import find_files  # noqa
 
@@ -119,6 +120,10 @@ class ImageCaptionFilePairDatasetFastTests(ImageDatasetTesterMixin, unittest.Tes
             self.assertTrue(torch.is_tensor(item["image"]))
             self.assertEqual(item["image"].shape, (3, 64, 64))
 
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "image", infinite=False)
+        self.assertIsInstance(dataset, ImageCaptionFilePairDataset)
+
 
 class ImageFileCaptionFileListDatasetFastTests(ImageDatasetTesterMixin, unittest.TestCase):
     num_data_files = 3
@@ -143,6 +148,10 @@ class ImageFileCaptionFileListDatasetFastTests(ImageDatasetTesterMixin, unittest
             self.assertTrue(torch.is_tensor(item["image"]))
             self.assertEqual(item["image"].shape, (3, 64, 64))
 
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "image", infinite=False)
+        self.assertIsInstance(dataset, ImageFileCaptionFileListDataset)
+
 
 class ImageFolderDatasetFastTests___CSV(ImageDatasetTesterMixin, unittest.TestCase):
     num_data_files = 3
@@ -165,6 +174,10 @@ class ImageFolderDatasetFastTests___CSV(ImageDatasetTesterMixin, unittest.TestCa
             self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["image"]))
 
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "image", infinite=False)
+        self.assertIsInstance(dataset, ImageFolderDataset)
+
 
 class ImageFolderDatasetFastTests___JSONL(ImageDatasetTesterMixin, unittest.TestCase):
     num_data_files = 3
@@ -186,6 +199,10 @@ class ImageFolderDatasetFastTests___JSONL(ImageDatasetTesterMixin, unittest.Test
             self.assertIn("caption", item)
             self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["image"]))
+
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "image", infinite=False)
+        self.assertIsInstance(dataset, ImageFolderDataset)
 
 
 class VideoCaptionFilePairDatasetFastTests(VideoDatasetTesterMixin, unittest.TestCase):
@@ -212,6 +229,10 @@ class VideoCaptionFilePairDatasetFastTests(VideoDatasetTesterMixin, unittest.Tes
             self.assertEqual(len(item["video"]), 4)
             self.assertEqual(item["video"][0].shape, (3, 64, 64))
 
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "video", infinite=False)
+        self.assertIsInstance(dataset, VideoCaptionFilePairDataset)
+
 
 class VideoFileCaptionFileListDatasetFastTests(VideoDatasetTesterMixin, unittest.TestCase):
     num_data_files = 3
@@ -237,6 +258,10 @@ class VideoFileCaptionFileListDatasetFastTests(VideoDatasetTesterMixin, unittest
             self.assertEqual(len(item["video"]), 4)
             self.assertEqual(item["video"][0].shape, (3, 64, 64))
 
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "video", infinite=False)
+        self.assertIsInstance(dataset, VideoFileCaptionFileListDataset)
+
 
 class VideoFolderDatasetFastTests___CSV(VideoDatasetTesterMixin, unittest.TestCase):
     num_data_files = 3
@@ -260,6 +285,10 @@ class VideoFolderDatasetFastTests___CSV(VideoDatasetTesterMixin, unittest.TestCa
             self.assertTrue(torch.is_tensor(item["video"]))
             self.assertEqual(len(item["video"]), 4)
             self.assertEqual(item["video"][0].shape, (3, 64, 64))
+
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "video", infinite=False)
+        self.assertIsInstance(dataset, VideoFolderDataset)
 
 
 class VideoFolderDatasetFastTests___JSONL(VideoDatasetTesterMixin, unittest.TestCase):
@@ -285,6 +314,10 @@ class VideoFolderDatasetFastTests___JSONL(VideoDatasetTesterMixin, unittest.Test
             self.assertEqual(len(item["video"]), 4)
             self.assertEqual(item["video"][0].shape, (3, 64, 64))
 
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "video", infinite=False)
+        self.assertIsInstance(dataset, VideoFolderDataset)
+
 
 class ImageWebDatasetFastTests(unittest.TestCase):
     # TODO(aryan): setup a dummy dataset
@@ -302,6 +335,10 @@ class VideoWebDatasetFastTests(unittest.TestCase):
                 break
             self.assertIsInstance(item["video"], decord.VideoReader)
             self.assertEqual(len(item["video"].get_batch([0, 1, 2, 3])), 4)
+
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset("finetrainers/dummy-squish-wds", "video", infinite=False)
+        self.assertIsInstance(dataset, VideoWebDataset)
 
 
 class DatasetUtilsFastTests(unittest.TestCase):
