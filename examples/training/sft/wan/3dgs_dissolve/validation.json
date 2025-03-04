@@ -1,0 +1,58 @@
+{
+  "data": [
+    {
+      "caption": "A spacecraft, rendered in a 3D appearance, ascends into the night sky, leaving behind a trail of fiery exhaust. As it climbs higher, the exhaust gradually transforms into a burst of red sparks, creating a dramatic and dynamic visual effect against the dark backdrop.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 480,
+      "width": 832,
+      "num_frames": 49
+    },
+    {
+      "caption": "3DGS_DISSOLVE A spacecraft, rendered in a 3D appearance, ascends into the night sky, leaving behind a trail of fiery exhaust. As it climbs higher, the exhaust gradually transforms into a burst of red sparks, creating a dramatic and dynamic visual effect against the dark backdrop.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 480,
+      "width": 832,
+      "num_frames": 49
+    },
+    {
+      "caption": "3DGS_DISSOLVE A spacecraft, rendered in a 3D appearance, ascends into the night sky, leaving behind a trail of fiery exhaust. As it climbs higher, the exhaust gradually transforms into a burst of red sparks, creating a dramatic and dynamic visual effect against the dark backdrop.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 480,
+      "width": 832,
+      "num_frames": 81
+    },
+    {
+      "caption": "3DGS_DISSOLVE A vintage-style treasure chest, rendered in a 3D appearance, stands prominently against a dark background. As the scene progresses, the chest begins to emit a glowing light, which intensifies until it evaporates into a burst of red sparks, creating a dramatic and mysterious atmosphere.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 480,
+      "width": 832,
+      "num_frames": 49
+    },
+    {
+      "caption": "3DGS_DISSOLVE A glowing, fiery cube in a 3D appearance begins to spin and rotate, its edges shimmering with intense light. As it continues to spin, the cube gradually evaporates into a burst of red sparks that scatter across the screen, creating a dynamic and mesmerizing visual effect against the dark background.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 480,
+      "width": 832,
+      "num_frames": 49
+    },
+    {
+      "caption": "3DGS_DISSOLVE A dynamic explosion unfolds in a 3D appearance, beginning as a concentrated burst of intense orange flames. As the fire intensifies, it rapidly expands outward, transitioning into a vibrant display of red sparks that scatter across the frame. The sparks continue to evolve, evaporating into a burst of red sparks against the dark backdrop, creating a mesmerizing visual spectacle.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 480,
+      "width": 832,
+      "num_frames": 49
+    }
+  ]
+}

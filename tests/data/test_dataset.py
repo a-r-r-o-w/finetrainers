@@ -15,160 +15,313 @@ import decord  # noqa
 
 from finetrainers.data import (  # noqa
     ImageCaptionFilePairDataset,
+    ImageFileCaptionFileListDataset,
     ImageFolderDataset,
     VideoCaptionFilePairDataset,
+    VideoFileCaptionFileListDataset,
     VideoFolderDataset,
     VideoWebDataset,
     ValidationDataset,
+    initialize_dataset,
 )
 from finetrainers.data.utils import find_files  # noqa
 
 
-class ImageCaptionFileDatasetFastTests(unittest.TestCase):
+class DatasetTesterMixin:
+    num_data_files = None
+    directory_structure = None
+    caption = "A cat ruling the world"
+    metadata_extension = None
+
     def setUp(self):
-        num_data_files = 3
+        from finetrainers.data.dataset import COMMON_CAPTION_FILES, COMMON_IMAGE_FILES, COMMON_VIDEO_FILES
+
+        if self.num_data_files is None:
+            raise ValueError("num_data_files is not defined")
+        if self.directory_structure is None:
+            raise ValueError("dataset_structure is not defined")
 
         self.tmpdir = tempfile.TemporaryDirectory()
-        self.caption_files = []
-        self.data_files = []
-        for _ in range(num_data_files):
-            caption_file = tempfile.NamedTemporaryFile(dir=self.tmpdir.name, suffix=".txt", delete=False)
-            self.caption_files.append(caption_file.name)
-            data_file = pathlib.Path(caption_file.name).with_suffix(".jpg")
-            Image.new("RGB", (64, 64)).save(data_file.as_posix())
-            self.data_files.append((pathlib.Path(self.tmpdir.name) / data_file).as_posix())
 
-        self.dataset = ImageCaptionFilePairDataset(self.tmpdir.name)
+        for item in self.directory_structure:
+            # TODO(aryan): this should be improved
+            if item in COMMON_CAPTION_FILES:
+                data_file = pathlib.Path(self.tmpdir.name) / item
+                with open(data_file.as_posix(), "w") as f:
+                    for _ in range(self.num_data_files):
+                        f.write(f"{self.caption}\n")
+            elif item in COMMON_IMAGE_FILES:
+                data_file = pathlib.Path(self.tmpdir.name) / item
+                with open(data_file.as_posix(), "w") as f:
+                    for i in range(self.num_data_files):
+                        f.write(f"images/{i}.jpg\n")
+            elif item in COMMON_VIDEO_FILES:
+                data_file = pathlib.Path(self.tmpdir.name) / item
+                with open(data_file.as_posix(), "w") as f:
+                    for i in range(self.num_data_files):
+                        f.write(f"videos/{i}.mp4\n")
+            elif item == "metadata.csv":
+                data_file = pathlib.Path(self.tmpdir.name) / item
+                with open(data_file.as_posix(), "w") as f:
+                    f.write("file_name,caption\n")
+                    for i in range(self.num_data_files):
+                        f.write(f"{i}.{self.metadata_extension},{self.caption}\n")
+            elif item == "metadata.jsonl":
+                data_file = pathlib.Path(self.tmpdir.name) / item
+                with open(data_file.as_posix(), "w") as f:
+                    for i in range(self.num_data_files):
+                        f.write(f'{{"file_name": "{i}.{self.metadata_extension}", "caption": "{self.caption}"}}\n')
+            elif item.endswith(".txt"):
+                data_file = pathlib.Path(self.tmpdir.name) / item
+                with open(data_file.as_posix(), "w") as f:
+                    f.write(self.caption)
+            elif item.endswith(".jpg") or item.endswith(".png"):
+                data_file = pathlib.Path(self.tmpdir.name) / item
+                Image.new("RGB", (64, 64)).save(data_file.as_posix())
+            elif item.endswith(".mp4"):
+                data_file = pathlib.Path(self.tmpdir.name) / item
+                export_to_video([Image.new("RGB", (64, 64))] * 4, data_file.as_posix(), fps=2)
+            else:
+                data_file = pathlib.Path(self.tmpdir.name, item)
+                data_file.mkdir(exist_ok=True, parents=True)
 
     def tearDown(self):
         self.tmpdir.cleanup()
 
+
+class ImageDatasetTesterMixin(DatasetTesterMixin):
+    metadata_extension = "jpg"
+
+
+class VideoDatasetTesterMixin(DatasetTesterMixin):
+    metadata_extension = "mp4"
+
+
+class ImageCaptionFilePairDatasetFastTests(ImageDatasetTesterMixin, unittest.TestCase):
+    num_data_files = 3
+    directory_structure = [
+        "0.jpg",
+        "1.jpg",
+        "2.jpg",
+        "0.txt",
+        "1.txt",
+        "2.txt",
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.dataset = ImageCaptionFilePairDataset(self.tmpdir.name, infinite=False)
+
     def test_getitem(self):
         iterator = iter(self.dataset)
-        for _ in range(3):
+        for _ in range(self.num_data_files):
             item = next(iterator)
-            self.assertEqual(item["caption"], "")
+            self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["image"]))
             self.assertEqual(item["image"].shape, (3, 64, 64))
 
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "image", infinite=False)
+        self.assertIsInstance(dataset, ImageCaptionFilePairDataset)
 
-class ImageFolderDatasetFastTests(unittest.TestCase):
+
+class ImageFileCaptionFileListDatasetFastTests(ImageDatasetTesterMixin, unittest.TestCase):
+    num_data_files = 3
+    directory_structure = [
+        "prompts.txt",
+        "images.txt",
+        "images/",
+        "images/0.jpg",
+        "images/1.jpg",
+        "images/2.jpg",
+    ]
+
     def setUp(self):
-        num_data_files = 3
+        super().setUp()
+        self.dataset = ImageFileCaptionFileListDataset(self.tmpdir.name, infinite=False)
 
-        self.num_data_files = num_data_files
-        self.tmpdir = tempfile.TemporaryDirectory()
-        self.data_files = []
-        for i in range(num_data_files):
-            data_file = pathlib.Path(self.tmpdir.name) / f"{i}.jpg"
-            Image.new("RGB", (64, 64)).save(data_file.as_posix())
-            self.data_files.append(data_file.as_posix())
-
-    def tearDown(self):
-        self.tmpdir.cleanup()
-
-    def test_getitem_csv(self):
-        csv_filename = pathlib.Path(self.tmpdir.name) / "metadata.csv"
-        with open(csv_filename.as_posix(), "w") as f:
-            f.write("file_name,label\n")
-            for i in range(self.num_data_files):
-                f.write(f"{i}.jpg,{i}\n")
-
-        dataset = ImageFolderDataset(self.tmpdir.name)
-        iterator = iter(dataset)
-
-        for _ in range(3):
+    def test_getitem(self):
+        iterator = iter(self.dataset)
+        for i in range(3):
             item = next(iterator)
+            self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["image"]))
+            self.assertEqual(item["image"].shape, (3, 64, 64))
 
-    def test_getitem_jsonl(self):
-        jsonl_filename = pathlib.Path(self.tmpdir.name) / "metadata.jsonl"
-        with open(jsonl_filename.as_posix(), "w") as f:
-            for i in range(self.num_data_files):
-                f.write(f'{{"file_name": "{i}.jpg", "label": {i}}}\n')
-
-        dataset = ImageFolderDataset(self.tmpdir.name)
-        iterator = iter(dataset)
-
-        for _ in range(3):
-            item = next(iterator)
-            self.assertTrue(torch.is_tensor(item["image"]))
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "image", infinite=False)
+        self.assertIsInstance(dataset, ImageFileCaptionFileListDataset)
 
 
-class VideoCaptionFileDatasetFastTests(unittest.TestCase):
+class ImageFolderDatasetFastTests___CSV(ImageDatasetTesterMixin, unittest.TestCase):
+    num_data_files = 3
+    directory_structure = [
+        "metadata.csv",
+        "0.jpg",
+        "1.jpg",
+        "2.jpg",
+    ]
+
     def setUp(self):
-        num_data_files = 3
-
-        self.tmpdir = tempfile.TemporaryDirectory()
-        self.caption_files = []
-        self.data_files = []
-        for _ in range(num_data_files):
-            caption_file = tempfile.NamedTemporaryFile(dir=self.tmpdir.name, suffix=".txt", delete=False)
-            self.caption_files.append(caption_file.name)
-            data_file = pathlib.Path(caption_file.name).with_suffix(".mp4")
-            export_to_video([Image.new("RGB", (64, 64))] * 4, data_file.as_posix(), fps=2)
-            self.data_files.append((pathlib.Path(self.tmpdir.name) / data_file).as_posix())
-
-        self.dataset = VideoCaptionFilePairDataset(self.tmpdir.name)
-
-    def tearDown(self):
-        self.tmpdir.cleanup()
+        super().setUp()
+        self.dataset = ImageFolderDataset(self.tmpdir.name, infinite=False)
 
     def test_getitem(self):
         iterator = iter(self.dataset)
         for _ in range(3):
             item = next(iterator)
-            self.assertTrue(torch.is_tensor(item["video"]))
-            self.assertEqual(item["caption"], "")
-            self.assertEqual(len(item["video"]), 4)
-            self.assertEqual(item["video"][0].shape, (3, 64, 64))
+            self.assertIn("caption", item)
+            self.assertEqual(item["caption"], self.caption)
+            self.assertTrue(torch.is_tensor(item["image"]))
+
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "image", infinite=False)
+        self.assertIsInstance(dataset, ImageFolderDataset)
 
 
-class VideoFolderDatasetFastTests(unittest.TestCase):
+class ImageFolderDatasetFastTests___JSONL(ImageDatasetTesterMixin, unittest.TestCase):
+    num_data_files = 3
+    directory_structure = [
+        "metadata.jsonl",
+        "0.jpg",
+        "1.jpg",
+        "2.jpg",
+    ]
+
     def setUp(self):
-        num_data_files = 3
+        super().setUp()
+        self.dataset = ImageFolderDataset(self.tmpdir.name, infinite=False)
 
-        self.num_data_files = num_data_files
-        self.tmpdir = tempfile.TemporaryDirectory()
-        self.data_files = []
-        for i in range(num_data_files):
-            data_file = pathlib.Path(self.tmpdir.name) / f"{i}.mp4"
-            export_to_video([Image.new("RGB", (64, 64))] * 4, data_file.as_posix(), fps=2)
-            self.data_files.append(data_file.as_posix())
-
-    def tearDown(self):
-        self.tmpdir.cleanup()
-
-    def test_getitem_csv(self):
-        csv_filename = pathlib.Path(self.tmpdir.name) / "metadata.csv"
-        with open(csv_filename.as_posix(), "w") as f:
-            f.write("file_name,label\n")
-            for i in range(self.num_data_files):
-                f.write(f"{i}.mp4,{i}\n")
-
-        dataset = VideoFolderDataset(self.tmpdir.name)
-        iterator = iter(dataset)
-
+    def test_getitem(self):
+        iterator = iter(self.dataset)
         for _ in range(3):
             item = next(iterator)
+            self.assertIn("caption", item)
+            self.assertEqual(item["caption"], self.caption)
+            self.assertTrue(torch.is_tensor(item["image"]))
+
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "image", infinite=False)
+        self.assertIsInstance(dataset, ImageFolderDataset)
+
+
+class VideoCaptionFilePairDatasetFastTests(VideoDatasetTesterMixin, unittest.TestCase):
+    num_data_files = 3
+    directory_structure = [
+        "0.mp4",
+        "1.mp4",
+        "2.mp4",
+        "0.txt",
+        "1.txt",
+        "2.txt",
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.dataset = VideoCaptionFilePairDataset(self.tmpdir.name, infinite=False)
+
+    def test_getitem(self):
+        iterator = iter(self.dataset)
+        for _ in range(self.num_data_files):
+            item = next(iterator)
+            self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["video"]))
             self.assertEqual(len(item["video"]), 4)
             self.assertEqual(item["video"][0].shape, (3, 64, 64))
 
-    def test_getitem_jsonl(self):
-        jsonl_filename = pathlib.Path(self.tmpdir.name) / "metadata.jsonl"
-        with open(jsonl_filename.as_posix(), "w") as f:
-            for i in range(self.num_data_files):
-                f.write(f'{{"file_name": "{i}.mp4", "label": {i}}}\n')
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "video", infinite=False)
+        self.assertIsInstance(dataset, VideoCaptionFilePairDataset)
 
-        dataset = VideoFolderDataset(self.tmpdir.name)
-        iterator = iter(dataset)
 
+class VideoFileCaptionFileListDatasetFastTests(VideoDatasetTesterMixin, unittest.TestCase):
+    num_data_files = 3
+    directory_structure = [
+        "prompts.txt",
+        "videos.txt",
+        "videos/",
+        "videos/0.mp4",
+        "videos/1.mp4",
+        "videos/2.mp4",
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.dataset = VideoFileCaptionFileListDataset(self.tmpdir.name, infinite=False)
+
+    def test_getitem(self):
+        iterator = iter(self.dataset)
         for _ in range(3):
             item = next(iterator)
+            self.assertEqual(item["caption"], self.caption)
             self.assertTrue(torch.is_tensor(item["video"]))
             self.assertEqual(len(item["video"]), 4)
             self.assertEqual(item["video"][0].shape, (3, 64, 64))
+
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "video", infinite=False)
+        self.assertIsInstance(dataset, VideoFileCaptionFileListDataset)
+
+
+class VideoFolderDatasetFastTests___CSV(VideoDatasetTesterMixin, unittest.TestCase):
+    num_data_files = 3
+    directory_structure = [
+        "metadata.csv",
+        "0.mp4",
+        "1.mp4",
+        "2.mp4",
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.dataset = VideoFolderDataset(self.tmpdir.name, infinite=False)
+
+    def test_getitem(self):
+        iterator = iter(self.dataset)
+        for _ in range(3):
+            item = next(iterator)
+            self.assertIn("caption", item)
+            self.assertEqual(item["caption"], self.caption)
+            self.assertTrue(torch.is_tensor(item["video"]))
+            self.assertEqual(len(item["video"]), 4)
+            self.assertEqual(item["video"][0].shape, (3, 64, 64))
+
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "video", infinite=False)
+        self.assertIsInstance(dataset, VideoFolderDataset)
+
+
+class VideoFolderDatasetFastTests___JSONL(VideoDatasetTesterMixin, unittest.TestCase):
+    num_data_files = 3
+    directory_structure = [
+        "metadata.jsonl",
+        "0.mp4",
+        "1.mp4",
+        "2.mp4",
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.dataset = VideoFolderDataset(self.tmpdir.name, infinite=False)
+
+    def test_getitem(self):
+        iterator = iter(self.dataset)
+        for _ in range(3):
+            item = next(iterator)
+            self.assertIn("caption", item)
+            self.assertEqual(item["caption"], self.caption)
+            self.assertTrue(torch.is_tensor(item["video"]))
+            self.assertEqual(len(item["video"]), 4)
+            self.assertEqual(item["video"][0].shape, (3, 64, 64))
+
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset(self.tmpdir.name, "video", infinite=False)
+        self.assertIsInstance(dataset, VideoFolderDataset)
+
+
+class ImageWebDatasetFastTests(unittest.TestCase):
+    # TODO(aryan): setup a dummy dataset
+    pass
 
 
 class VideoWebDatasetFastTests(unittest.TestCase):
@@ -182,6 +335,10 @@ class VideoWebDatasetFastTests(unittest.TestCase):
                 break
             self.assertIsInstance(item["video"], decord.VideoReader)
             self.assertEqual(len(item["video"].get_batch([0, 1, 2, 3])), 4)
+
+    def test_initialize_dataset(self):
+        dataset = initialize_dataset("finetrainers/dummy-squish-wds", "video", infinite=False)
+        self.assertIsInstance(dataset, VideoWebDataset)
 
 
 class DatasetUtilsFastTests(unittest.TestCase):

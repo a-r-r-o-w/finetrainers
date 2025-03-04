@@ -1,0 +1,24 @@
+{
+  "datasets": [
+    {
+      "data_root": "finetrainers/3dgs-dissolve",
+      "dataset_type": "video",
+      "id_token": "3DGS_DISSOLVE",
+      "video_resolution_buckets": [
+        [49, 480, 832]
+      ],
+      "reshape_mode": "bicubic",
+      "remove_common_llm_caption_prefixes": true
+    },
+    {
+      "data_root": "finetrainers/3dgs-dissolve",
+      "dataset_type": "video",
+      "id_token": "3DGS_DISSOLVE",
+      "video_resolution_buckets": [
+        [81, 480, 832]
+      ],
+      "reshape_mode": "bicubic",
+      "remove_common_llm_caption_prefixes": true
+    }
+  ]
+}
