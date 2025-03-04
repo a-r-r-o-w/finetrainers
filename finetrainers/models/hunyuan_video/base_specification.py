@@ -128,14 +128,14 @@ class HunyuanVideoModelSpecification(ModelSpecification):
                 self.tokenizer_id, revision=self.revision, cache_dir=self.cache_dir
             )
         else:
-            tokenizer = AutoencoderKLHunyuanVideo.from_pretrained(
+            tokenizer = AutoTokenizer.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="tokenizer",
                 revision=self.revision,
                 cache_dir=self.cache_dir,
             )
 
-        if self.tokenizer_2 is not None:
+        if self.tokenizer_2_id is not None:
             tokenizer_2 = CLIPTokenizer.from_pretrained(
                 self.tokenizer_2_id, revision=self.revision, cache_dir=self.cache_dir
             )

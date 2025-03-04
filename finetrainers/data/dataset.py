@@ -801,8 +801,9 @@ def _has_data_caption_file_pairs(root: Union[pathlib.Path, List[str]], remote: b
     else:
         caption_files = [file for file in root if file.endswith(".txt")]
         for caption_file in caption_files:
+            caption_file = pathlib.Path(caption_file)
             for extension in [*constants.SUPPORTED_IMAGE_FILE_EXTENSIONS, *constants.SUPPORTED_VIDEO_FILE_EXTENSIONS]:
-                data_filename = caption_file.with_suffix(f".{extension}")
+                data_filename = caption_file.with_suffix(f".{extension}").name
                 if data_filename in root:
                     return True
         return False

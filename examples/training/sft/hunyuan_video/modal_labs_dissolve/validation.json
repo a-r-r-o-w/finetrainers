@@ -1,0 +1,40 @@
+{
+  "data": [
+    {
+      "caption": "MODAL_DISSOLVE A meticulously detailed, antique-style vase, featuring mottled beige and brown hues and two small handles, sits centrally on a dark brown circular pedestal.  The vase, seemingly made of clay or porcelain, begins to dissolve from the bottom up.  The disintegration process is rapid but not explosive, with a cloud of fine, light tan dust forming and rising in a swirling, almost ethereal column that expands outwards before slowly descending. The dust particles are individually visible as they float, and the overall effect is one of delicate disintegration rather than shattering.  Finally, only the empty pedestal and the intricately patterned marble floor remain.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 30,
+      "height": 480,
+      "width": 768,
+      "num_frames": 49
+    },
+    {
+      "caption": "MODAL_DISSOLVE Close-up view of a sloth resting on a thick tree branch within a dense, sun-dappled forest.  The sloth's body, initially clearly defined, begins to subtly disintegrate.  The process starts with a light dusting of particles from its lower back and rump. This quickly intensifies, with a visible cloud of fine, sparkling dust billowing outwards as the sloth's form gradually vanishes. The dissolution proceeds in a wave-like manner, moving from rear to front.  The head and arms are the last parts to disappear, leaving only scattered motes of dust that slowly disperse amongst the leaves, blending seamlessly with the forest environment. The overall effect is dreamlike and ethereal.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 30,
+      "height": 480,
+      "width": 768,
+      "num_frames": 49
+    },
+    {
+      "caption": "MODAL_DISSOLVE High-resolution video depicting the complete digital dissolution of an orange Porsche 911 GT3 RS within a garage environment. The car's dissolution proceeds in three discernible stages: (1) Initial shimmering along the car's edges and body panels, creating a subtle, high-frequency displacement effect. (2) Rapid disintegration of the vehicle into a dense cloud of primarily orange and black particles, varying in size and opacity; particle motion exhibits both outward and swirling movements. (3) Complete disappearance of the car, leaving behind only a remaining, smaller, seemingly fiery-textured rubber duck model. The overall effect resembles a controlled explosion or rapid combustion, creating a dynamic, visually complex transformation. The garage's lighting and shadows remain consistent throughout the dissolution, providing clear visual contrast.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 30,
+      "height": 480,
+      "width": 768,
+      "num_frames": 81
+    },
+    {
+      "caption": "MODAL_DISSOLVE High-resolution video depicting the complete disintegration of a white origami crane. The disintegration process is initiated at the head of the crane and proceeds in a generally downward direction.  The disintegration manifests as the rapid breakdown of paper fibers into a cloud of fine particulate matter. The particle size appears consistent, with a texture similar to very fine powder. The rate of disintegration increases over time, resulting in a visually dynamic and texturally complex effect.  The background consists of a dark-stained wooden surface, providing a high-contrast setting that highlights the white particles' dispersal and movement. The final state shows only residual particulate matter scattered sparsely on the surface.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 30,
+      "height": 480,
+      "width": 768,
+      "num_frames": 49
+    }
+  ]
+}

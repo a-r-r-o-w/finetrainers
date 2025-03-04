@@ -1,0 +1,24 @@
+{
+  "datasets": [
+    {
+      "data_root": "modal-labs/dissolve",
+      "dataset_type": "video",
+      "id_token": "MODAL_DISSOLVE",
+      "video_resolution_buckets": [
+        [49, 480, 768]
+      ],
+      "reshape_mode": "bicubic",
+      "remove_common_llm_caption_prefixes": true
+    },
+    {
+      "data_root": "modal-labs/dissolve",
+      "dataset_type": "video",
+      "id_token": "MODAL_DISSOLVE",
+      "video_resolution_buckets": [
+        [81, 480, 768]
+      ],
+      "reshape_mode": "bicubic",
+      "remove_common_llm_caption_prefixes": true
+    }
+  ]
+}
