@@ -1,2 +1,1 @@
-from .full_finetune import HUNYUAN_VIDEO_T2V_FULL_FINETUNE_CONFIG
-from .lora import HUNYUAN_VIDEO_T2V_LORA_CONFIG
+from .base_specification import HunyuanVideoModelSpecification
