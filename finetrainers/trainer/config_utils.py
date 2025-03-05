@@ -12,6 +12,6 @@ class ConfigMixin:
 
     def validate_args(self, args: "BaseArgs"):
         raise NotImplementedError("ConfigMixin::map_args should be implemented by subclasses.")
-    
+
     def map_args(self, argparse_args: argparse.Namespace, mapped_args: "BaseArgs"):
         raise NotImplementedError("ConfigMixin::validate_args should be implemented by subclasses.")
