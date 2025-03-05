@@ -4,11 +4,18 @@
 
 For LoRA training, specify `--training_type lora`. For full finetuning, specify `--training_type full-finetune`.
 
-See [this](../../examples/training/sft/wan/crush_smol_lora/) example training script for training Wan with Pika Effects Crush.
+Examples available:
+- [PIKA crush effect](../../examples/training/sft/wan/crush_smol_lora/)
+- [3DGS dissolve](../../examples/training/sft/wan/3dgs_dissolve/)
 
-## Memory Usage
+To run an example, run the following from the root directory of the repository (assuming you have installed the requirements and are using Linux/WSL):
 
-TODO
+```bash
+chmod +x ./examples/training/sft/wan/crush_smol_lora/train.sh
+./examples/training/sft/wan/crush_smol_lora/train.sh
+```
+
+On Windows, you will have to modify the script to a compatible format to run it. [TODO(aryan): improve instructions for Windows]
 
 ## Inference
 
