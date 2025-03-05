@@ -14,8 +14,8 @@ export FINETRAINERS_LOG_LEVEL="DEBUG"
 BACKEND="ptd"
 
 # In this setting, I'm using 2 GPUs on a 4-GPU node for training
-NUM_GPUS=2
-CUDA_VISIBLE_DEVICES="2,3"
+NUM_GPUS=8
+CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
 
 # Check the JSON files for the expected JSON format
 TRAINING_DATASET_CONFIG="examples/training/sft/hunyuan_video/modal_labs_dissolve/training.json"
@@ -28,10 +28,11 @@ DDP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 4 --dp_shards 1 --c
 FSDP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 2 --cp_degree 1 --tp_degree 1"
 FSDP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 4 --cp_degree 1 --tp_degree 1"
 HSDP_2_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 2 --cp_degree 1 --tp_degree 1"
+HSDP_4_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 4 --dp_shards 2 --cp_degree 1 --tp_degree 1"
 
 # Parallel arguments
 parallel_cmd=(
-  $DDP_2
+  $HSDP_4_2
 )
 
 # Model arguments
@@ -44,7 +45,7 @@ model_cmd=(
 dataset_cmd=(
   --dataset_config $TRAINING_DATASET_CONFIG
   --dataset_shuffle_buffer_size 10
-  --precomputation_items 15
+  --precomputation_items 10
   --precomputation_once
 )
 
@@ -65,7 +66,7 @@ training_cmd=(
   --training_type "lora"
   --seed 42
   --batch_size 1
-  --train_steps 5000
+  --train_steps 3000
   --rank 32
   --lora_alpha 32
   --target_modules "(transformer_blocks|single_transformer_blocks).*(to_q|to_k|to_v|to_out.0|add_q_proj|add_k_proj|add_v_proj|to_add_out)"
@@ -101,7 +102,7 @@ validation_cmd=(
 # Miscellaneous arguments
 miscellaneous_cmd=(
   --tracker_name "finetrainers-hunyuanvideo"
-  --output_dir "/raid/aryan/hunyuanvideo"
+  --output_dir "/fsx/aryan/lora-training/hunyuanvideo"
   --init_timeout 600
   --nccl_timeout 600
   --report_to "wandb"
