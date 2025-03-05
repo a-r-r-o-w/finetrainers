@@ -54,5 +54,5 @@ class SFTFullRankConfig(ConfigMixin):
     def validate_args(self, args: "BaseArgs"):
         pass
 
-    def map_args(self, args: "BaseArgs"):
+    def map_args(self, argparse_args: argparse.Namespace, mapped_args: "BaseArgs"):
         pass
