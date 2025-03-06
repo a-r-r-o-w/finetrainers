@@ -600,11 +600,17 @@ class IterableDatasetPreprocessingWrapper(
         for sample in iter(self.dataset):
             if self.dataset_type == "image":
                 if self.image_resolution_buckets:
+                    sample["_original_num_frames"] = 1
+                    sample["_original_height"] = sample["image"].size(1)
+                    sample["_original_width"] = sample["image"].size(2)
                     sample["image"] = FF.resize_to_nearest_bucket_image(
                         sample["image"], self.image_resolution_buckets, self.reshape_mode
                     )
             elif self.dataset_type == "video":
                 if self.video_resolution_buckets:
+                    sample["_original_num_frames"] = sample["video"].size(0)
+                    sample["_original_height"] = sample["video"].size(2)
+                    sample["_original_width"] = sample["video"].size(3)
                     sample["video"], _first_frame_only = FF.resize_to_nearest_bucket_video(
                         sample["video"], self.video_resolution_buckets, self.reshape_mode
                     )
