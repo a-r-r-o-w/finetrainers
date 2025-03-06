@@ -335,7 +335,8 @@ class CogView4ModelSpecification(ModelSpecification):
         )[0]
         target = FF.flow_match_target(noise, latents)
 
-        return pred, target, sigmas
+        # return pred, target, sigmas
+        return pred, target, shifted_sigmas
 
     def validation(
         self,

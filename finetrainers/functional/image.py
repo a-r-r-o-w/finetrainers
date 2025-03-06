@@ -22,7 +22,7 @@ def resize_crop_image(image: torch.Tensor, size: Tuple[int, int]) -> torch.Tenso
 
 
 def bicubic_resize_image(image: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
-    return F.interpolate(image, size=size, mode="bicubic", align_corners=False)
+    return F.interpolate(image.unsqueeze(0), size=size, mode="bicubic", align_corners=False)[0]
 
 
 def find_nearest_resolution_image(image: torch.Tensor, resolution_buckets: List[Tuple[int, int]]) -> Tuple[int, int]:
