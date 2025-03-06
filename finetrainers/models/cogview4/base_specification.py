@@ -358,7 +358,7 @@ class CogView4ModelSpecification(ModelSpecification):
             "output_type": "pil",
         }
         generation_kwargs = get_non_null_items(generation_kwargs)
-        image = pipeline(**generation_kwargs).frames[0]
+        image = pipeline(**generation_kwargs).images[0]
         return [data.ImageArtifact(value=image)]
 
     def _save_lora_weights(
