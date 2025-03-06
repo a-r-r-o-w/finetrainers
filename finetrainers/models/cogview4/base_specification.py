@@ -313,8 +313,17 @@ class CogView4ModelSpecification(ModelSpecification):
 
         latents = (latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
         noise = torch.zeros_like(latents).normal_(generator=generator)
-        noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
         timesteps = (sigmas.flatten() * 1000.0).long()
+
+        base_image_sequence_length = 256
+        base_shift = 0.25
+        max_shift = 0.75
+
+        image_sequence_length = latents.size(2) * latents.size(3) // self.transformer_config.patch_size**2
+        mu = (image_sequence_length / base_image_sequence_length) ** 0.5
+        mu = mu * max_shift + base_shift
+        shifted_sigmas = mu / (mu + (1 / sigmas - 1) ** 1.0)
+        noisy_latents = FF.flow_match_xt(latents, noise, shifted_sigmas)
 
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
 
