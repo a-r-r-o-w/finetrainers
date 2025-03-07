@@ -72,6 +72,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 | [HunyuanVideo](./docs/models/hunyuan_video.md) | Text-to-Video | 32 GB                              | OOM                                           |
 | [CogVideoX-5b](./docs/models/cogvideox.md)     | Text-to-Video | 18 GB                              | 53 GB                                         |
 | [Wan](./docs/models/wan.md)                    | Text-to-Video | TODO                               | TODO                                          |
+| [CogView4](./docs/models/cogview4.md)          | Text-to-Video | TODO                               | TODO                                          |
 
 </div>
 
