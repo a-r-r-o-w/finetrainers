@@ -3,22 +3,19 @@
 import json
 import os
 import pathlib
-import sys
 import tempfile
+import time
 import unittest
 
+import pytest
 from diffusers.utils import export_to_video
 from PIL import Image
 
+from finetrainers import BaseArgs, SFTTrainer, TrainingType, get_logger
+
 
 os.environ["WANDB_MODE"] = "disabled"
-os.environ["FINETRAINERS_LOG_LEVEL"] = "DEBUG"
-
-project_root = pathlib.Path(__file__).resolve().parents[2]
-sys.path.append(str(project_root))
-
-from finetrainers import BaseArgs, SFTTrainer, TrainingType, get_logger  # noqa
-from finetrainers.trainer.sft_trainer.config import SFTLowRankConfig, SFTFullRankConfig  # noqa
+os.environ["FINETRAINERS_LOG_LEVEL"] = "INFO"
 
 from ..models.cogvideox.base_specification import DummyCogVideoXModelSpecification  # noqa
 from ..models.cogview4.base_specification import DummyCogView4ModelSpecification  # noqa
@@ -29,6 +26,18 @@ from ..models.wan.base_specification import DummyWanModelSpecification  # noqa
 
 logger = get_logger()
 
+
+@pytest.fixture(autouse=True)
+def slow_down_tests():
+    yield
+    # Sleep between each test so that process groups are cleaned and resources are released.
+    # Not doing so seems to randomly trigger some test failures, which wouldn't fail if run individually.
+    # !!!Look into this in future!!!
+    time.sleep(3)
+
+
+# TODO(aryan): Currently, there's no way to just run the precomputation tests vs just the non-precomputation tests. They
+# always run together. Split the tests and improve how this is done.
 
 class SFTTrainerFastTestsMixin:
     model_specification_cls = None
@@ -77,10 +86,13 @@ class SFTTrainerFastTestsMixin:
         args = BaseArgs()
         args.dataset_config = self.dataset_config_filename.as_posix()
         args.train_steps = 10
+        args.max_data_samples = 25
         args.batch_size = 1
         args.gradient_checkpointing = True
         args.output_dir = self.tmpdir.name
-        args.precomputation_items = self.num_data_files // 2
+        args.checkpointing_steps = 6
+        args.enable_precomputation = False
+        args.precomputation_items = self.num_data_files
         args.precomputation_dir = os.path.join(self.tmpdir.name, "precomputed")
         return args
 
@@ -108,11 +120,15 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.dp_degree = 1
         args.batch_size = 1
         self._test_training(args)
+        args.enable_precomputation = True
+        self._test_training(args)
 
     def test___dp_degree_1___batch_size_2(self):
         args = self.get_args()
         args.dp_degree = 1
         args.batch_size = 2
+        self._test_training(args)
+        args.enable_precomputation = True
         self._test_training(args)
 
     def test___dp_degree_2___batch_size_1(self):
@@ -120,11 +136,15 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.dp_degree = 2
         args.batch_size = 1
         self._test_training(args)
+        args.enable_precomputation = True
+        self._test_training(args)
 
     def test___dp_degree_2___batch_size_2(self):
         args = self.get_args()
         args.dp_degree = 2
         args.batch_size = 2
+        self._test_training(args)
+        args.enable_precomputation = True
         self._test_training(args)
 
     def test___dp_shards_2___batch_size_1(self):
@@ -132,11 +152,15 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.dp_shards = 2
         args.batch_size = 1
         self._test_training(args)
+        args.enable_precomputation = True
+        self._test_training(args)
 
     def test___dp_shards_2___batch_size_2(self):
         args = self.get_args()
         args.dp_shards = 2
         args.batch_size = 1
+        self._test_training(args)
+        args.enable_precomputation = True
         self._test_training(args)
 
     def test___dp_degree_2___dp_shards_2___batch_size_1(self):
@@ -145,11 +169,15 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.dp_shards = 2
         args.batch_size = 1
         self._test_training(args)
+        args.enable_precomputation = True
+        self._test_training(args)
 
     def test___tp_degree_2___batch_size_2(self):
         args = self.get_args()
         args.tp_degree = 2
         args.batch_size = 1
+        self._test_training(args)
+        args.enable_precomputation = True
         self._test_training(args)
 
 
@@ -165,11 +193,15 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.dp_degree = 1
         args.batch_size = 1
         self._test_training(args)
+        args.enable_precomputation = True
+        self._test_training(args)
 
     def test___dp_degree_1___batch_size_2(self):
         args = self.get_args()
         args.dp_degree = 1
         args.batch_size = 2
+        self._test_training(args)
+        args.enable_precomputation = True
         self._test_training(args)
 
     def test___dp_degree_2___batch_size_1(self):
@@ -177,11 +209,15 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.dp_degree = 2
         args.batch_size = 1
         self._test_training(args)
+        args.enable_precomputation = True
+        self._test_training(args)
 
     def test___dp_degree_2___batch_size_2(self):
         args = self.get_args()
         args.dp_degree = 2
         args.batch_size = 2
+        self._test_training(args)
+        args.enable_precomputation = True
         self._test_training(args)
 
     def test___dp_shards_2___batch_size_1(self):
@@ -189,11 +225,15 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.dp_shards = 2
         args.batch_size = 1
         self._test_training(args)
+        args.enable_precomputation = True
+        self._test_training(args)
 
     def test___dp_shards_2___batch_size_2(self):
         args = self.get_args()
         args.dp_shards = 2
         args.batch_size = 1
+        self._test_training(args)
+        args.enable_precomputation = True
         self._test_training(args)
 
     def test___dp_degree_2___dp_shards_2___batch_size_1(self):
@@ -202,11 +242,15 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.dp_shards = 2
         args.batch_size = 1
         self._test_training(args)
+        args.enable_precomputation = True
+        self._test_training(args)
 
     def test___tp_degree_2___batch_size_2(self):
         args = self.get_args()
         args.tp_degree = 2
         args.batch_size = 1
+        self._test_training(args)
+        args.enable_precomputation = True
         self._test_training(args)
 
 
