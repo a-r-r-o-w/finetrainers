@@ -20,9 +20,9 @@ On Windows, you will have to modify the script to a compatible format to run it.
 
 CogVideoX has multiple checkpoints as one can note [here](https://huggingface.co/collections/THUDM/cogvideo-66c08e62f1685a3ade464cce). The following checkpoints were tested with `finetrainers` and are known to be working:
 
-* [THUDM/CogVideoX-2b](https://huggingface.co/THUDM/CogVideoX-2b)
-* [THUDM/CogVideoX-5B](https://huggingface.co/THUDM/CogVideoX-5B)
-* [THUDM/CogVideoX1.5-5B](https://huggingface.co/THUDM/CogVideoX1.5-5B)
+- [THUDM/CogVideoX-2b](https://huggingface.co/THUDM/CogVideoX-2b)
+- [THUDM/CogVideoX-5B](https://huggingface.co/THUDM/CogVideoX-5B)
+- [THUDM/CogVideoX1.5-5B](https://huggingface.co/THUDM/CogVideoX1.5-5B)
 
 ## Inference
 
@@ -45,6 +45,6 @@ export_to_video(video, "output.mp4")
 
 You can refer to the following guides to know more about the model pipeline and performing LoRA inference in `diffusers`:
 
-* [CogVideoX in Diffusers](https://huggingface.co/docs/diffusers/main/en/api/pipelines/cogvideox)
-* [Load LoRAs for inference](https://huggingface.co/docs/diffusers/main/en/tutorials/using_peft_for_inference)
-* [Merge LoRAs](https://huggingface.co/docs/diffusers/main/en/using-diffusers/merge_loras)
+- [CogVideoX in Diffusers](https://huggingface.co/docs/diffusers/main/en/api/pipelines/cogvideox)
+- [Load LoRAs for inference](https://huggingface.co/docs/diffusers/main/en/tutorials/using_peft_for_inference)
+- [Merge LoRAs](https://huggingface.co/docs/diffusers/main/en/using-diffusers/merge_loras)
