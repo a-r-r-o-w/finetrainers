@@ -335,6 +335,8 @@ class CogView4ModelSpecification(ModelSpecification):
         )[0]
         target = FF.flow_match_target(noise, latents)
 
+        # NOTE: shifted_sigmas loss weighting seems to work better than sigmas. Needs more investigation
+        # but let's keep it this way for now. Longer training runs should reveal more insights.
         # return pred, target, sigmas
         return pred, target, shifted_sigmas
 
