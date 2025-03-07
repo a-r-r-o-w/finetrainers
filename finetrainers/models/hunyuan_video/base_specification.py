@@ -117,10 +117,7 @@ class HunyuanVideoModelSpecification(ModelSpecification):
 
     @property
     def _resolution_dim_keys(self):
-        # TODO
-        return {
-            "latents": (2, 3, 4),
-        }
+        return {"latents": (2, 3, 4)}
 
     def load_condition_models(self) -> Dict[str, torch.nn.Module]:
         if self.tokenizer_id is not None:

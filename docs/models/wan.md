@@ -38,6 +38,6 @@ export_to_video(video, "output.mp4", fps=8)
 
 You can refer to the following guides to know more about the model pipeline and performing LoRA inference in `diffusers`:
 
-* [Wan in Diffusers](https://huggingface.co/docs/diffusers/main/en/api/pipelines/wan)
-* [Load LoRAs for inference](https://huggingface.co/docs/diffusers/main/en/tutorials/using_peft_for_inference)
-* [Merge LoRAs](https://huggingface.co/docs/diffusers/main/en/using-diffusers/merge_loras)
+- [Wan in Diffusers](https://huggingface.co/docs/diffusers/main/en/api/pipelines/wan)
+- [Load LoRAs for inference](https://huggingface.co/docs/diffusers/main/en/tutorials/using_peft_for_inference)
+- [Merge LoRAs](https://huggingface.co/docs/diffusers/main/en/using-diffusers/merge_loras)

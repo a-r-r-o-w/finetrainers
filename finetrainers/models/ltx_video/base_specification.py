@@ -120,7 +120,7 @@ class LTXVideoModelSpecification(ModelSpecification):
         )
 
         if condition_model_processors is None:
-            condition_model_processors = [T5Processor(["prompt_embeds", "prompt_attention_mask"])]
+            condition_model_processors = [T5Processor(["encoder_hidden_states", "encoder_attention_mask"])]
         if latent_model_processors is None:
             latent_model_processors = [
                 LTXLatentEncodeProcessor(["latents", "num_frames", "height", "width", "latents_mean", "latents_std"])
@@ -131,9 +131,7 @@ class LTXVideoModelSpecification(ModelSpecification):
 
     @property
     def _resolution_dim_keys(self):
-        return {
-            "latents": (2, 3, 4),
-        }
+        return {"latents": (2, 3, 4)}
 
     def load_condition_models(self) -> Dict[str, torch.nn.Module]:
         if self.tokenizer_id is not None:
@@ -342,8 +340,6 @@ class LTXVideoModelSpecification(ModelSpecification):
         sigmas = sigmas.view(-1, 1, 1).expand(-1, *noisy_latents.shape[1:-1], -1)
 
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
-        condition_model_conditions["encoder_hidden_states"] = condition_model_conditions.pop("prompt_embeds")
-        condition_model_conditions["encoder_attention_mask"] = condition_model_conditions.pop("prompt_attention_mask")
 
         # TODO(aryan): make this configurable
         frame_rate = 25

@@ -34,11 +34,6 @@ class WanLatentEncodeProcessor(ProcessorMixin):
         output_names (`List[str]`):
             The names of the outputs that the processor returns. The outputs are in the following order:
             - latents: The latents of the input image/video.
-            - num_frames: The number of frames in the input video.
-            - height: The height of the input image/video.
-            - width: The width of the input image/video.
-            - latents_mean: The latent channel means from the VAE state dict.
-            - latents_std: The latent channel standard deviations from the VAE state dict.
     """
 
     def __init__(self, output_names: List[str]):
@@ -111,7 +106,7 @@ class WanModelSpecification(ModelSpecification):
         )
 
         if condition_model_processors is None:
-            condition_model_processors = [T5Processor(["prompt_embeds", "prompt_attention_mask"])]
+            condition_model_processors = [T5Processor(["encoder_hidden_states", "prompt_attention_mask"])]
         if latent_model_processors is None:
             latent_model_processors = [WanLatentEncodeProcessor(["latents"])]
 
@@ -120,10 +115,7 @@ class WanModelSpecification(ModelSpecification):
 
     @property
     def _resolution_dim_keys(self):
-        # TODO
-        return {
-            "latents": (2, 3, 4),
-        }
+        return {"latents": (2, 3, 4)}
 
     def load_condition_models(self) -> Dict[str, torch.nn.Module]:
         if self.tokenizer_id is not None:
@@ -303,7 +295,6 @@ class WanModelSpecification(ModelSpecification):
         noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
 
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
-        condition_model_conditions["encoder_hidden_states"] = condition_model_conditions.pop("prompt_embeds")
 
         timesteps = (sigmas.flatten() * 1000.0).long()
 

@@ -496,7 +496,6 @@ class SFTTrainer:
 
             if train_state.step % self.args.gradient_accumulation_steps == 0:
                 # TODO(aryan): revisit no_sync() for FSDP
-                # TODO(aryan): average the gradients for accumulation?
                 self.optimizer.step()
                 self.lr_scheduler.step()
                 self.optimizer.zero_grad()

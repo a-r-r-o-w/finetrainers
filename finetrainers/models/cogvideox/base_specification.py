@@ -105,7 +105,7 @@ class CogVideoXModelSpecification(ModelSpecification):
         )
 
         if condition_model_processors is None:
-            condition_model_processors = [T5Processor(["prompt_embeds", "prompt_attention_mask"])]
+            condition_model_processors = [T5Processor(["encoder_hidden_states", "prompt_attention_mask"])]
         if latent_model_processors is None:
             latent_model_processors = [CogVideoXLatentEncodeProcessor(["latents"])]
 
@@ -337,7 +337,6 @@ class CogVideoXModelSpecification(ModelSpecification):
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
         latent_model_conditions["image_rotary_emb"] = image_rotary_emb
         latent_model_conditions["ofs"] = ofs_emb
-        condition_model_conditions["encoder_hidden_states"] = condition_model_conditions.pop("prompt_embeds")
 
         velocity = transformer(
             **latent_model_conditions,
