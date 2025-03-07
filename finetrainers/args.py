@@ -316,6 +316,7 @@ class BaseArgs:
     # Dataset arguments
     dataset_config: str = None
     dataset_shuffle_buffer_size: int = 1
+    enable_precomputation: bool = False
     precomputation_items: int = 512
     precomputation_dir: Optional[str] = None
     precomputation_once: bool = False
@@ -420,6 +421,7 @@ class BaseArgs:
         dataset_arguments = {
             "dataset_config": self.dataset_config,
             "dataset_shuffle_buffer_size": self.dataset_shuffle_buffer_size,
+            "enable_precomputation": self.enable_precomputation,
             "precomputation_items": self.precomputation_items,
             "precomputation_dir": self.precomputation_dir,
             "precomputation_once": self.precomputation_once,
@@ -625,6 +627,7 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
 def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dataset_config", type=str, required=True)
     parser.add_argument("--dataset_shuffle_buffer_size", type=int, default=1)
+    parser.add_argument("--enable_precomputation", action="store_true")
     parser.add_argument("--precomputation_items", type=int, default=512)
     parser.add_argument("--precomputation_dir", type=str, default=None)
     parser.add_argument("--precomputation_once", action="store_true")
@@ -761,6 +764,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     # Dataset arguments
     result_args.dataset_config = args.dataset_config
     result_args.dataset_shuffle_buffer_size = args.dataset_shuffle_buffer_size
+    result_args.enable_precomputation = args.enable_precomputation
     result_args.precomputation_items = args.precomputation_items
     result_args.precomputation_dir = args.precomputation_dir or os.path.join(args.output_dir, "precomputed")
     result_args.precomputation_once = args.precomputation_once

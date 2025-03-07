@@ -14,6 +14,14 @@ from .dataset import (
     initialize_dataset,
     wrap_iterable_dataset_for_preprocessing,
 )
-from .precomputation import DistributedDataPreprocessor, PreprocessedDataIterable
+from .precomputation import (
+    InMemoryDataIterable,
+    InMemoryDistributedDataPreprocessor,
+    InMemoryOnceDataIterable,
+    PrecomputedDataIterable,
+    PrecomputedDistributedDataPreprocessor,
+    PrecomputedOnceDataIterable,
+    initialize_preprocessor,
+)
 from .sampler import ResolutionSampler
 from .utils import find_files

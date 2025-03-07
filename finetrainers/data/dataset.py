@@ -758,11 +758,10 @@ def _initialize_hub_dataset(dataset_name: str, dataset_type: str, infinite: bool
     elif _has_data_file_caption_file_lists(repo_file_list, remote=True):
         return _initialize_data_file_caption_file_dataset_from_hub(dataset_name, dataset_type, infinite)
 
-    has_tar_files = any(file.endswith(".tar") for file in repo_file_list)
+    has_tar_files = any(file.endswith(".tar") or file.endswith(".parquet") for file in repo_file_list)
     if has_tar_files:
         return _initialize_webdataset(dataset_name, dataset_type, infinite)
 
-    # TODO(aryan): handle parquet
     # TODO(aryan): This should be improved
     caption_files = [pathlib.Path(file).name for file in repo_file_list if file.endswith(".txt")]
     if len(caption_files) < MAX_PRECOMPUTABLE_ITEMS_LIMIT:
