@@ -653,7 +653,7 @@ class SFTTrainer:
             for index, (key, artifact) in enumerate(list(artifacts.items())):
                 assert isinstance(artifact, (data.ImageArtifact, data.VideoArtifact))
 
-                time_, rank, ext = time.time(), parallel_backend.rank, artifact.file_extension
+                time_, rank, ext = int(time.time()), parallel_backend.rank, artifact.file_extension
                 filename = "validation-" if not final_validation else "final-"
                 filename += f"{step}-{rank}-{index}-{prompt_filename}-{time_}.{ext}"
                 output_filename = os.path.join(self.args.output_dir, filename)
