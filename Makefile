@@ -1,6 +1,6 @@
 .PHONY: quality style
 
-check_dirs := finetrainers tests examples train.py
+check_dirs := finetrainers tests examples train.py setup.py
 
 quality:
 	ruff check $(check_dirs) --exclude examples/_legacy
