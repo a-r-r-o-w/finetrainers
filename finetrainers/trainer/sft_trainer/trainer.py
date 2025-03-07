@@ -255,12 +255,15 @@ class SFTTrainer:
             data_root = config.pop("data_root", None)
             dataset_file = config.pop("dataset_file", None)
             dataset_type = config.pop("dataset_type")
+            caption_options = config.pop("caption_options", {})
 
             if data_root is not None and dataset_file is not None:
                 raise ValueError("Both data_root and dataset_file cannot be provided in the same dataset config.")
 
             dataset_name_or_root = data_root or dataset_file
-            dataset = data.initialize_dataset(dataset_name_or_root, dataset_type, streaming=True, infinite=True)
+            dataset = data.initialize_dataset(
+                dataset_name_or_root, dataset_type, streaming=True, infinite=True, _caption_options=caption_options
+            )
 
             if not dataset._precomputable_once and self.args.precomputation_once:
                 raise ValueError(
