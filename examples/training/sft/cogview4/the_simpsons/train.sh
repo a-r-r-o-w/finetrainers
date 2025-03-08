@@ -68,8 +68,8 @@ diffusion_cmd=(
 training_cmd=(
   --training_type "lora"
   --seed 42
-  --batch_size 1
-  --train_steps 10000
+  --batch_size 8
+  --train_steps 5000
   --rank 128
   --lora_alpha 128
   --target_modules "transformer_blocks.*(to_q|to_k|to_v|to_out.0)"
@@ -87,7 +87,7 @@ optimizer_cmd=(
   --optimizer "adamw"
   --lr 1e-5
   --lr_scheduler "constant_with_warmup"
-  --lr_warmup_steps 1000
+  --lr_warmup_steps 2000
   --lr_num_cycles 1
   --beta1 0.9
   --beta2 0.99
@@ -99,7 +99,7 @@ optimizer_cmd=(
 # Validation arguments
 validation_cmd=(
   --validation_dataset_file "$VALIDATION_DATASET_FILE"
-  --validation_steps 250
+  --validation_steps 500
 )
 
 # Miscellaneous arguments

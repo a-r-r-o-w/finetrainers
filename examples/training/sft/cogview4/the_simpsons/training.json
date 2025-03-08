@@ -5,8 +5,8 @@
       "dataset_type": "image",
       "id_token": "SMPSN",
       "image_resolution_buckets": [
-        [960, 536],
-        [720, 536],
+        [960, 528],
+        [720, 528],
         [720, 480]
       ],
       "reshape_mode": "bicubic",
