@@ -428,13 +428,14 @@ class ImageWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
         dataset_name: str,
         infinite: bool = False,
         column_names: Union[str, List[str]] = "__auto__",
-        random_weights: Dict[str, float] = -1,
+        weights: Dict[str, float] = -1,
+        **kwargs,
     ) -> None:
         super().__init__()
 
-        assert random_weights == -1 or isinstance(
-            random_weights, dict
-        ), "`random_weights` must be a dictionary of probabilities for each caption column"
+        assert weights == -1 or isinstance(
+            weights, dict
+        ), "`weights` must be a dictionary of probabilities for each caption column"
 
         self.dataset_name = dataset_name
         self.infinite = infinite
@@ -442,16 +443,16 @@ class ImageWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
         data = datasets.load_dataset(dataset_name, split="train", streaming=True)
 
         if column_names == "__auto__":
-            if random_weights == -1:
+            if weights == -1:
                 caption_columns = [column for column in data.column_names if column in COMMON_WDS_CAPTION_COLUMN_NAMES]
                 if len(caption_columns) == 0:
                     raise ValueError(
                         f"No common caption column found in the dataset. Supported columns are: {COMMON_WDS_CAPTION_COLUMN_NAMES}"
                     )
-                random_weights = [1] * len(caption_columns)
+                weights = [1] * len(caption_columns)
             else:
-                caption_columns = list(random_weights.keys())
-                random_weights = list(random_weights.values())
+                caption_columns = list(weights.keys())
+                weights = list(weights.values())
                 if not all(column in data.column_names for column in caption_columns):
                     raise ValueError(
                         f"Caption columns {caption_columns} not found in the dataset. Available columns are: {data.column_names}"
@@ -463,16 +464,14 @@ class ImageWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
                         f"Caption column {column_names} not found in the dataset. Available columns are: {data.column_names}"
                     )
                 caption_columns = [column_names]
-                random_weights = [1] if random_weights == -1 else [random_weights.get(column_names)]
+                weights = [1] if weights == -1 else [weights.get(column_names)]
             elif isinstance(column_names, list):
                 if not all(column in data.column_names for column in column_names):
                     raise ValueError(
                         f"Caption columns {column_names} not found in the dataset. Available columns are: {data.column_names}"
                     )
                 caption_columns = column_names
-                random_weights = (
-                    [1] if random_weights == -1 else [random_weights.get(column) for column in column_names]
-                )
+                weights = [1] if weights == -1 else [weights.get(column) for column in column_names]
             else:
                 raise ValueError(f"Unsupported type for column_name: {type(column_names)}")
 
@@ -486,7 +485,7 @@ class ImageWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
         self._sample_index = 0
         self._precomputable_once = False
         self._caption_columns = caption_columns
-        self._random_weights = random_weights
+        self._weights = weights
 
     def _get_data_iter(self):
         if self._sample_index == 0:
@@ -497,7 +496,7 @@ class ImageWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
         while True:
             for sample in self._get_data_iter():
                 self._sample_index += 1
-                caption_column = random.choices(self._caption_columns, weights=self._random_weights, k=1)[0]
+                caption_column = random.choices(self._caption_columns, weights=self._weights, k=1)[0]
                 sample["caption"] = sample[caption_column]
                 sample["image"] = _preprocess_image(sample["image"])
                 yield sample
@@ -518,22 +517,69 @@ class ImageWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
 
 
 class VideoWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkpoint.stateful.Stateful):
-    def __init__(self, dataset_name: str, infinite: bool = False) -> None:
+    def __init__(
+        self,
+        dataset_name: str,
+        infinite: bool = False,
+        column_names: Union[str, List[str]] = "__auto__",
+        weights: Dict[str, float] = -1,
+        **kwargs,
+    ) -> None:
         super().__init__()
+
+        assert weights == -1 or isinstance(
+            weights, dict
+        ), "`weights` must be a dictionary of probabilities for each caption column"
 
         self.dataset_name = dataset_name
         self.infinite = infinite
 
         data = datasets.load_dataset(dataset_name, split="train", streaming=True)
-        data = data.rename_column("txt", "caption")
-        for column_name in constants.SUPPORTED_VIDEO_FILE_EXTENSIONS:
-            if column_name in data.column_names:
-                data = data.cast_column(column_name, datasets.Video())
-                data = data.rename_column(column_name, "video")
+
+        if column_names == "__auto__":
+            if weights == -1:
+                caption_columns = [column for column in data.column_names if column in COMMON_WDS_CAPTION_COLUMN_NAMES]
+                if len(caption_columns) == 0:
+                    raise ValueError(
+                        f"No common caption column found in the dataset. Supported columns are: {COMMON_WDS_CAPTION_COLUMN_NAMES}"
+                    )
+                weights = [1] * len(caption_columns)
+            else:
+                caption_columns = list(weights.keys())
+                weights = list(weights.values())
+                if not all(column in data.column_names for column in caption_columns):
+                    raise ValueError(
+                        f"Caption columns {caption_columns} not found in the dataset. Available columns are: {data.column_names}"
+                    )
+        else:
+            if isinstance(column_names, str):
+                if column_names not in data.column_names:
+                    raise ValueError(
+                        f"Caption column {column_names} not found in the dataset. Available columns are: {data.column_names}"
+                    )
+                caption_columns = [column_names]
+                weights = [1] if weights == -1 else [weights.get(column_names)]
+            elif isinstance(column_names, list):
+                if not all(column in data.column_names for column in column_names):
+                    raise ValueError(
+                        f"Caption columns {column_names} not found in the dataset. Available columns are: {data.column_names}"
+                    )
+                caption_columns = column_names
+                weights = [1] if weights == -1 else [weights.get(column) for column in column_names]
+            else:
+                raise ValueError(f"Unsupported type for column_name: {type(column_names)}")
+
+        for column_names in constants.SUPPORTED_VIDEO_FILE_EXTENSIONS:
+            if column_names in data.column_names:
+                data = data.cast_column(column_names, datasets.Video())
+                data = data.rename_column(column_names, "video")
+                break
 
         self._data = data
         self._sample_index = 0
         self._precomputable_once = False
+        self._caption_columns = caption_columns
+        self._weights = weights
 
     def _get_data_iter(self):
         if self._sample_index == 0:
@@ -544,6 +590,9 @@ class VideoWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
         while True:
             for sample in self._get_data_iter():
                 self._sample_index += 1
+                caption_column = random.choices(self._caption_columns, weights=self._weights, k=1)[0]
+                sample["caption"] = sample[caption_column]
+                sample["video"] = _preprocess_video(sample["video"])
                 yield sample
 
             if not self.infinite:

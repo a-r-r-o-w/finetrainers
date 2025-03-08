@@ -289,8 +289,11 @@ class VideoWebDatasetFastTests(unittest.TestCase):
         for index, item in enumerate(self.dataset):
             if index > 2:
                 break
-            self.assertIsInstance(item["video"], decord.VideoReader)
-            self.assertEqual(len(item["video"].get_batch([0, 1, 2, 3])), 4)
+            self.assertIn("caption", item)
+            self.assertIn("video", item)
+            self.assertTrue(torch.is_tensor(item["video"]))
+            self.assertEqual(len(item["video"]), 121)
+            self.assertEqual(item["video"][0].shape, (3, 720, 1280))
 
     def test_initialize_dataset(self):
         dataset = initialize_dataset("finetrainers/dummy-squish-wds", "video", infinite=False)

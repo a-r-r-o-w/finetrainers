@@ -13,7 +13,7 @@
       "remove_common_llm_caption_prefixes": true,
       "caption_options": {
         "column_names": ["caption.txt", "detailed_caption.txt", "more_detailed_caption.txt"],
-        "random_weights": {
+        "weights": {
             "caption.txt": 0.2,
             "detailed_caption.txt": 0.6,
             "more_detailed_caption.txt": 0.2
