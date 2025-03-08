@@ -143,3 +143,10 @@ def prepare_target(
         raise ValueError(f"Unsupported scheduler type {type(scheduler)}")
 
     return target
+
+
+def _enable_vae_memory_optimizations(vae, enable_slicing: bool = False, enable_tiling: bool = False):
+    if hasattr(vae, "enable_slicing") and enable_slicing:
+        vae.enable_slicing()
+    if hasattr(vae, "enable_tiling") and enable_tiling:
+        vae.enable_tiling()
