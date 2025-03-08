@@ -34,6 +34,13 @@ logger = logging.get_logger()
 
 
 class SFTTrainer:
+    # fmt: off
+    _all_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
+    _condition_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3"]
+    _latent_component_names = ["vae"]
+    _diffusion_component_names = ["transformer", "unet", "scheduler"]
+    # fmt: on
+
     def __init__(self, args: "BaseArgs", model_specification: "ModelSpecification") -> None:
         self.args = args
         self.state = State()
@@ -807,24 +814,16 @@ class SFTTrainer:
             component.to(device)
 
     def _set_components(self, components: Dict[str, Any]) -> None:
-        # fmt: off
-        component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
-        # fmt: on
-
-        for component_name in component_names:
+        for component_name in self._all_component_names:
             existing_component = getattr(self, component_name, None)
             new_component = components.get(component_name, existing_component)
             setattr(self, component_name, new_component)
 
     def _delete_components(self, component_names: Optional[List[str]] = None) -> None:
         if component_names is None:
-            # fmt: off
-            component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
-            # fmt: on
-
+            component_names = self._all_component_names
         for component_name in component_names:
             setattr(self, component_name, None)
-
         utils.free_memory()
         utils.synchronize_device()
 
@@ -876,19 +875,25 @@ class SFTTrainer:
         self._move_components_to_device(list(components.values()))
         return pipeline
 
-    def _prepare_data(self, preprocessor: data.PrecomputedDistributedDataPreprocessor, data_iterator):
+    def _prepare_data(
+        self,
+        preprocessor: Union[data.InMemoryDistributedDataPreprocessor, data.PrecomputedDistributedDataPreprocessor],
+        data_iterator,
+    ):
         if not self.args.enable_precomputation:
-            logger.info(
-                "Precomputation disabled. Loading in-memory data loaders. All components will be loaded on GPUs."
-            )
-
             if not self._are_condition_models_loaded:
+                logger.info(
+                    "Precomputation disabled. Loading in-memory data loaders. All components will be loaded on GPUs."
+                )
                 condition_components = self.model_specification.load_condition_models()
                 latent_components = self.model_specification.load_latent_models()
                 all_components = {**condition_components, **latent_components}
                 self._set_components(all_components)
                 self._move_components_to_device(list(all_components.values()))
                 utils._enable_vae_memory_optimizations(self.vae, self.args.enable_slicing, self.args.enable_tiling)
+            else:
+                condition_components = {k: v for k in self._condition_component_names if (v := getattr(self, k, None))}
+                latent_components = {k: v for k in self._latent_component_names if (v := getattr(self, k, None))}
 
             condition_iterator = preprocessor.consume(
                 "condition",

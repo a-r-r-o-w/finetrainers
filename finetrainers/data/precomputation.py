@@ -67,7 +67,7 @@ class InMemoryDistributedDataPreprocessor(DistributedDataProcessorMixin):
             if drop_samples:
                 raise ValueError("Cannot cache and drop samples at the same time.")
 
-        for i in tqdm(range(self._num_items), desc=f"Rank {self._rank}", total=self._num_items):
+        for i in range(self._num_items):
             if use_cached_samples:
                 item = self._cached_samples[i]
             else:
@@ -102,7 +102,7 @@ class InMemoryDistributedDataPreprocessor(DistributedDataProcessorMixin):
             if drop_samples:
                 raise ValueError("Cannot cache and drop samples at the same time.")
 
-        for i in tqdm(range(self._num_items), desc=f"Rank {self._rank}", total=self._num_items):
+        for i in range(self._num_items):
             if use_cached_samples:
                 item = self._cached_samples[i]
             else:
@@ -241,10 +241,10 @@ class InMemoryDataIterable:
         self._requires_data = False
 
     def __iter__(self) -> Iterable[Dict[str, Any]]:
-        while length := self._buffer.get_length(self._data_type) > 0:
-            yield self._buffer.get(self._data_type)
-            if length == 1:
+        while (length := self._buffer.get_length(self._data_type)) > 0:
+            if length <= 1:
                 self._requires_data = True
+            yield self._buffer.get(self._data_type)
 
     def __len__(self) -> int:
         return self._buffer.get_length(self._data_type)
@@ -269,10 +269,8 @@ class InMemoryOnceDataIterable:
         self._requires_data = False
 
     def __iter__(self) -> Iterable[Dict[str, Any]]:
+        assert len(self) > 0, "No data available in the buffer."
         while True:
-            if self._buffer.get_length(self._data_type) == 0:
-                self._requires_data = True
-                break
             item = self._buffer.get(self._data_type)
             yield item
             self._buffer.add(self._data_type, item)
