@@ -29,10 +29,13 @@ decord.bridge.set_bridge("torch")
 logger = get_logger()
 
 
+# fmt: off
 MAX_PRECOMPUTABLE_ITEMS_LIMIT = 1024
 COMMON_CAPTION_FILES = ["prompt.txt", "prompts.txt", "caption.txt", "captions.txt"]
 COMMON_VIDEO_FILES = ["video.txt", "videos.txt"]
 COMMON_IMAGE_FILES = ["image.txt", "images.txt"]
+COMMON_WDS_CAPTION_COLUMN_NAMES = ["txt", "text", "caption", "captions", "short_caption", "long_caption", "prompt", "prompts", "short_prompt", "long_prompt", "description", "descriptions", "alt_text", "alt_texts", "alt_caption", "alt_captions", "alt_prompt", "alt_prompts", "alt_description", "alt_descriptions", "image_description", "image_descriptions", "image_caption", "image_captions", "image_prompt", "image_prompts", "image_alt_text", "image_alt_texts", "image_alt_caption", "image_alt_captions", "image_alt_prompt", "image_alt_prompts", "image_alt_description", "image_alt_descriptions", "video_description", "video_descriptions", "video_caption", "video_captions", "video_prompt", "video_prompts", "video_alt_text", "video_alt_texts", "video_alt_caption", "video_alt_captions", "video_alt_prompt", "video_alt_prompts", "video_alt_description"]
+# fmt: on
 
 
 class ImageCaptionFilePairDataset(torch.utils.data.IterableDataset, torch.distributed.checkpoint.stateful.Stateful):
@@ -431,11 +434,7 @@ class ImageWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
 
         assert random_weights == -1 or isinstance(
             random_weights, dict
-        ), "random_p must be a dictionary of probabilities for each caption column"
-
-        # fmt: off
-        COMMON_CAPTION_COLUMN_NAMES = ["txt", "text", "caption", "captions", "short_caption", "long_caption", "prompt", "prompts", "short_prompt", "long_prompt", "description", "descriptions", "alt_text", "alt_texts", "alt_caption", "alt_captions", "alt_prompt", "alt_prompts", "alt_description", "alt_descriptions", "image_description", "image_descriptions", "image_caption", "image_captions", "image_prompt", "image_prompts", "image_alt_text", "image_alt_texts", "image_alt_caption", "image_alt_captions", "image_alt_prompt", "image_alt_prompts", "image_alt_description", "image_alt_descriptions", "video_description", "video_descriptions", "video_caption", "video_captions", "video_prompt", "video_prompts", "video_alt_text", "video_alt_texts", "video_alt_caption", "video_alt_captions", "video_alt_prompt", "video_alt_prompts", "video_alt_description"]
-        # fmt: on
+        ), "`random_weights` must be a dictionary of probabilities for each caption column"
 
         self.dataset_name = dataset_name
         self.infinite = infinite
@@ -444,10 +443,10 @@ class ImageWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
 
         if column_names == "__auto__":
             if random_weights == -1:
-                caption_columns = [column for column in data.column_names if column in COMMON_CAPTION_COLUMN_NAMES]
+                caption_columns = [column for column in data.column_names if column in COMMON_WDS_CAPTION_COLUMN_NAMES]
                 if len(caption_columns) == 0:
                     raise ValueError(
-                        f"No common caption column found in the dataset. Supported columns are: {COMMON_CAPTION_COLUMN_NAMES}"
+                        f"No common caption column found in the dataset. Supported columns are: {COMMON_WDS_CAPTION_COLUMN_NAMES}"
                     )
                 random_weights = [1] * len(caption_columns)
             else:
