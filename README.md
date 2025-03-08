@@ -5,6 +5,11 @@ Finetrainers is a work-in-progress library to support (accessible) training of d
 <table align="center">
 <tr>
   <td align="center"><video src="https://github.com/user-attachments/assets/aad07161-87cb-4784-9e6b-16d06581e3e5">Your browser does not support the video tag.</video></td>
+  <td align="center"><video src="https://github.com/user-attachments/assets/c23d53e2-b422-4084-9156-3fce9fd01dad">Your browser does not support the video tag.</video></td>
+</tr>
+<tr>
+  <th align="center">CogVideoX LoRA training as the first iteration of this project</th>
+  <th align="center">Replication of PikaEffects</th>
 </tr>
 </table>
 
@@ -13,7 +18,7 @@ Finetrainers is a work-in-progress library to support (accessible) training of d
 - [Quickstart](#quickstart)
 - [News](#news)
 - [Support Matrix](#support-matrix)
-- [Featured Projects](#featured-projects)
+- [Featured Projects](#featured-projects-)
 - [Acknowledgements](#acknowledgements)
 
 ## Quickstart
@@ -27,7 +32,7 @@ git fetch --all --tags
 git checkout tags/v0.0.1
 ```
 
-Follow the instructions mentioned in the [README](https://github.com/a-r-r-o-w/finetrainers/tree/v0.0.1) for the release tag.
+Follow the instructions mentioned in the [README](https://github.com/a-r-r-o-w/finetrainers/tree/v0.0.1) for the latest stable release.
 
 #### Using the main branch
 
@@ -72,7 +77,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 | [HunyuanVideo](./docs/models/hunyuan_video.md) | Text-to-Video | 32 GB                              | OOM                                           |
 | [CogVideoX-5b](./docs/models/cogvideox.md)     | Text-to-Video | 18 GB                              | 53 GB                                         |
 | [Wan](./docs/models/wan.md)                    | Text-to-Video | TODO                               | TODO                                          |
-| [CogView4](./docs/models/cogview4.md)          | Text-to-Video | TODO                               | TODO                                          |
+| [CogView4](./docs/models/cogview4.md)          | Text-to-Image | TODO                               | TODO                                          |
 
 </div>
 
