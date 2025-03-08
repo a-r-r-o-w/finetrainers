@@ -115,9 +115,6 @@ class ModelSpecification:
             f"ModelSpecification::load_pipeline is not implemented for {self.__class__.__name__}"
         )
 
-    def collate_fn(self, batch: List[List[Dict[str, torch.Tensor]]]) -> Dict[str, torch.Tensor]:
-        raise NotImplementedError(f"ModelSpecification::collate_fn is not implemented for {self.__class__.__name__}")
-
     def prepare_conditions(self, **kwargs) -> Dict[str, Any]:
         for processor in self.condition_model_processors:
             result = processor(**kwargs)

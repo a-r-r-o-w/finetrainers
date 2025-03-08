@@ -7,7 +7,7 @@ set -e -x
 export WANDB_MODE="offline"
 export NCCL_P2P_DISABLE=1
 export TORCH_NCCL_ENABLE_MONITORING=0
-export FINETRAINERS_LOG_LEVEL="DEBUG"
+export FINETRAINERS_LOG_LEVEL="INFO"
 
 # Finetrainers supports multiple backends for distributed training. Select your favourite and benchmark the differences!
 # BACKEND="accelerate"
@@ -68,7 +68,7 @@ diffusion_cmd=(
 training_cmd=(
   --training_type "lora"
   --seed 42
-  --batch_size 8
+  --batch_size 1
   --train_steps 5000
   --rank 128
   --lora_alpha 128

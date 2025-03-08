@@ -12,6 +12,7 @@ Finetrainers is a work-in-progress library to support (accessible) training of d
 
 ## News
 
+- 🔥 **2025-03-07**: CogView4 support added!
 - 🔥 **2025-03-03**: Wan T2V support added!
 - 🔥 **2025-03-03**: We have shipped a complete refactor to support multi-backend distributed training, better precomputation handling for big datasets, model specification format (externally usable for training custom models), FSDP & more.
 - 🔥 **2025-02-12**: We have shipped a set of tooling to curate small and high-quality video datasets for fine-tuning. See [video-dataset-scripts](https://github.com/huggingface/video-dataset-scripts) documentation page for details!
