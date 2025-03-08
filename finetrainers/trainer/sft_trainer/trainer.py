@@ -915,6 +915,16 @@ class SFTTrainer:
         else:
             logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
 
+            parallel_backend = self.state.parallel_backend
+            train_state = self.state.train_state
+            self.checkpointer.save(
+                train_state.step,
+                force=True,
+                _device=parallel_backend.device,
+                _is_main_process=parallel_backend.is_main_process,
+            )
+            self._delete_components(component_names=["transformer", "unet"])
+
             if self.args.precomputation_once:
                 consume_fn = preprocessor.consume_once
             else:
@@ -953,6 +963,8 @@ class SFTTrainer:
             )
             self._delete_components(component_names)
             del latent_components, component_names, component_modules
+
+            self.checkpointer.load()
 
         return condition_iterator, latent_iterator
 

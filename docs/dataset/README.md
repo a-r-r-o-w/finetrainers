@@ -75,6 +75,8 @@ Any dataset loadable via the [🤗 HF datasets] directly should work (not widely
 
 Any dataset loadable via the [🤗 HF datasets] directly should work (not widely tested at the moment). We support the [`webdataset`](https://huggingface.co/docs/datasets/v3.3.2/en/image_dataset#webdataset) and [`webdataset`](https://huggingface.co/docs/datasets/v3.3.2/en/video_dataset#webdataset) formats.
 
+
+
 ## Validation Dataset Format
 
 Arguments related to validation are:
@@ -157,7 +159,8 @@ The following is a high-level overview of how datasets are loaded and preprocess
 
 ## Understanding how datasets are precomputed
 
-There are 3 arguments related to precomputation:
+There are 4 arguments related to precomputation:
+- `--enable_precomputation`: If set, precomputation will be enabled. The parameters that follow are only relevant if this flag is set. If this flag is not set, all models will be loaded in memory and training will take place without first precomputing embeddings.
 - `--precomputation_items`: The number of data points to precompute and store to disk at a time. This is useful for performing memory-efficient training without exhausting disk space by precomputing embeddings of the entire dataset(s) at once. We default to `512` data points, but configure this to a lower value for smaller datasets. As training progresses, the precomputed data will be read from disk and dispatched to data replicas. Once all precomputed data has been used, the next batch of data points will be precomputed and stored to disk in a rolling fashion.
 - `--precomputation_dir`: The directory where precomputed data will be stored. This is useful for resuming training from a checkpoint, as the precomputed data will be loaded from this directory. If this directory is not provided, the precomputed data will be stored in the `--output_dir/precomputed`.
 - `--precomputation_once`: If you're working with small datasets and want to precompute all embeddings at once, set this flag. This will allow you to train without having to compute embeddings every time the precomputed data is exhausted. Currently, `webdataset` format loading does not support this feature, and it is also disabled for `> 1024` data points due to hard coded logic (can be removed manually by users for now).

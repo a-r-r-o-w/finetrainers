@@ -9,6 +9,7 @@ import unittest
 
 import pytest
 from diffusers.utils import export_to_video
+from parameterized import parameterized
 from PIL import Image
 
 from finetrainers import BaseArgs, SFTTrainer, TrainingType, get_logger
@@ -34,10 +35,6 @@ def slow_down_tests():
     # Not doing so seems to randomly trigger some test failures, which wouldn't fail if run individually.
     # !!!Look into this in future!!!
     time.sleep(3)
-
-
-# TODO(aryan): Currently, there's no way to just run the precomputation tests vs just the non-precomputation tests. They
-# always run together. Split the tests and improve how this is done.
 
 
 class SFTTrainerFastTestsMixin:
@@ -116,69 +113,69 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.target_modules = ["to_q", "to_k", "to_v", "to_out.0"]
         return args
 
-    def test___dp_degree_1___batch_size_1(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
         args.batch_size = 1
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___dp_degree_1___batch_size_2(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_degree_1___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
         args.batch_size = 2
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___dp_degree_2___batch_size_1(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_degree_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
         args.batch_size = 1
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___dp_degree_2___batch_size_2(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_degree_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
         args.batch_size = 2
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___dp_shards_2___batch_size_1(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_shards_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_shards = 2
         args.batch_size = 1
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___dp_shards_2___batch_size_2(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_shards_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_shards = 2
         args.batch_size = 1
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___dp_degree_2___dp_shards_2___batch_size_1(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_degree_2___dp_shards_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
         args.dp_shards = 2
         args.batch_size = 1
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___tp_degree_2___batch_size_2(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___tp_degree_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.tp_degree = 2
         args.batch_size = 1
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
 
@@ -189,69 +186,69 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.training_type = TrainingType.FULL_FINETUNE
         return args
 
-    def test___dp_degree_1___batch_size_1(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
         args.batch_size = 1
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___dp_degree_1___batch_size_2(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_degree_1___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
         args.batch_size = 2
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___dp_degree_2___batch_size_1(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_degree_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
         args.batch_size = 1
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___dp_degree_2___batch_size_2(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_degree_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
         args.batch_size = 2
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___dp_shards_2___batch_size_1(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_shards_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_shards = 2
         args.batch_size = 1
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___dp_shards_2___batch_size_2(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_shards_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_shards = 2
         args.batch_size = 1
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___dp_degree_2___dp_shards_2___batch_size_1(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___dp_degree_2___dp_shards_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
         args.dp_shards = 2
         args.batch_size = 1
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    def test___tp_degree_2___batch_size_2(self):
+    @parameterized("enable_precomputation", [False, True])
+    def test___tp_degree_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.tp_degree = 2
         args.batch_size = 1
-        self._test_training(args)
-        args.enable_precomputation = True
+        args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
 
