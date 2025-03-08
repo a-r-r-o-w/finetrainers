@@ -21,9 +21,6 @@ from finetrainers.data.utils import find_files
 from .utils import create_dummy_directory_structure
 
 
-import decord  # isort: skip
-
-
 class DatasetTesterMixin:
     num_data_files = None
     directory_structure = None
