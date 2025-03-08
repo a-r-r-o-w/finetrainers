@@ -1,0 +1,24 @@
+{
+  "datasets": [
+    {
+      "data_root": "bigdata-pw/TheSimpsons",
+      "dataset_type": "image",
+      "id_token": "SMPSN",
+      "image_resolution_buckets": [
+        [960, 536],
+        [720, 536],
+        [720, 480]
+      ],
+      "reshape_mode": "bicubic",
+      "remove_common_llm_caption_prefixes": true,
+      "caption_options": {
+        "column_names": ["caption.txt", "detailed_caption.txt", "more_detailed_caption.txt"],
+        "random_weights": {
+            "caption.txt": 0.2,
+            "detailed_caption.txt": 0.6,
+            "more_detailed_caption.txt": 0.2
+        }
+      }
+    }
+  ]
+}
