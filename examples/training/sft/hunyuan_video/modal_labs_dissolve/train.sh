@@ -45,6 +45,7 @@ model_cmd=(
 dataset_cmd=(
   --dataset_config $TRAINING_DATASET_CONFIG
   --dataset_shuffle_buffer_size 10
+  --enable_precomputation
   --precomputation_items 10
   --precomputation_once
 )
