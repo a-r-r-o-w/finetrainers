@@ -34,6 +34,13 @@ logger = logging.get_logger()
 
 
 class SFTTrainer:
+    # fmt: off
+    _all_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
+    _condition_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3"]
+    _latent_component_names = ["vae"]
+    _diffusion_component_names = ["transformer", "unet", "scheduler"]
+    # fmt: on
+
     def __init__(self, args: "BaseArgs", model_specification: "ModelSpecification") -> None:
         self.args = args
         self.state = State()
@@ -73,6 +80,7 @@ class SFTTrainer:
         patches.perform_patches_for_training(self.args, self.state.parallel_backend)
 
         self.model_specification = model_specification
+        self._are_condition_models_loaded = False
 
     def run(self) -> None:
         try:
@@ -255,12 +263,15 @@ class SFTTrainer:
             data_root = config.pop("data_root", None)
             dataset_file = config.pop("dataset_file", None)
             dataset_type = config.pop("dataset_type")
+            caption_options = config.pop("caption_options", {})
 
             if data_root is not None and dataset_file is not None:
                 raise ValueError("Both data_root and dataset_file cannot be provided in the same dataset config.")
 
             dataset_name_or_root = data_root or dataset_file
-            dataset = data.initialize_dataset(dataset_name_or_root, dataset_type, streaming=True, infinite=True)
+            dataset = data.initialize_dataset(
+                dataset_name_or_root, dataset_type, streaming=True, infinite=True, _caption_options=caption_options
+            )
 
             if not dataset._precomputable_once and self.args.precomputation_once:
                 raise ValueError(
@@ -370,9 +381,9 @@ class SFTTrainer:
         self.transformer.train()
         data_iterator = iter(self.dataloader)
 
-        preprocessor = data.DistributedDataPreprocessor(
+        preprocessor = data.initialize_preprocessor(
             rank=parallel_backend.rank,
-            num_items=self.args.precomputation_items,
+            num_items=self.args.precomputation_items if self.args.enable_precomputation else 1,
             processor_fn={
                 "condition": self.model_specification.prepare_conditions,
                 "latent": functools.partial(
@@ -380,6 +391,7 @@ class SFTTrainer:
                 ),
             },
             save_dir=self.args.precomputation_dir,
+            enable_precomputation=self.args.enable_precomputation,
         )
         precomputed_condition_iterator: Iterable[Dict[str, Any]] = None
         precomputed_latent_iterator: Iterable[Dict[str, Any]] = None
@@ -805,24 +817,16 @@ class SFTTrainer:
             component.to(device)
 
     def _set_components(self, components: Dict[str, Any]) -> None:
-        # fmt: off
-        component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
-        # fmt: on
-
-        for component_name in component_names:
+        for component_name in self._all_component_names:
             existing_component = getattr(self, component_name, None)
             new_component = components.get(component_name, existing_component)
             setattr(self, component_name, new_component)
 
     def _delete_components(self, component_names: Optional[List[str]] = None) -> None:
         if component_names is None:
-            # fmt: off
-            component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
-            # fmt: on
-
+            component_names = self._all_component_names
         for component_name in component_names:
             setattr(self, component_name, None)
-
         utils.free_memory()
         utils.synchronize_device()
 
@@ -849,7 +853,6 @@ class SFTTrainer:
                 training=True,
             )
         else:
-            # TODO(aryan): this branch does not work yet, needs to be implemented
             self._delete_components()
 
             # Load the transformer weights from the final checkpoint if performing full-finetune
@@ -875,50 +878,86 @@ class SFTTrainer:
         self._move_components_to_device(list(components.values()))
         return pipeline
 
-    def _prepare_data(self, preprocessor: data.DistributedDataPreprocessor, data_iterator):
-        logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
-        if self.args.precomputation_once:
-            consume_fn = preprocessor.consume_once
+    def _prepare_data(
+        self,
+        preprocessor: Union[data.InMemoryDistributedDataPreprocessor, data.PrecomputedDistributedDataPreprocessor],
+        data_iterator,
+    ):
+        if not self.args.enable_precomputation:
+            if not self._are_condition_models_loaded:
+                logger.info(
+                    "Precomputation disabled. Loading in-memory data loaders. All components will be loaded on GPUs."
+                )
+                condition_components = self.model_specification.load_condition_models()
+                latent_components = self.model_specification.load_latent_models()
+                all_components = {**condition_components, **latent_components}
+                self._set_components(all_components)
+                self._move_components_to_device(list(all_components.values()))
+                utils._enable_vae_memory_optimizations(self.vae, self.args.enable_slicing, self.args.enable_tiling)
+            else:
+                condition_components = {k: v for k in self._condition_component_names if (v := getattr(self, k, None))}
+                latent_components = {k: v for k in self._latent_component_names if (v := getattr(self, k, None))}
+
+            condition_iterator = preprocessor.consume(
+                "condition",
+                components=condition_components,
+                data_iterator=data_iterator,
+                generator=self.state.generator,
+                cache_samples=True,
+            )
+            latent_iterator = preprocessor.consume(
+                "latent",
+                components=latent_components,
+                data_iterator=data_iterator,
+                generator=self.state.generator,
+                use_cached_samples=True,
+                drop_samples=True,
+            )
+
+            self._are_condition_models_loaded = True
         else:
-            consume_fn = preprocessor.consume
+            logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
 
-        condition_components = self.model_specification.load_condition_models()
-        component_names = list(condition_components.keys())
-        component_modules = list(condition_components.values())
-        self._set_components(condition_components)
-        self._move_components_to_device(component_modules)
-        precomputed_condition_iterator = consume_fn(
-            "condition",
-            components=condition_components,
-            data_iterator=data_iterator,
-            generator=self.state.generator,
-            cache_samples=True,
-        )
-        self._delete_components(component_names)
-        del condition_components, component_names, component_modules
+            if self.args.precomputation_once:
+                consume_fn = preprocessor.consume_once
+            else:
+                consume_fn = preprocessor.consume
 
-        latent_components = self.model_specification.load_latent_models()
-        if self.vae is not None:
-            if self.args.enable_slicing:
-                self.vae.enable_slicing()
-            if self.args.enable_tiling:
-                self.vae.enable_tiling()
-        component_names = list(latent_components.keys())
-        component_modules = list(latent_components.values())
-        self._set_components(latent_components)
-        self._move_components_to_device(component_modules)
-        precomputed_latent_iterator = consume_fn(
-            "latent",
-            components=latent_components,
-            data_iterator=data_iterator,
-            generator=self.state.generator,
-            use_cached_samples=True,
-            drop_samples=True,
-        )
-        self._delete_components(component_names)
-        del latent_components, component_names, component_modules
+            # Prepare condition iterators
+            condition_components = self.model_specification.load_condition_models()
+            component_names = list(condition_components.keys())
+            component_modules = list(condition_components.values())
+            self._set_components(condition_components)
+            self._move_components_to_device(component_modules)
+            condition_iterator = consume_fn(
+                "condition",
+                components=condition_components,
+                data_iterator=data_iterator,
+                generator=self.state.generator,
+                cache_samples=True,
+            )
+            self._delete_components(component_names)
+            del condition_components, component_names, component_modules
 
-        return precomputed_condition_iterator, precomputed_latent_iterator
+            # Prepare latent iterators
+            latent_components = self.model_specification.load_latent_models()
+            utils._enable_vae_memory_optimizations(self.vae, self.args.enable_slicing, self.args.enable_tiling)
+            component_names = list(latent_components.keys())
+            component_modules = list(latent_components.values())
+            self._set_components(latent_components)
+            self._move_components_to_device(component_modules)
+            latent_iterator = consume_fn(
+                "latent",
+                components=latent_components,
+                data_iterator=data_iterator,
+                generator=self.state.generator,
+                use_cached_samples=True,
+                drop_samples=True,
+            )
+            self._delete_components(component_names)
+            del latent_components, component_names, component_modules
+
+        return condition_iterator, latent_iterator
 
     def _get_training_info(self) -> Dict[str, Any]:
         info = self.args.to_dict()

@@ -1,30 +1,27 @@
 import pathlib
-import sys
 import tempfile
 import unittest
 
 import torch
-from diffusers.utils import export_to_video
 from PIL import Image
 
-
-project_root = pathlib.Path(__file__).resolve().parents[2]
-sys.path.append(str(project_root))
-
-import decord  # noqa
-
-from finetrainers.data import (  # noqa
+from finetrainers.data import (
     ImageCaptionFilePairDataset,
     ImageFileCaptionFileListDataset,
     ImageFolderDataset,
+    ValidationDataset,
     VideoCaptionFilePairDataset,
     VideoFileCaptionFileListDataset,
     VideoFolderDataset,
     VideoWebDataset,
-    ValidationDataset,
     initialize_dataset,
 )
-from finetrainers.data.utils import find_files  # noqa
+from finetrainers.data.utils import find_files
+
+from .utils import create_dummy_directory_structure
+
+
+import decord  # isort: skip
 
 
 class DatasetTesterMixin:
@@ -34,56 +31,15 @@ class DatasetTesterMixin:
     metadata_extension = None
 
     def setUp(self):
-        from finetrainers.data.dataset import COMMON_CAPTION_FILES, COMMON_IMAGE_FILES, COMMON_VIDEO_FILES
-
         if self.num_data_files is None:
             raise ValueError("num_data_files is not defined")
         if self.directory_structure is None:
             raise ValueError("dataset_structure is not defined")
 
         self.tmpdir = tempfile.TemporaryDirectory()
-
-        for item in self.directory_structure:
-            # TODO(aryan): this should be improved
-            if item in COMMON_CAPTION_FILES:
-                data_file = pathlib.Path(self.tmpdir.name) / item
-                with open(data_file.as_posix(), "w") as f:
-                    for _ in range(self.num_data_files):
-                        f.write(f"{self.caption}\n")
-            elif item in COMMON_IMAGE_FILES:
-                data_file = pathlib.Path(self.tmpdir.name) / item
-                with open(data_file.as_posix(), "w") as f:
-                    for i in range(self.num_data_files):
-                        f.write(f"images/{i}.jpg\n")
-            elif item in COMMON_VIDEO_FILES:
-                data_file = pathlib.Path(self.tmpdir.name) / item
-                with open(data_file.as_posix(), "w") as f:
-                    for i in range(self.num_data_files):
-                        f.write(f"videos/{i}.mp4\n")
-            elif item == "metadata.csv":
-                data_file = pathlib.Path(self.tmpdir.name) / item
-                with open(data_file.as_posix(), "w") as f:
-                    f.write("file_name,caption\n")
-                    for i in range(self.num_data_files):
-                        f.write(f"{i}.{self.metadata_extension},{self.caption}\n")
-            elif item == "metadata.jsonl":
-                data_file = pathlib.Path(self.tmpdir.name) / item
-                with open(data_file.as_posix(), "w") as f:
-                    for i in range(self.num_data_files):
-                        f.write(f'{{"file_name": "{i}.{self.metadata_extension}", "caption": "{self.caption}"}}\n')
-            elif item.endswith(".txt"):
-                data_file = pathlib.Path(self.tmpdir.name) / item
-                with open(data_file.as_posix(), "w") as f:
-                    f.write(self.caption)
-            elif item.endswith(".jpg") or item.endswith(".png"):
-                data_file = pathlib.Path(self.tmpdir.name) / item
-                Image.new("RGB", (64, 64)).save(data_file.as_posix())
-            elif item.endswith(".mp4"):
-                data_file = pathlib.Path(self.tmpdir.name) / item
-                export_to_video([Image.new("RGB", (64, 64))] * 4, data_file.as_posix(), fps=2)
-            else:
-                data_file = pathlib.Path(self.tmpdir.name, item)
-                data_file.mkdir(exist_ok=True, parents=True)
+        create_dummy_directory_structure(
+            self.directory_structure, self.tmpdir, self.num_data_files, self.caption, self.metadata_extension
+        )
 
     def tearDown(self):
         self.tmpdir.cleanup()

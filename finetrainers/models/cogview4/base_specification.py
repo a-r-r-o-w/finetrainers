@@ -224,7 +224,8 @@ class CogView4ModelSpecification(ModelSpecification):
             "text_encoder": text_encoder,
             "transformer": transformer,
             "vae": vae,
-            "scheduler": scheduler,
+            # Load the scheduler based on CogView4's config instead of using the default initialization being used for training
+            # "scheduler": scheduler,
         }
         components = get_non_null_items(components)
 

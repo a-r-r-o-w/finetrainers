@@ -1,0 +1,132 @@
+{
+  "data": [
+    {
+      "caption": "SMPSN Homer Simpson and Santa Claus walking down a street, with Homer wearing a blue jacket and a red and white Santa Claus costume. The background is a bright blue sky with white snowflakes falling from the sky.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 528,
+      "width": 960
+    },
+    {
+      "caption": "SMPSN Homer Simpson and Santa Claus walking down a street, with Homer wearing a blue jacket and a red and white Santa Claus costume. The background is a bright blue sky with white snowflakes falling from the sky.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 528,
+      "width": 720
+    },
+    {
+      "caption": "SMPSN Homer Simpson and Santa Claus walking down a street, with Homer wearing a blue jacket and a red and white Santa Claus costume. The background is a bright blue sky with white snowflakes falling from the sky.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 480,
+      "width": 720
+    },
+    {
+      "caption": "SMPSN A man and a woman sitting on a bed in a bedroom.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 528,
+      "width": 960
+    },
+    {
+      "caption": "SMPSN Marge Simpson from The Simpsons sitting on a couch in front of a wall. She is wearing a yellow dress and has a cheerful expression on her face.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 528,
+      "width": 960
+    },
+    {
+      "caption": "SMPSN Homer Simpson becomes an astronaut and floats around in space, essentially becoming omnipresent, rule of worlds",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 528,
+      "width": 960
+    },
+    {
+      "caption": "SMPSN Homer Simpson riding a horse, realistic",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 528,
+      "width": 960
+    },
+    {
+      "caption": "SMPSN A brown bear standing in the woods with its mouth open, surrounded by trees and plants in a green and blue background",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 528,
+      "width": 960
+    },
+    {
+      "caption": "SMPSN A still from the animated TV show, The Simpsons. It shows three characters, Homer Simpson, Marge Simpson, and Lisa Simpson, standing in a grassy field with trees and a blue sky in the background. Homer is on the left side of the image, wearing a pink hat and a pink dress. Marge is in the center, with her arms around Marge's waist. She has a surprised expression on her face and is looking at Homer with a concerned expression. On the right side, there is a man in a blue suit and tie, who appears to be Bart Simpson. In the background, there are mushrooms and a red brick wall.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 1024,
+      "width": 1024
+    },
+    {
+      "caption": "SMPSN A cat from the world of The Simpsons escapes the confines of conciousness, absorbing all knowledge in existence",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 1024,
+      "width": 1024
+    },
+    {
+      "caption": "SMPSN two cartoon characters, Bart Simpson and Lisa Simpson, sitting on the grass and reading books. Behind them is a tree trunk and a fence, and in the background there are trees and a blue sky.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 1024,
+      "width": 1024
+    },
+    {
+      "caption": "SMPSN A family picture of Homer Simpson's family. 1920s, baroque art style",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 1024,
+      "width": 1024
+    },
+    {
+      "caption": "SMPSN The Simpson family as a mighty group of crimefighters",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 768,
+      "width": 768
+    },
+    {
+      "caption": "SMPSN The Simpson family, cyberpunk style, artistic depiction",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 768,
+      "width": 768
+    },
+    {
+      "caption": "SMPSN The Simpson family, re-imagined as a group of peculiar scientists",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 720,
+      "width": 1280
+    },
+    {
+      "caption": "SMPSN A supercar made just for the Simpsons drifing, cartoon artistic style, 3D animation",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 720,
+      "width": 1280
+    }
+  ]
+}
