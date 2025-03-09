@@ -39,7 +39,7 @@ class WanLatentEncodeProcessor(ProcessorMixin):
     def __init__(self, output_names: List[str]):
         super().__init__()
         self.output_names = output_names
-        assert len(self.output_names) == 1
+        assert len(self.output_names) == 3
 
     def forward(
         self,
@@ -72,7 +72,10 @@ class WanLatentEncodeProcessor(ProcessorMixin):
             moments = vae._encode(video)
             latents = moments.to(dtype=dtype)
 
-        return {self.output_names[0]: latents}
+        latents_mean = torch.tensor(vae.config.latents_mean)
+        latents_std = 1.0 / torch.tensor(vae.config.latents_std)
+
+        return {self.output_names[0]: latents, self.output_names[1]: latents_mean, self.output_names[2]: latents_std}
 
 
 class WanModelSpecification(ModelSpecification):
@@ -108,7 +111,7 @@ class WanModelSpecification(ModelSpecification):
         if condition_model_processors is None:
             condition_model_processors = [T5Processor(["encoder_hidden_states", "prompt_attention_mask"])]
         if latent_model_processors is None:
-            latent_model_processors = [WanLatentEncodeProcessor(["latents"])]
+            latent_model_processors = [WanLatentEncodeProcessor(["latents", "latents_mean", "latents_std"])]
 
         self.condition_model_processors = condition_model_processors
         self.latent_model_processors = latent_model_processors
@@ -291,12 +294,15 @@ class WanModelSpecification(ModelSpecification):
             latents = posterior.sample(generator=generator)
             del posterior
 
+        latents_mean = latent_model_conditions.pop("latents_mean")
+        latents_std = latent_model_conditions.pop("latents_std")
+        latents = self._normalize_latents(latents, latents_mean, latents_std)
+
         noise = torch.zeros_like(latents).normal_(generator=generator)
         noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
+        timesteps = (sigmas.flatten() * 1000.0).long()
 
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
-
-        timesteps = (sigmas.flatten() * 1000.0).long()
 
         pred = transformer(
             **latent_model_conditions,
@@ -367,3 +373,12 @@ class WanModelSpecification(ModelSpecification):
             transformer_copy.save_pretrained(os.path.join(directory, "transformer"))
         if scheduler is not None:
             scheduler.save_pretrained(os.path.join(directory, "scheduler"))
+
+    @staticmethod
+    def _normalize_latents(
+        latents: torch.Tensor, latents_mean: torch.Tensor, latents_std: torch.Tensor
+    ) -> torch.Tensor:
+        latents_mean = latents_mean.view(1, -1, 1, 1, 1).to(latents)
+        latents_std = latents_std.view(1, -1, 1, 1, 1).to(latents)
+        latents = (latents - latents_mean) / latents_std
+        return latents
