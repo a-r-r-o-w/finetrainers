@@ -147,8 +147,11 @@ class SFTTrainer:
 
         # Make sure the trainable params are in float32 if data sharding is not enabled. For FSDP, we need all
         # parameters to be of the same dtype.
-        if self.args.training_type == TrainingType.LORA and not parallel_backend.data_sharding_enabled:
-            cast_training_params([self.transformer], dtype=torch.float32)
+        if parallel_backend.data_sharding_enabled:
+            self.transformer.to(dtype=self.args.transformer_dtype)
+        else:
+            if self.args.training_type == TrainingType.LORA:
+                cast_training_params([self.transformer], dtype=torch.float32)
 
     def _prepare_for_training(self) -> None:
         # 1. Apply parallelism

@@ -269,7 +269,10 @@ class WanModelSpecification(ModelSpecification):
             "image": image,
             "video": video,
             "generator": generator,
-            "compute_posterior": compute_posterior,
+            # We must force this to False because the latent normalization should be done before
+            # the posterior is computed. The VAE does not handle this any more:
+            # https://github.com/huggingface/diffusers/pull/10998
+            "compute_posterior": False,
             **kwargs,
         }
         input_keys = set(conditions.keys())
@@ -287,16 +290,16 @@ class WanModelSpecification(ModelSpecification):
         compute_posterior: bool = True,
         **kwargs,
     ) -> Tuple[torch.Tensor, ...]:
+        compute_posterior = False  # See explanation in prepare_latents
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
         else:
+            latents_mean = latent_model_conditions.pop("latents_mean")
+            latents_std = latent_model_conditions.pop("latents_std")
+            latents = self._normalize_latents(latents, latents_mean, latents_std)
             posterior = DiagonalGaussianDistribution(latent_model_conditions.pop("latents"))
             latents = posterior.sample(generator=generator)
             del posterior
-
-        latents_mean = latent_model_conditions.pop("latents_mean")
-        latents_std = latent_model_conditions.pop("latents_std")
-        latents = self._normalize_latents(latents, latents_mean, latents_std)
 
         noise = torch.zeros_like(latents).normal_(generator=generator)
         noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
@@ -378,7 +381,7 @@ class WanModelSpecification(ModelSpecification):
     def _normalize_latents(
         latents: torch.Tensor, latents_mean: torch.Tensor, latents_std: torch.Tensor
     ) -> torch.Tensor:
-        latents_mean = latents_mean.view(1, -1, 1, 1, 1).to(latents)
-        latents_std = latents_std.view(1, -1, 1, 1, 1).to(latents)
-        latents = (latents - latents_mean) / latents_std
+        latents_mean = latents_mean.view(1, -1, 1, 1, 1).to(device=latents.device)
+        latents_std = latents_std.view(1, -1, 1, 1, 1).to(device=latents.device)
+        latents = ((latents.float() - latents_mean) * latents_std).to(latents)
         return latents
