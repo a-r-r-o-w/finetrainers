@@ -336,8 +336,8 @@ class LTXVideoModelSpecification(ModelSpecification):
         latents = self._pack_latents(latents, patch_size, patch_size_t)
         noise = self._pack_latents(noise, patch_size, patch_size_t)
         noisy_latents = self._pack_latents(noisy_latents, patch_size, patch_size_t)
-
         sigmas = sigmas.view(-1, 1, 1).expand(-1, *noisy_latents.shape[1:-1], -1)
+        timesteps = (sigmas * 1000.0).long()
 
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
 
@@ -352,7 +352,6 @@ class LTXVideoModelSpecification(ModelSpecification):
             vae_spatial_compression_ratio,
             vae_spatial_compression_ratio,
         ]
-        timesteps = (sigmas * 1000.0).long()
 
         pred = transformer(
             **latent_model_conditions,
@@ -444,9 +443,9 @@ class LTXVideoModelSpecification(ModelSpecification):
         latents: torch.Tensor, latents_mean: torch.Tensor, latents_std: torch.Tensor, scaling_factor: float = 1.0
     ) -> torch.Tensor:
         # Normalize latents across the channel dimension [B, C, F, H, W]
-        latents_mean = latents_mean.view(1, -1, 1, 1, 1).to(latents)
-        latents_std = latents_std.view(1, -1, 1, 1, 1).to(latents)
-        latents = (latents - latents_mean) * scaling_factor / latents_std
+        latents_mean = latents_mean.view(1, -1, 1, 1, 1).to(device=latents.device)
+        latents_std = latents_std.view(1, -1, 1, 1, 1).to(device=latents.device)
+        latents = ((latents.float() - latents_mean) * scaling_factor / latents_std).to(latents)
         return latents
 
     @staticmethod

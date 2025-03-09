@@ -294,10 +294,11 @@ class WanModelSpecification(ModelSpecification):
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
         else:
+            latents = latent_model_conditions.pop("latents")
             latents_mean = latent_model_conditions.pop("latents_mean")
             latents_std = latent_model_conditions.pop("latents_std")
             latents = self._normalize_latents(latents, latents_mean, latents_std)
-            posterior = DiagonalGaussianDistribution(latent_model_conditions.pop("latents"))
+            posterior = DiagonalGaussianDistribution(latents)
             latents = posterior.sample(generator=generator)
             del posterior
 
