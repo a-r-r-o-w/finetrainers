@@ -113,7 +113,7 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.target_modules = ["to_q", "to_k", "to_v", "to_out.0"]
         return args
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
@@ -121,7 +121,7 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_degree_1___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
@@ -129,7 +129,7 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_degree_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
@@ -137,7 +137,7 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_degree_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
@@ -145,7 +145,7 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_shards_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_shards = 2
@@ -153,7 +153,7 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_shards_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_shards = 2
@@ -161,7 +161,7 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_degree_2___dp_shards_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
@@ -170,7 +170,7 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___tp_degree_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.tp_degree = 2
@@ -186,7 +186,7 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.training_type = TrainingType.FULL_FINETUNE
         return args
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
@@ -194,7 +194,7 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_degree_1___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
@@ -202,7 +202,7 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_degree_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
@@ -210,7 +210,7 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_degree_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
@@ -218,7 +218,7 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_shards_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_shards = 2
@@ -226,7 +226,7 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_shards_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_shards = 2
@@ -234,7 +234,7 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___dp_degree_2___dp_shards_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
@@ -243,7 +243,7 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized("enable_precomputation", [False, True])
+    @parameterized.expand([(False,), (True,)])
     def test___tp_degree_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.tp_degree = 2
