@@ -1,0 +1,76 @@
+{
+  "data": [
+    {
+      "caption": "PXL4RT A spacecraft, rendered in a 3D appearance, ascends into the night sky, leaving behind a trail of fiery exhaust. As it climbs higher, the exhaust gradually transforms into a burst of red sparks, creating a dramatic and dynamic visual effect against the dark backdrop.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 30,
+      "height": 768,
+      "width": 768,
+      "num_frames": 49
+    },
+    {
+      "caption": "PXL4RT a Halloween-themed scene with a pixelated, cartoonish style. A ghostly figure in a white dress floats in the foreground, surrounded by jack-o'-lanterns. The background features a spooky castle with a full moon and a bridge. The scene is vibrant with Halloween decorations, creating a festive and eerie atmosphere.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 30,
+      "height": 720,
+      "width": 960,
+      "num_frames": 49
+    },
+    {
+      "caption": "PXL4RT a pixelated winter scene with a snowy street. A red and white stop sign is visible, along with a black and yellow barricade. A Christmas tree is decorated with red ornaments and lights. The ground is covered in snow, and there's a pink object in the foreground. The scene is set against a dark background with power lines.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 30,
+      "height": 512,
+      "width": 512,
+      "num_frames": 49
+    },
+    {
+      "caption": "PXL4RT a pixel art animation featuring a red-haired girl with blue eyes. She has a playful, mischievous expression and is wearing a purple crop top, shorts, and boots. The background is a gradient of blue, with a darker blue border. The animation is looped, showing the girl in various poses and expressions, including a shadowy silhouette behind her.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 30,
+      "height": 768,
+      "width": 768,
+      "num_frames": 49
+    },
+    {
+      "caption": "PXL4RT a woman standing on a balcony overlooking a cityscape. She's wearing a black jacket and skirt, with her hair in a ponytail. The scene is set during sunset, with a pink and orange sky. The balcony has a metal railing and a potted plant. The city skyline features tall buildings, and there are birds flying in the sky.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 30,
+      "height": 720,
+      "width": 1280,
+      "num_frames": 49
+    },
+    {
+      "caption": "PXL4RT a young girl with long black hair and blue eyes, sitting in a purple gaming chair. She's wearing a white hoodie and headphones, and has a pink stuffed dog on her lap. The scene is set in a cozy bedroom with a computer desk, monitor, keyboard, and speakers. The room is decorated with heart-shaped lights and a starry night sky, creating a warm and inviting atmosphere.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 30,
+      "height": 720,
+      "width": 1280,
+      "num_frames": 49
+    },
+    {
+      "caption": "PXL4RT A spacecraft, rendered in a 3D appearance, ascends into the night sky, leaving behind a trail of fiery exhaust. As it climbs higher, the exhaust gradually transforms into a burst of red sparks, creating a dramatic and dynamic visual effect against the dark backdrop.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 30,
+      "height": 768,
+      "width": 768,
+      "num_frames": 81
+    },
+    {
+      "caption": "PXL4RT a Halloween-themed scene with a pixelated, cartoonish style. A ghostly figure in a white dress floats in the foreground, surrounded by jack-o'-lanterns. The background features a spooky castle with a full moon and a bridge. The scene is vibrant with Halloween decorations, creating a festive and eerie atmosphere.",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 30,
+      "height": 720,
+      "width": 960,
+      "num_frames": 81
+    }
+  ]
+}
