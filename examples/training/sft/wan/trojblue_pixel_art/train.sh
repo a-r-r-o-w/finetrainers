@@ -14,8 +14,8 @@ export FINETRAINERS_LOG_LEVEL="DEBUG"
 BACKEND="ptd"
 
 # In this setting, I'm using 2 GPUs on a 4-GPU node for training
-NUM_GPUS=2
-CUDA_VISIBLE_DEVICES="2,3"
+NUM_GPUS=8
+CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
 
 # Check the JSON files for the expected JSON format
 TRAINING_DATASET_CONFIG="examples/training/sft/wan/trojblue_pixel_art/training.json"
@@ -100,7 +100,7 @@ validation_cmd=(
 # Miscellaneous arguments
 miscellaneous_cmd=(
   --tracker_name "finetrainers-wan"
-  --output_dir "/raid/aryan/wan"
+  --output_dir "/fsx/aryan/wan"
   --init_timeout 600
   --nccl_timeout 600
   --report_to "wandb"
