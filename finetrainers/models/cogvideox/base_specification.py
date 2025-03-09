@@ -299,7 +299,7 @@ class CogVideoXModelSpecification(ModelSpecification):
             latents = posterior.sample(generator=generator)
             del posterior
 
-        if not self.vae_config.invert_scale_latents:
+        if not getattr(self.vae_config, "invert_scale_latents", False):
             latents = latents * self.vae_config.scaling_factor
 
         if patch_size_t is not None:
