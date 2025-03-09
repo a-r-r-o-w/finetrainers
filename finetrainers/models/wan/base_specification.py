@@ -297,7 +297,12 @@ class WanModelSpecification(ModelSpecification):
             latents = latent_model_conditions.pop("latents")
             latents_mean = latent_model_conditions.pop("latents_mean")
             latents_std = latent_model_conditions.pop("latents_std")
-            latents = self._normalize_latents(latents, latents_mean, latents_std)
+
+            mu, logvar = torch.chunk(latents, 2, dim=1)
+            mu = self._normalize_latents(mu, latents_mean, latents_std)
+            logvar = self._normalize_latents(logvar, latents_mean, latents_std)
+            latents = torch.cat([mu, logvar], dim=1)
+
             posterior = DiagonalGaussianDistribution(latents)
             latents = posterior.sample(generator=generator)
             del posterior
