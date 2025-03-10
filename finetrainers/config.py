@@ -18,8 +18,13 @@ class ModelType(str, Enum):
 
 
 class TrainingType(str, Enum):
+    # SFT
     LORA = "lora"
     FULL_FINETUNE = "full-finetune"
+
+    # Control
+    CONTROL_LORA = "control-lora"
+    CONTROL_FULL_FINETUNE = "control-full-finetune"
 
 
 SUPPORTED_MODEL_CONFIGS = {

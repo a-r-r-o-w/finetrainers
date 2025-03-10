@@ -2,11 +2,13 @@ import functools
 import json
 import math
 import os
+import re
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
 
 import datasets.distributed
+import safetensors.torch
 import torch
 import torch.backends
 import wandb
@@ -21,17 +23,18 @@ from tqdm import tqdm
 from ... import data, logging, optimizer, parallel, patches, utils
 from ...config import TrainingType
 from ...state import State, TrainState
+from .data import IterableControlDataset
 
 
 if TYPE_CHECKING:
     from ...args import BaseArgs
-    from ...models import ModelSpecification
+    from ...models import ControlModelSpecification
 
 
 logger = logging.get_logger()
 
 
-class SFTTrainer:
+class ControlTrainer:
     # fmt: off
     _all_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
     _condition_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3"]
@@ -39,7 +42,7 @@ class SFTTrainer:
     _diffusion_component_names = ["transformer", "unet", "scheduler"]
     # fmt: on
 
-    def __init__(self, args: "BaseArgs", model_specification: "ModelSpecification") -> None:
+    def __init__(self, args: "BaseArgs", model_specification: "ControlModelSpecification") -> None:
         self.args = args
         self.state = State()
         self.state.train_state = TrainState()
@@ -97,7 +100,9 @@ class SFTTrainer:
     def _prepare_models(self) -> None:
         logger.info("Initializing models")
 
-        diffusion_components = self.model_specification.load_diffusion_models()
+        # TODO(aryan): allow multiple control conditions instead of just one if there's a use case for it
+        new_in_features = self.model_specification._original_in_features * 2
+        diffusion_components = self.model_specification.load_diffusion_models(new_in_features)
         self._set_components(diffusion_components)
 
         if self.state.parallel_backend.pipeline_parallel_enabled:
@@ -110,7 +115,7 @@ class SFTTrainer:
 
         parallel_backend = self.state.parallel_backend
 
-        if self.args.training_type == TrainingType.FULL_FINETUNE:
+        if self.args.training_type == TrainingType.CONTROL_FULL_FINETUNE:
             logger.info("Finetuning transformer with no additional parameters")
             utils.set_requires_grad([self.transformer], True)
         else:
@@ -120,7 +125,10 @@ class SFTTrainer:
         # Layerwise upcasting must be applied before adding the LoRA adapter.
         # If we don't perform this before moving to device, we might OOM on the GPU. So, best to do it on
         # CPU for now, before support is added in Diffusers for loading and enabling layerwise upcasting directly.
-        if self.args.training_type == TrainingType.LORA and "transformer" in self.args.layerwise_upcasting_modules:
+        if (
+            self.args.training_type == TrainingType.CONTROL_LORA
+            and "transformer" in self.args.layerwise_upcasting_modules
+        ):
             apply_layerwise_casting(
                 self.transformer,
                 storage_dtype=self.args.layerwise_upcasting_storage_dtype,
@@ -130,21 +138,38 @@ class SFTTrainer:
             )
 
         transformer_lora_config = None
-        if self.args.training_type == TrainingType.LORA:
+        if self.args.training_type == TrainingType.CONTROL_LORA:
+            target_modules = []
+            target_modules.extend(self.args.target_modules)
+            target_modules.extend(self.model_specification._control_layer_pattern)
             transformer_lora_config = LoraConfig(
                 r=self.args.rank,
                 lora_alpha=self.args.lora_alpha,
                 init_lora_weights=True,
-                target_modules=self.args.target_modules,
+                target_modules=target_modules,
             )
             self.transformer.add_adapter(transformer_lora_config)
+
+        if self.args.train_qk_norm:
+            qk_norm_identifiers = self.model_specification._qk_norm_identifiers
+            qk_norm_module_names, qk_norm_modules = [], []
+
+            for name, module in self.transformer.named_modules():
+                regex_match = any(re.search(identifier, name) is not None for identifier in qk_norm_identifiers)
+                is_parameteric = len(list(module.parameters())) > 0
+                if regex_match and is_parameteric:
+                    qk_norm_module_names.append(name)
+                    qk_norm_modules.append(module)
+
+            logger.info(f"Training QK norms for modules: {qk_norm_module_names}")
+            utils.set_requires_grad(qk_norm_modules, True)
 
         # Make sure the trainable params are in float32 if data sharding is not enabled. For FSDP, we need all
         # parameters to be of the same dtype.
         if parallel_backend.data_sharding_enabled:
             self.transformer.to(dtype=self.args.transformer_dtype)
         else:
-            if self.args.training_type == TrainingType.LORA:
+            if self.args.training_type == TrainingType.CONTROL_LORA:
                 cast_training_params([self.transformer], dtype=torch.float32)
 
     def _prepare_for_training(self) -> None:
@@ -281,6 +306,7 @@ class SFTTrainer:
             datasets.append(dataset)
 
         dataset = data.combine_datasets(datasets, buffer_size=self.args.dataset_shuffle_buffer_size, shuffle=True)
+        dataset = IterableControlDataset(dataset, self.args.control_type)
         dataloader = self.state.parallel_backend.prepare_dataloader(
             dataset, batch_size=1, num_workers=self.args.dataloader_num_workers, pin_memory=self.args.pin_memory
         )
@@ -291,12 +317,27 @@ class SFTTrainer:
     def _prepare_checkpointing(self) -> None:
         parallel_backend = self.state.parallel_backend
 
-        def save_model_hook(state_dict: Dict[str, Any]) -> None:
+        def save_model_hook(state_dict: Dict[str, torch.Tensor]) -> None:
             if parallel_backend.is_main_process:
-                if self.args.training_type == TrainingType.LORA:
+                if self.args.training_type == TrainingType.CONTROL_LORA:
                     state_dict = get_peft_model_state_dict(self.transformer, state_dict)
-                    self.model_specification._save_lora_weights(self.args.output_dir, state_dict, self.scheduler)
-                elif self.args.training_type == TrainingType.FULL_FINETUNE:
+                    qk_norm_state_dict = None
+                    if self.args.train_qk_norm:
+                        qk_norm_state_dict = {
+                            name: parameter
+                            for name, parameter in state_dict.items()
+                            if any(
+                                re.search(identifier, name) is not None
+                                for identifier in self.model_specification._qk_norm_identifiers
+                            )
+                            and parameter.numel() > 0
+                        }
+                        if len(qk_norm_state_dict) == 0:
+                            qk_norm_state_dict = None
+                    self.model_specification._save_lora_weights(
+                        self.args.output_dir, state_dict, qk_norm_state_dict, self.scheduler
+                    )
+                elif self.args.training_type == TrainingType.CONTROL_FULL_FINETUNE:
                     self.model_specification._save_model(
                         self.args.output_dir, self.transformer, state_dict, self.scheduler
                     )
@@ -826,9 +867,12 @@ class SFTTrainer:
 
             # Load the transformer weights from the final checkpoint if performing full-finetune
             transformer = None
-            if self.args.training_type == TrainingType.FULL_FINETUNE:
-                transformer = self.model_specification.load_diffusion_models()["transformer"]
+            if self.args.training_type == TrainingType.CONTROL_FULL_FINETUNE:
+                # TODO(aryan): allow multiple control conditions instead of just one if there's a use case for it
+                new_in_features = self.model_specification._original_in_features * 2
+                transformer = self.model_specification.load_diffusion_models(new_in_features)["transformer"]
 
+            self.transformer = transformer
             pipeline = self.model_specification.load_pipeline(
                 transformer=transformer,
                 enable_slicing=self.args.enable_slicing,
@@ -839,8 +883,12 @@ class SFTTrainer:
             )
 
             # Load the LoRA weights if performing LoRA finetuning
-            if self.args.training_type == TrainingType.LORA:
+            if self.args.training_type == TrainingType.CONTROL_LORA:
                 pipeline.load_lora_weights(self.args.output_dir)
+                norm_state_dict_path = Path(self.args.output_dir) / "norm_state_dict.safetensors"
+                if self.args.train_qk_norm and norm_state_dict_path.exists():
+                    norm_state_dict = safetensors.torch.load_file(norm_state_dict_path, parallel_backend.device)
+                    self.transformer.load_state_dict(norm_state_dict)
 
         components = {module_name: getattr(pipeline, module_name, None) for module_name in module_names}
         self._set_components(components)

@@ -2,13 +2,14 @@ import argparse
 import os
 import pathlib
 import sys
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 
 from .config import SUPPORTED_MODEL_CONFIGS, ModelType, TrainingType
 from .logging import get_logger
 from .parallel import ParallelBackendEnum
+from .trainer.config_utils import ConfigMixin
 from .utils import get_non_null_items
 
 
@@ -384,6 +385,9 @@ class BaseArgs:
     report_to: str = "wandb"
     verbose: int = 1
 
+    # Additional registered arguments
+    _registered_config_mixins: List[ConfigMixin] = []
+
     def to_dict(self) -> Dict[str, Any]:
         parallel_arguments = {
             "pp_degree": self.pp_degree,
@@ -501,6 +505,10 @@ class BaseArgs:
         }
         miscellaneous_arguments = get_non_null_items(miscellaneous_arguments)
 
+        additional_arguments = {}
+        for config_mixin in self._registered_config_mixins:
+            additional_arguments[config_mixin.__class__.__name__] = config_mixin.to_dict()
+
         return {
             "parallel_arguments": parallel_arguments,
             "model_arguments": model_arguments,
@@ -511,17 +519,14 @@ class BaseArgs:
             "optimizer_arguments": optimizer_arguments,
             "validation_arguments": validation_arguments,
             "miscellaneous_arguments": miscellaneous_arguments,
+            "additional_arguments": additional_arguments,
         }
 
-    def extend_args(
-        self,
-        add_fn: Callable[[argparse.ArgumentParser], None],
-        map_fn: Callable[["BaseArgs"], None],
-        validate_fn: Callable[["BaseArgs"], None],
-    ) -> None:
+    def register_args(self, config: ConfigMixin) -> None:
         if not hasattr(self, "_extended_add_arguments"):
             self._extended_add_arguments = []
-        self._extended_add_arguments.append((add_fn, validate_fn, map_fn))
+        self._extended_add_arguments.append((config.add_args, config.validate_args, config.map_args))
+        self._registered_config_mixins.append(config)
 
     def parse_args(self):
         _LIST_MODELS = "--list_models"

@@ -14,11 +14,11 @@ class SFTLowRankConfig(ConfigMixin):
 
     Args:
         rank (int):
-            Rank of the low rank approximation.
+            Rank of the low rank approximation matrix.
         lora_alpha (int):
             The lora_alpha parameter to compute scaling factor (lora_alpha / rank) for low-rank matrices.
         target_modules (`str` or `List[str]`):
-            Target modules for the low rank approximation. Can be a regex string or a list of regex strings.
+            Target modules for the low rank approximation matrices. Can be a regex string or a list of regex strings.
     """
 
     rank: int = 64
@@ -48,6 +48,10 @@ class SFTLowRankConfig(ConfigMixin):
 
 
 class SFTFullRankConfig(ConfigMixin):
+    r"""
+    Configuration class for SFT full rank training.
+    """
+
     def add_args(self, parser: argparse.ArgumentParser):
         pass
 
