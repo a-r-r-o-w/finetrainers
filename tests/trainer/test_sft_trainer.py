@@ -8,6 +8,7 @@ import time
 import unittest
 
 import pytest
+import torch
 from diffusers.utils import export_to_video
 from parameterized import parameterized
 from PIL import Image
@@ -34,7 +35,7 @@ def slow_down_tests():
     # Sleep between each test so that process groups are cleaned and resources are released.
     # Not doing so seems to randomly trigger some test failures, which wouldn't fail if run individually.
     # !!!Look into this in future!!!
-    time.sleep(3)
+    time.sleep(5)
 
 
 class SFTTrainerFastTestsMixin:
@@ -79,6 +80,11 @@ class SFTTrainerFastTestsMixin:
 
     def tearDown(self):
         self.tmpdir.cleanup()
+        # For some reason, if the process group is not destroyed, the tests that follow will fail. Just manually
+        # make sure to destroy it here.
+        if torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
+            time.sleep(3)
 
     def get_base_args(self) -> BaseArgs:
         args = BaseArgs()
@@ -122,6 +128,15 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         self._test_training(args)
 
     @parameterized.expand([(False,), (True,)])
+    def test___layerwise_upcasting___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 1
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        args.layerwise_upcasting_modules = ["transformer"]
+        self._test_training(args)
+
+    @parameterized.expand([(False,), (True,)])
     def test___dp_degree_1___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
@@ -135,6 +150,15 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.dp_degree = 2
         args.batch_size = 1
         args.enable_precomputation = enable_precomputation
+        self._test_training(args)
+
+    @parameterized.expand([(False,), (True,)])
+    def test___layerwise_upcasting___dp_degree_2___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 2
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        args.layerwise_upcasting_modules = ["transformer"]
         self._test_training(args)
 
     @parameterized.expand([(False,), (True,)])

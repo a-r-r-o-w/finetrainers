@@ -17,7 +17,9 @@ class DummyLTXVideoModelSpecification(LTXVideoModelSpecification):
         super().__init__(**kwargs)
 
     def load_condition_models(self):
-        text_encoder = T5EncoderModel.from_pretrained("hf-internal-testing/tiny-random-t5")
+        text_encoder = T5EncoderModel.from_pretrained(
+            "hf-internal-testing/tiny-random-t5", torch_dtype=self.text_encoder_dtype
+        )
         tokenizer = AutoTokenizer.from_pretrained("hf-internal-testing/tiny-random-t5")
         return {"text_encoder": text_encoder, "tokenizer": tokenizer}
 
@@ -42,6 +44,10 @@ class DummyLTXVideoModelSpecification(LTXVideoModelSpecification):
             encoder_causal=True,
             decoder_causal=False,
         )
+        # TODO(aryan): Upload dummy checkpoints to the Hub so that we don't have to do this.
+        # Doing so overrides things like _keep_in_fp32_modules
+        vae.to(self.vae_dtype)
+        self.vae_config = vae.config
         return {"vae": vae}
 
     def load_diffusion_models(self):
@@ -57,5 +63,8 @@ class DummyLTXVideoModelSpecification(LTXVideoModelSpecification):
             num_layers=1,
             caption_channels=32,
         )
+        # TODO(aryan): Upload dummy checkpoints to the Hub so that we don't have to do this.
+        # Doing so overrides things like _keep_in_fp32_modules
+        transformer.to(self.transformer_dtype)
         scheduler = FlowMatchEulerDiscreteScheduler()
         return {"transformer": transformer, "scheduler": scheduler}

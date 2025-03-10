@@ -18,6 +18,6 @@ def perform_patches_for_training(args: "BaseArgs", parallel_backend: "ParallelBa
             patch.patch_apply_rotary_emb_for_tp_compatibility()
 
     if args.training_type == TrainingType.LORA and len(args.layerwise_upcasting_modules) > 0:
-        from dependencies.peft import patch
+        from .dependencies.peft import patch
 
         patch.patch_peft_move_adapter_to_device_of_base_layer()

@@ -3,7 +3,7 @@ import sys
 
 import torch
 from diffusers import AutoencoderKL, CogView4Transformer2DModel, FlowMatchEulerDiscreteScheduler
-from transformers import AutoTokenizer, GlmConfig, GlmModel
+from transformers import AutoTokenizer, GlmModel
 
 
 project_root = pathlib.Path(__file__).resolve().parents[2]
@@ -17,39 +17,26 @@ class DummyCogView4ModelSpecification(CogView4ModelSpecification):
         super().__init__(**kwargs)
 
     def load_condition_models(self):
-        text_encoder_config = GlmConfig(
-            hidden_size=32, intermediate_size=8, num_hidden_layers=2, num_attention_heads=4, head_dim=8
+        text_encoder = GlmModel.from_pretrained(
+            "hf-internal-testing/tiny-random-cogview4", subfolder="text_encoder", torch_dtype=self.text_encoder_dtype
         )
-        text_encoder = GlmModel(text_encoder_config)
-        # TODO(aryan): try to not rely on trust_remote_code by creating dummy tokenizer
-        tokenizer = AutoTokenizer.from_pretrained("THUDM/glm-4-9b-chat", trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(
+            "hf-internal-testing/tiny-random-cogview4", subfolder="tokenizer", trust_remote_code=True
+        )
         return {"text_encoder": text_encoder, "tokenizer": tokenizer}
 
     def load_latent_models(self):
         torch.manual_seed(0)
-        vae = AutoencoderKL(
-            block_out_channels=[32, 64],
-            in_channels=3,
-            out_channels=3,
-            down_block_types=["DownEncoderBlock2D", "DownEncoderBlock2D"],
-            up_block_types=["UpDecoderBlock2D", "UpDecoderBlock2D"],
-            latent_channels=4,
-            sample_size=128,
+        vae = AutoencoderKL.from_pretrained(
+            "hf-internal-testing/tiny-random-cogview4", subfolder="vae", torch_dtype=self.vae_dtype
         )
+        self.vae_config = vae.config
         return {"vae": vae}
 
     def load_diffusion_models(self):
         torch.manual_seed(0)
-        transformer = CogView4Transformer2DModel(
-            patch_size=2,
-            in_channels=4,
-            num_layers=2,
-            attention_head_dim=4,
-            num_attention_heads=4,
-            out_channels=4,
-            text_embed_dim=32,
-            time_embed_dim=8,
-            condition_dim=4,
+        transformer = CogView4Transformer2DModel.from_pretrained(
+            "hf-internal-testing/tiny-random-cogview4", subfolder="transformer", torch_dtype=self.transformer_dtype
         )
         scheduler = FlowMatchEulerDiscreteScheduler()
         return {"transformer": transformer, "scheduler": scheduler}
