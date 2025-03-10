@@ -59,6 +59,9 @@ class DummyHunyuanVideoModelSpecification(HunyuanVideoModelSpecification):
         text_encoder_2 = CLIPTextModel(clip_text_encoder_config)
         tokenizer_2 = CLIPTokenizer.from_pretrained("hf-internal-testing/tiny-random-clip")
 
+        text_encoder.to(self.text_encoder_dtype)
+        text_encoder_2.to(self.text_encoder_2_dtype)
+
         return {
             "tokenizer": tokenizer,
             "tokenizer_2": tokenizer_2,
@@ -93,6 +96,10 @@ class DummyHunyuanVideoModelSpecification(HunyuanVideoModelSpecification):
             temporal_compression_ratio=4,
             mid_block_add_attention=True,
         )
+        # TODO(aryan): Upload dummy checkpoints to the Hub so that we don't have to do this.
+        # Doing so overrides things like _keep_in_fp32_modules
+        vae.to(self.vae_dtype)
+        self.vae_config = vae.config
         return {"vae": vae}
 
     def load_diffusion_models(self):
@@ -112,5 +119,8 @@ class DummyHunyuanVideoModelSpecification(HunyuanVideoModelSpecification):
             pooled_projection_dim=8,
             rope_axes_dim=(2, 4, 4),
         )
+        # TODO(aryan): Upload dummy checkpoints to the Hub so that we don't have to do this.
+        # Doing so overrides things like _keep_in_fp32_modules
+        transformer.to(self.transformer_dtype)
         scheduler = FlowMatchEulerDiscreteScheduler()
         return {"transformer": transformer, "scheduler": scheduler}

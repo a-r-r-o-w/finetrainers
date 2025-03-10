@@ -334,6 +334,7 @@ class SFTTrainer:
         parallel_backend = self.state.parallel_backend
         train_state = self.state.train_state
         device = parallel_backend.device
+        dtype = self.args.transformer_dtype
 
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory before training start: {json.dumps(memory_statistics, indent=4)}")
@@ -447,8 +448,8 @@ class SFTTrainer:
 
             logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
 
-            utils.align_device_and_dtype(latent_model_conditions, device, self.args.transformer_dtype)
-            utils.align_device_and_dtype(condition_model_conditions, device, self.args.transformer_dtype)
+            latent_model_conditions = utils.align_device_and_dtype(latent_model_conditions, device, dtype)
+            condition_model_conditions = utils.align_device_and_dtype(condition_model_conditions, device, dtype)
             latent_model_conditions = utils.make_contiguous(latent_model_conditions)
             condition_model_conditions = utils.make_contiguous(condition_model_conditions)
 

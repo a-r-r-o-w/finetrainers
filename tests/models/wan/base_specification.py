@@ -17,7 +17,9 @@ class DummyWanModelSpecification(WanModelSpecification):
         super().__init__(**kwargs)
 
     def load_condition_models(self):
-        text_encoder = T5EncoderModel.from_pretrained("hf-internal-testing/tiny-random-t5")
+        text_encoder = T5EncoderModel.from_pretrained(
+            "hf-internal-testing/tiny-random-t5", torch_dtype=self.text_encoder_dtype
+        )
         tokenizer = AutoTokenizer.from_pretrained("hf-internal-testing/tiny-random-t5")
         return {"text_encoder": text_encoder, "tokenizer": tokenizer}
 
@@ -30,6 +32,10 @@ class DummyWanModelSpecification(WanModelSpecification):
             num_res_blocks=1,
             temperal_downsample=[False, True, True],
         )
+        # TODO(aryan): Upload dummy checkpoints to the Hub so that we don't have to do this.
+        # Doing so overrides things like _keep_in_fp32_modules
+        vae.to(self.vae_dtype)
+        self.vae_config = vae.config
         return {"vae": vae}
 
     def load_diffusion_models(self):
@@ -48,5 +54,8 @@ class DummyWanModelSpecification(WanModelSpecification):
             qk_norm="rms_norm_across_heads",
             rope_max_seq_len=32,
         )
+        # TODO(aryan): Upload dummy checkpoints to the Hub so that we don't have to do this.
+        # Doing so overrides things like _keep_in_fp32_modules
+        transformer.to(self.transformer_dtype)
         scheduler = FlowMatchEulerDiscreteScheduler()
         return {"transformer": transformer, "scheduler": scheduler}
