@@ -16,7 +16,7 @@ def patch_apply_rotary_emb_for_tp_compatibility() -> None:
 
 
 def _perform_ltx_transformer_forward_patch() -> None:
-    LTXVideoTransformer3DModel.forward = _patched_LTXVideoTransformer3Dforward
+    LTXVideoTransformer3DModel.forward = _patched_LTXVideoTransformer3D_forward
 
 
 def _perform_ltx_apply_rotary_emb_tensor_parallel_compatibility_patch() -> None:
@@ -35,7 +35,7 @@ def _perform_ltx_apply_rotary_emb_tensor_parallel_compatibility_patch() -> None:
     diffusers.models.transformers.transformer_ltx.apply_rotary_emb = apply_rotary_emb
 
 
-def _patched_LTXVideoTransformer3Dforward(
+def _patched_LTXVideoTransformer3D_forward(
     self,
     hidden_states: torch.Tensor,
     encoder_hidden_states: torch.Tensor,
