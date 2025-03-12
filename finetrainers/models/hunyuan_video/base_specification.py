@@ -7,9 +7,11 @@ from diffusers import (
     AutoencoderKLHunyuanVideo,
     FlowMatchEulerDiscreteScheduler,
     HunyuanVideoPipeline,
+    HunyuanVideoImageToVideoPipeline,
     HunyuanVideoTransformer3DModel,
 )
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
+from PIL.Image import Image
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, LlamaModel
 
 from ... import data
@@ -358,6 +360,7 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         self,
         pipeline: HunyuanVideoPipeline,
         prompt: str,
+        image: Optional[Image] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_frames: Optional[int] = None,
@@ -365,8 +368,12 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         generator: Optional[torch.Generator] = None,
         **kwargs,
     ) -> List[ArtifactType]:
+        if image is not None:
+            pipeline = HunyuanVideoImageToVideoPipeline.from_pipe(pipeline)
+
         generation_kwargs = {
             "prompt": prompt,
+            "image": image,
             "height": height,
             "width": width,
             "num_frames": num_frames,
