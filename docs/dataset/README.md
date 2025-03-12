@@ -57,6 +57,8 @@ dataset
 
 #### CSV/JSON/JSONL format
 
+- Supported names are: `metadata.json`, `metadata.jsonl`, `metadata.csv`
+
 > [!NOTE]
 > Relevant classes to look for implementation:
 > - ImageFolderDataset
