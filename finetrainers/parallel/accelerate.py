@@ -191,6 +191,8 @@ class AccelerateParallelBackend(BaseParallelBackend):
         self._accelerator.wait_for_everyone()
 
     def destroy(self):
+        if self.is_main_process and self.tracker is not None:
+            self.tracker.finish()
         self._accelerator.end_training()
 
     @property
