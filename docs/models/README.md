@@ -1,4 +1,4 @@
-# FineTrainers training documentation
+# Finetrainers training documentation
 
 This directory contains the training-related specifications for all the models we support in `finetrainers`. Each model page has:
 - an example training command
@@ -20,9 +20,11 @@ The following table shows the algorithms supported for training and the models t
 
 | Model                                     | SFT | Control | ControlNet | Distillation |
 |:-----------------------------------------:|:---:|:-------:|:----------:|:------------:|
-| [CogVideoX](./cogvideox.md)             | 🤗 | 😡 | 😡 | 😡 |
-| [LTX-Video](./ltx_video.md)             | 🤗 | 😡 | 😡 | 😡 |
-| [HunyuanVideo](./hunyuan_video.md))     | 🤗 | 😡 | 😡 | 😡 |
+| [CogVideoX](./cogvideox.md)               | 🤗 | 😡 | 😡 | 😡 |
+| [CogView4](./cogview4.md)                 | 🤗 | 😡 | 😡 | 😡 |
+| [HunyuanVideo](./hunyuan_video.md)        | 🤗 | 😡 | 😡 | 😡 |
+| [LTX-Video](./ltx_video.md)               | 🤗 | 😡 | 😡 | 😡 |
+| [Wan](./wan.md)                           | 🤗 | 😡 | 😡 | 😡 |
 
 For launching SFT Training:
 - `--training_type lora`: Trains a new set of low-rank weights of the model, yielding a smaller adapter model. Currently, only LoRA is supported from [🤗 PEFT](https://github.com/huggingface/peft)
