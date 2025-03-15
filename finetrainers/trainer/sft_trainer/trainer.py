@@ -694,13 +694,14 @@ class SFTTrainer:
         # 3. Cleanup & log artifacts
         parallel_backend.wait_for_everyone()
 
-        # Remove all hooks that might have been added during pipeline initialization to the models
-        pipeline.remove_all_hooks()
-        del pipeline
-
-        utils.free_memory()
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
+
+        # Remove all hooks that might have been added during pipeline initialization to the models
+        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "vae"]
+        pipeline.remove_all_hooks()
+        del pipeline
+        self._delete_components(module_names)
         torch.cuda.reset_peak_memory_stats(parallel_backend.device)
 
         # Gather artifacts from all processes. We also need to flatten them since each process returns a list of artifacts.
@@ -836,7 +837,6 @@ class SFTTrainer:
         utils.synchronize_device()
 
     def _init_pipeline(self, final_validation: bool = False) -> DiffusionPipeline:
-        parallel_backend = self.state.parallel_backend
         module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "vae"]
 
         if not final_validation:
@@ -871,7 +871,6 @@ class SFTTrainer:
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
                 training=False,
-                device=parallel_backend.device,
             )
 
             # Load the LoRA weights if performing LoRA finetuning
@@ -880,7 +879,8 @@ class SFTTrainer:
 
         components = {module_name: getattr(pipeline, module_name, None) for module_name in module_names}
         self._set_components(components)
-        self._move_components_to_device(list(components.values()))
+        if not self.args.enable_model_cpu_offload:
+            self._move_components_to_device(list(components.values()))
         return pipeline
 
     def _prepare_data(
@@ -923,17 +923,12 @@ class SFTTrainer:
         else:
             logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
 
-            # TODO(aryan): This needs to be revisited. For some reason, the tests did not detect that self.transformer
-            # had become None after this but should have been loaded back from the checkpoint.
-            # parallel_backend = self.state.parallel_backend
-            # train_state = self.state.train_state
-            # self.checkpointer.save(
-            #     train_state.step,
-            #     force=True,
-            #     _device=parallel_backend.device,
-            #     _is_main_process=parallel_backend.is_main_process,
-            # )
-            # self._delete_components(component_names=["transformer", "unet"])
+            parallel_backend = self.state.parallel_backend
+            if parallel_backend.world_size == 1:
+                self._move_components_to_device([self.transformer], "cpu")
+                utils.free_memory()
+                utils.synchronize_device()
+                torch.cuda.reset_peak_memory_stats(parallel_backend.device)
 
             if self.args.precomputation_once:
                 consume_fn = preprocessor.consume_once
@@ -974,8 +969,8 @@ class SFTTrainer:
             self._delete_components(component_names)
             del latent_components, component_names, component_modules
 
-            # self.checkpointer.load()
-            # self.transformer = self.checkpointer.states["model"].model[0]
+            if parallel_backend.world_size == 1:
+                self._move_components_to_device([self.transformer])
 
         return condition_iterator, latent_iterator
 
