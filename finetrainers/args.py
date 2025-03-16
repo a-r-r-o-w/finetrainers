@@ -853,8 +853,9 @@ def _validate_dataset_args(args: BaseArgs):
 
 
 def _validate_validation_args(args: BaseArgs):
-    if args.dp_shards > 1 and args.enable_model_cpu_offload:
-        raise ValueError("Model CPU offload is not supported with FSDP at the moment.")
+    if args.enable_model_cpu_offload:
+        if any(x > 1 for x in [args.pp_degree, args.dp_degree, args.dp_shards, args.cp_degree, args.tp_degree]):
+            raise ValueError("Model CPU offload is not supported on multi-GPU at the moment.")
 
 
 def _display_helper_messages(args: argparse.Namespace):
