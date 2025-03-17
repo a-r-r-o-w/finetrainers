@@ -23,6 +23,7 @@ from ..logging import get_logger
 from ..utils.import_utils import is_datasets_version
 from . import utils
 
+
 import decord  # isort:skip
 
 decord.bridge.set_bridge("torch")
@@ -973,6 +974,7 @@ def _preprocess_image(image: PIL.Image.Image) -> torch.Tensor:
 
 
 if is_datasets_version("<", "3.4.0"):
+
     def _preprocess_video(video: decord.VideoReader) -> torch.Tensor:
         video = video.get_batch(list(range(len(video))))
         breakpoint()
@@ -983,7 +985,7 @@ if is_datasets_version("<", "3.4.0"):
 else:
     # Hardcode max frames for now. Ideally, we should allow user to set this and handle it in IterableDatasetPreprocessingWrapper
     MAX_FRAMES = 4096
-    
+
     def _preprocess_video(video: torchvision.io.video_reader.VideoReader) -> torch.Tensor:
         frames = []
         # Error driven data loading! torchvision does not expose length of video

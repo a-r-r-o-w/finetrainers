@@ -1,8 +1,9 @@
 import importlib
-import importlib_metadata
 import operator as op
-from packaging.version import parse, Version
 from typing import Union
+
+import importlib_metadata
+from packaging.version import Version, parse
 
 from ..logging import get_logger
 
@@ -60,7 +61,7 @@ def is_datasets_available():
 def is_datasets_version(operation: str, version: str):
     """
     Compares the current bitsandbytes version to a given reference with an operation.
-    
+
     Args:
         operation (`str`):
             A string representation of an operator, such as `">"` or `"<="`
