@@ -789,7 +789,7 @@ class SFTTrainer:
 
     def _init_trackers(self) -> None:
         # TODO(aryan): handle multiple trackers
-        trackers = ["wandb"]
+        trackers = [self.args.report_to]
         experiment_name = self.args.tracker_name or "finetrainers-experiment"
         self.state.parallel_backend.initialize_trackers(
             trackers, experiment_name=experiment_name, config=self._get_training_info(), log_dir=self.args.logging_dir
