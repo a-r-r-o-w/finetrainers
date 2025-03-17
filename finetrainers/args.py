@@ -195,7 +195,7 @@ class BaseArgs:
     checkpointing_limit (`int`, defaults to `None`):
         Max number of checkpoints to store.
     resume_from_checkpoint (`str`, defaults to `None`):
-        an be an integer or the string `"latest"`. If an integer is provided, training will resume from that step if a
+        Can be an integer or the string `"latest"`. If an integer is provided, training will resume from that step if a
         checkpoint corresponding to it exists. If `"latest"` is provided, training will resume from the latest checkpoint
         in the `--output_dir`.
 
