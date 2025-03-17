@@ -60,7 +60,7 @@ def is_datasets_available():
 
 def is_datasets_version(operation: str, version: str):
     """
-    Compares the current bitsandbytes version to a given reference with an operation.
+    Compares the current datasets version to a given reference with an operation.
 
     Args:
         operation (`str`):
