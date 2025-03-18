@@ -977,7 +977,6 @@ if is_datasets_version("<", "3.4.0"):
 
     def _preprocess_video(video: decord.VideoReader) -> torch.Tensor:
         video = video.get_batch(list(range(len(video))))
-        breakpoint()
         video = video.permute(0, 3, 1, 2).contiguous()
         video = video.float() / 127.5 - 1.0
         return video
