@@ -156,7 +156,6 @@ class SFTTrainer:
     def _prepare_for_training(self) -> None:
         # 1. Apply parallelism
         parallel_backend = self.state.parallel_backend
-        world_mesh = parallel_backend.get_mesh()
         model_specification = self.model_specification
 
         if parallel_backend.context_parallel_enabled:
@@ -194,9 +193,9 @@ class SFTTrainer:
             else:
                 dp_mesh_names = ("dp_shard_cp",)
 
-            parallel.apply_fsdp2_ptd(
+            parallel_backend.apply_fsdp2(
                 model=self.transformer,
-                dp_mesh=world_mesh[dp_mesh_names],
+                dp_mesh=parallel_backend.get_mesh()[dp_mesh_names],
                 param_dtype=self.args.transformer_dtype,
                 reduce_dtype=torch.float32,
                 output_dtype=None,
@@ -206,10 +205,12 @@ class SFTTrainer:
         elif parallel_backend.data_replication_enabled:
             logger.info("Applying DDP to the model")
 
-            if world_mesh.ndim > 1:
+            if parallel_backend.get_mesh().ndim > 1:
                 raise ValueError("DDP not supported for > 1D parallelism")
 
-            parallel_backend.apply_ddp(self.transformer, world_mesh)
+            parallel_backend.apply_ddp(self.transformer, parallel_backend.get_mesh())
+        else:
+            parallel_backend.prepare_model(self.transformer)
 
         self._move_components_to_device()
 
@@ -309,7 +310,7 @@ class SFTTrainer:
             parallel_backend.wait_for_everyone()
 
         enable_state_checkpointing = self.args.checkpointing_steps > 0
-        self.checkpointer = utils.PTDCheckpointManager(
+        self.checkpointer = parallel_backend.get_checkpointer(
             dataloader=self.dataloader,
             model_parts=[self.transformer],
             optimizers=self.optimizer,
@@ -738,8 +739,7 @@ class SFTTrainer:
         raise NotImplementedError("Evaluation has not been implemented yet.")
 
     def _init_distributed(self) -> None:
-        # TODO: Accelerate disables native_amp for MPS. Probably need to do the same with implementation.
-        world_size = int(os.environ["WORLD_SIZE"])
+        world_size = int(os.environ.get("WORLD_SIZE", torch.cuda.device_count()))
 
         # TODO(aryan): handle other backends
         backend_cls: parallel.ParallelBackendType = parallel.get_parallel_backend_cls(self.args.parallel_backend)
@@ -758,8 +758,7 @@ class SFTTrainer:
         )
 
         if self.args.seed is not None:
-            world_mesh = self.state.parallel_backend.get_mesh()
-            utils.enable_determinism(self.args.seed, world_mesh)
+            self.state.parallel_backend.enable_determinism(self.args.seed)
 
     def _init_logging(self) -> None:
         transformers_log_level = transformers.utils.logging.set_verbosity_error

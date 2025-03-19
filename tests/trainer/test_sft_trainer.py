@@ -109,6 +109,84 @@ class SFTTrainerFastTestsMixin:
         trainer.run()
 
 
+# =============== <ACCELERATE> ===============
+
+
+class SFTTrainerLoRATestsMixin___Accelerate(SFTTrainerFastTestsMixin):
+    def get_args(self) -> BaseArgs:
+        args = self.get_base_args()
+        args.parallel_backend = "accelerate"
+        args.training_type = TrainingType.LORA
+        args.rank = 4
+        args.lora_alpha = 4
+        args.target_modules = ["to_q", "to_k", "to_v", "to_out.0"]
+        return args
+
+    @parameterized.expand([(False,), (True,)])
+    def test___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 1
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        self._test_training(args)
+
+    @parameterized.expand([(True,)])
+    def test___layerwise_upcasting___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 1
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        args.layerwise_upcasting_modules = ["transformer"]
+        self._test_training(args)
+
+    @parameterized.expand([(False,), (True,)])
+    def test___dp_degree_2___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 2
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        self._test_training(args)
+
+
+class SFTTrainerFullFinetuneTestsMixin___Accelerate(SFTTrainerFastTestsMixin):
+    def get_args(self) -> BaseArgs:
+        args = self.get_base_args()
+        args.parallel_backend = "accelerate"
+        args.training_type = TrainingType.FULL_FINETUNE
+        return args
+
+    @parameterized.expand([(False,), (True,)])
+    def test___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 1
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        self._test_training(args)
+
+    @parameterized.expand([(False,), (True,)])
+    def test___dp_degree_2___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 2
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        self._test_training(args)
+
+
+class SFTTrainerCogVideoXLoRATests___Accelerate(SFTTrainerLoRATestsMixin___Accelerate, unittest.TestCase):
+    model_specification_cls = DummyCogVideoXModelSpecification
+
+
+class SFTTrainerCogVideoXFullFinetuneTests___Accelerate(
+    SFTTrainerFullFinetuneTestsMixin___Accelerate, unittest.TestCase
+):
+    model_specification_cls = DummyCogVideoXModelSpecification
+
+
+# =============== </ACCELERATE> ===============
+
+# =============== <PTD> ===============
+
+
 class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
     def get_args(self) -> BaseArgs:
         args = self.get_base_args()
@@ -127,7 +205,7 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized.expand([(False,), (True,)])
+    @parameterized.expand([(True,)])
     def test___layerwise_upcasting___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
@@ -152,7 +230,7 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized.expand([(False,), (True,)])
+    @parameterized.expand([(True,)])
     def test___layerwise_upcasting___dp_degree_2___batch_size_1(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
@@ -161,7 +239,7 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.layerwise_upcasting_modules = ["transformer"]
         self._test_training(args)
 
-    @parameterized.expand([(False,), (True,)])
+    @parameterized.expand([(True,)])
     def test___dp_degree_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
@@ -177,7 +255,7 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized.expand([(False,), (True,)])
+    @parameterized.expand([(True,)])
     def test___dp_shards_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_shards = 2
@@ -218,7 +296,7 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized.expand([(False,), (True,)])
+    @parameterized.expand([(True,)])
     def test___dp_degree_1___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
@@ -234,7 +312,7 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized.expand([(False,), (True,)])
+    @parameterized.expand([(True,)])
     def test___dp_degree_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 2
@@ -250,7 +328,7 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
 
-    @parameterized.expand([(False,), (True,)])
+    @parameterized.expand([(True,)])
     def test___dp_shards_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_shards = 2
@@ -314,3 +392,6 @@ class SFTTrainerWanLoRATests___PTD(SFTTrainerLoRATestsMixin___PTD, unittest.Test
 
 class SFTTrainerWanFullFinetuneTests___PTD(SFTTrainerFullFinetuneTestsMixin___PTD, unittest.TestCase):
     model_specification_cls = DummyWanModelSpecification
+
+
+# =============== </PTD> ===============

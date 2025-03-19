@@ -6,8 +6,6 @@ import torch
 import torch.backends
 import torch.distributed as dist
 import torch.distributed.tensor
-from accelerate import Accelerator
-from diffusers.utils.torch_utils import is_compiled_module
 
 from ..logging import get_logger
 
@@ -217,6 +215,11 @@ def get_string_from_dtype(dtype: torch.dtype):
     return _DTYPE_TO_STRING[dtype]
 
 
+def is_compiled_module(module) -> bool:
+    """Check whether the module was compiled with torch.compile()"""
+    return isinstance(module, torch._dynamo.eval_frame.OptimizedModule)
+
+
 def set_requires_grad(models: Union[torch.nn.Module, List[torch.nn.Module]], value: bool) -> None:
     if isinstance(models, torch.nn.Module):
         models = [models]
@@ -230,12 +233,6 @@ def synchronize_device() -> None:
         torch.cuda.synchronize()
     elif torch.backends.mps.is_available():
         torch.mps.synchronize()
-
-
-def unwrap_model(accelerator: Accelerator, model):
-    model = accelerator.unwrap_model(model)
-    model = model._orig_mod if is_compiled_module(model) else model
-    return model
 
 
 # TODO(aryan): remove everything below this after next torch release

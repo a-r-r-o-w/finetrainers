@@ -3,7 +3,7 @@ from typing import Union
 
 from .accelerate import AccelerateParallelBackend
 from .ptd import PytorchDTensorParallelBackend
-from .utils import apply_ddp_ptd, apply_fsdp2_ptd, dist_max, dist_mean
+from .utils import dist_max, dist_mean
 
 
 ParallelBackendType = Union[AccelerateParallelBackend, PytorchDTensorParallelBackend]

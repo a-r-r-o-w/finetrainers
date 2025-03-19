@@ -1,14 +1,16 @@
 import datetime
+import os
 import pathlib
-from typing import Optional
+import shutil
+import time
+from typing import Any, Callable, Dict, Optional
 
 import torch
 from diffusers.utils import is_accelerate_available
 
 from ..logging import get_logger
 from ..utils import get_device_info
-from .base import BaseParallelBackend
-from .utils import apply_ddp_accelerate
+from .base import BaseCheckpointer, BaseParallelBackend
 
 
 if not is_accelerate_available():
@@ -23,6 +25,7 @@ from accelerate.utils import (
     DistributedDataParallelKwargs,
     InitProcessGroupKwargs,
     ProjectConfiguration,
+    set_seed,
 )
 
 
@@ -68,8 +71,30 @@ class AccelerateParallelBackend(BaseParallelBackend):
         if dp_degree != world_size:
             raise ValueError("Data parallel degree must be equal to world size.")
 
-        self._accelerator: Accelerator = None
+        self._accelerator = None
+        if world_size == 1:
+            # Needs special handling for single GPU training
+            project_config = ProjectConfiguration(project_dir=self._output_dir, logging_dir=self._logging_dir)
+            dataloader_config = DataLoaderConfiguration(
+                split_batches=False, dispatch_batches=False, use_stateful_dataloader=True
+            )
+            init_process_group_kwargs = InitProcessGroupKwargs(
+                backend=self._backend, timeout=datetime.timedelta(seconds=self._timeout)
+            )
+            self._accelerator = Accelerator(
+                project_config=project_config,
+                dataloader_config=dataloader_config,
+                gradient_accumulation_steps=gradient_accumulation_steps,
+                log_with=None,
+                kwargs_handlers=[init_process_group_kwargs],
+            )
+            if torch.backends.mps.is_available():
+                self._accelerator.native_amp = False
+
         self._mesh: torch.distributed.DeviceMesh = None
+
+    def enable_determinism(self, seed: int) -> None:
+        set_seed(seed)
 
     def apply_ddp(self, model: torch.nn.Module, *args, **kwargs) -> torch.nn.Module:
         project_config = None
@@ -84,7 +109,7 @@ class AccelerateParallelBackend(BaseParallelBackend):
             init_process_group_kwargs = InitProcessGroupKwargs(
                 backend=self._backend, timeout=datetime.timedelta(seconds=self._timeout)
             )
-        self._accelerator, model = apply_ddp_accelerate(
+        self._accelerator, model = apply_ddp(
             model,
             project_config,
             ddp_kwargs,
@@ -95,6 +120,9 @@ class AccelerateParallelBackend(BaseParallelBackend):
         )
         logger.debug("Applied AccelerateParallel::apply_ddp to model.")
         return model
+
+    def prepare_model(self, model: torch.nn.Module) -> torch.nn.Module:
+        return self._accelerator.prepare_model(model)
 
     def prepare_dataset(self, dataset: torch.utils.data.IterableDataset) -> torch.utils.data.IterableDataset:
         logger.debug("AccelerateParallelBackend::prepare_dataset completed!")
@@ -161,6 +189,9 @@ class AccelerateParallelBackend(BaseParallelBackend):
         self._mesh = mesh
         return _get_mesh()
 
+    def get_checkpointer(self, *args, **kwargs):
+        return AccelerateCheckpointer(self._accelerator, *args, **kwargs)
+
     @property
     def world_size(self):
         return self._accelerator.num_processes
@@ -191,6 +222,8 @@ class AccelerateParallelBackend(BaseParallelBackend):
         self._accelerator.wait_for_everyone()
 
     def destroy(self):
+        if self.is_main_process:
+            self.tracker.finish()
         self._accelerator.end_training()
 
     @property
@@ -216,3 +249,134 @@ class AccelerateParallelBackend(BaseParallelBackend):
     @property
     def tensor_parallel_enabled(self):
         return self._tp_degree > 1
+
+
+class AccelerateCheckpointer(BaseCheckpointer):
+    def __init__(
+        self,
+        accelerator: Accelerator,
+        states: Dict[str, Any],
+        checkpointing_steps: int,
+        checkpointing_limit: int,
+        output_dir: str,
+        enable: bool = True,
+        _callback_fn: Callable[[Dict[str, Any]], Dict[str, Any]] = None,
+        _prefix: str = "finetrainers_step",
+        *args,
+        **kwargs,
+    ) -> None:
+        self.accelerator = accelerator
+        self.states = states
+
+        self.checkpointing_steps = checkpointing_steps
+        self.checkpointing_limit = checkpointing_limit
+        self.output_dir = pathlib.Path(output_dir)
+        self.enable = enable
+        self._callback_fn = _callback_fn
+        self._prefix = _prefix
+
+        def save_model_hook(models, weights, output_dir: str) -> None:
+            if not self.accelerator.is_main_process:
+                return
+
+            # TODO(aryan): this is a temporary assertion since we only support training transformer at the moment.
+            # Remove it when adding support for training text encoders/vae and more.
+            assert len(models) == 1
+
+            _callback_fn(weights[0])
+            torch.save(self.states, os.path.join(output_dir, "states.pt"))
+
+        def load_model_hook(models, input_dir) -> None:
+            self.states = torch.load(os.path.join(input_dir, "states.pt"))
+
+        self.accelerator.register_save_state_pre_hook(save_model_hook)
+        self.accelerator.register_load_state_pre_hook(load_model_hook)
+
+        logger.info(f"Checkpointing enabled. Checkpoints will be stored in '{self.output_dir}'")
+
+    def save(self, step: int = -1, force: bool = False, *, _device: torch.device, _is_main_process: bool) -> str:
+        if not self._should_checkpoint(step, force):
+            return None
+
+        checkpoint_dir = self._get_checkpoint_dir(step)
+        begin_time = time.monotonic()
+        self.accelerator.save_state(checkpoint_dir.as_posix(), safe_serialization=True)
+        end_time = time.monotonic()
+        logger.info(
+            f"Saved checkpoint in {end_time - begin_time:.2f} seconds at step {step}. Directory: {checkpoint_dir}"
+        )
+        self._purge_stale_checkpoints()
+
+        return checkpoint_dir.as_posix()
+
+    def load(self, step: int = -1) -> bool:
+        if not self.enable:
+            return False
+        if not self.output_dir.exists():
+            return False
+        if step != -1 and not self._get_checkpoint_dir(step).exists():
+            return False
+
+        if step == -1:
+            latest_checkpoint_dir = self._find_latest_checkpoint_dir()
+            if latest_checkpoint_dir is None:
+                return False
+            step = int(latest_checkpoint_dir.name.split("_")[-1])
+
+        checkpoint_dir = self._get_checkpoint_dir(step)
+        logger.info(f"Loading checkpoint from '{checkpoint_dir}' at step {step}")
+
+        begin_time = time.monotonic()
+        self.accelerator.load_state(checkpoint_dir.as_posix())
+        end_time = time.monotonic()
+        logger.info(f"Loaded checkpoint in {end_time - begin_time:.2f} seconds.")
+
+        return True
+
+    def _should_checkpoint(self, step: int, force: bool) -> bool:
+        if not self.enable:
+            return False
+        if not force:
+            if step % self.checkpointing_steps != 0:
+                return False
+        return True
+
+    def _get_checkpoint_dir(self, step: int) -> pathlib.Path:
+        return self.output_dir / f"{self._prefix}_{step}"
+
+    def _find_latest_checkpoint_dir(self) -> Optional[pathlib.Path]:
+        checkpoints = sorted(self.output_dir.glob(f"{self._prefix}_*"), key=lambda x: int(x.name.split("_")[-1]))
+        return checkpoints[-1] if len(checkpoints) > 0 else None
+
+    def _purge_stale_checkpoints(self) -> None:
+        if self.checkpointing_limit is None or self.checkpointing_limit <= 0:
+            return
+        checkpoints = sorted(
+            self.output_dir.glob(f"{self._prefix}_*"), key=lambda x: int(x.name.split("_")[-1]), reverse=True
+        )
+        for checkpoint in checkpoints[self.checkpointing_limit :]:
+            logger.info(f"Deleting stale checkpoint: {checkpoint}")
+            shutil.rmtree(checkpoint, ignore_errors=True)
+
+
+def apply_ddp(
+    model: torch.nn.Module,
+    project_config: Optional[ProjectConfiguration] = None,
+    ddp_kwargs: Optional[DistributedDataParallelKwargs] = None,
+    init_process_group_kwargs: Optional[InitProcessGroupKwargs] = None,
+    dataloader_config: Optional[DataLoaderConfiguration] = None,
+    gradient_accumulation_steps: Optional[int] = None,
+    accelerator: Optional[Accelerator] = None,
+) -> torch.nn.Module:
+    if accelerator is None:
+        accelerator = Accelerator(
+            project_config=project_config,
+            dataloader_config=dataloader_config,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            log_with=None,
+            kwargs_handlers=[ddp_kwargs, init_process_group_kwargs],
+        )
+        if torch.backends.mps.is_available():
+            accelerator.native_amp = False
+    accelerator.prepare_model(model)
+    return accelerator, model
