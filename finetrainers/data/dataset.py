@@ -12,6 +12,7 @@ import numpy as np
 import PIL.Image
 import torch
 import torch.distributed.checkpoint.stateful
+import torchvision
 from diffusers.utils import load_image, load_video
 from huggingface_hub import list_repo_files, repo_exists, snapshot_download
 from tqdm.auto import tqdm
@@ -19,6 +20,7 @@ from tqdm.auto import tqdm
 from .. import constants
 from .. import functional as FF
 from ..logging import get_logger
+from ..utils.import_utils import is_datasets_version
 from . import utils
 
 
@@ -971,8 +973,26 @@ def _preprocess_image(image: PIL.Image.Image) -> torch.Tensor:
     return image
 
 
-def _preprocess_video(video: decord.VideoReader) -> torch.Tensor:
-    video = video.get_batch(list(range(len(video))))
-    video = video.permute(0, 3, 1, 2).contiguous()
-    video = video.float() / 127.5 - 1.0
-    return video
+if is_datasets_version("<", "3.4.0"):
+
+    def _preprocess_video(video: decord.VideoReader) -> torch.Tensor:
+        video = video.get_batch(list(range(len(video))))
+        video = video.permute(0, 3, 1, 2).contiguous()
+        video = video.float() / 127.5 - 1.0
+        return video
+
+else:
+    # Hardcode max frames for now. Ideally, we should allow user to set this and handle it in IterableDatasetPreprocessingWrapper
+    MAX_FRAMES = 4096
+
+    def _preprocess_video(video: torchvision.io.video_reader.VideoReader) -> torch.Tensor:
+        frames = []
+        # Error driven data loading! torchvision does not expose length of video
+        try:
+            for _ in range(MAX_FRAMES):
+                frames.append(next(video)["data"])
+        except StopIteration:
+            pass
+        video = torch.stack(frames)
+        video = video.float() / 127.5 - 1.0
+        return video
