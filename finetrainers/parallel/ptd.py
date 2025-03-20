@@ -89,7 +89,7 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
 
     def enable_determinism(self, seed):
         world_mesh = self.get_mesh()
-        enable_determinism(self.args.seed, world_mesh)
+        enable_determinism(seed, world_mesh)
 
     def apply_ddp(
         self, model: torch.nn.Module, device_mesh: Optional[torch.distributed.DeviceMesh] = None
