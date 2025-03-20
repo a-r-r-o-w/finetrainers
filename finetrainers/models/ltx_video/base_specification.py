@@ -422,8 +422,9 @@ class LTXVideoModelSpecification(ModelSpecification):
         latents: torch.Tensor, latents_mean: torch.Tensor, latents_std: torch.Tensor, scaling_factor: float = 1.0
     ) -> torch.Tensor:
         # Normalize latents across the channel dimension [B, C, F, H, W]
-        latents_mean = latents_mean.view(1, -1, 1, 1, 1).to(device=latents.device)
-        latents_std = latents_std.view(1, -1, 1, 1, 1).to(device=latents.device)
+        batch_size = latents.shape[0]
+        latents_mean = latents_mean.view(batch_size, -1, 1, 1, 1).to(device=latents.device)
+        latents_std = latents_std.view(batch_size, -1, 1, 1, 1).to(device=latents.device)
         latents = ((latents.float() - latents_mean) * scaling_factor / latents_std).to(latents)
         return latents
 
