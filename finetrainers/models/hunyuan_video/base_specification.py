@@ -133,7 +133,7 @@ class HunyuanVideoModelSpecification(ModelSpecification):
             tokenizer_2 = AutoTokenizer.from_pretrained(self.tokenizer_2_id, **common_kwargs)
         else:
             tokenizer_2 = CLIPTokenizer.from_pretrained(
-                self.pretrained_model_name_or_path, subfolder="tokenizer_2" ** common_kwargs
+                self.pretrained_model_name_or_path, subfolder="tokenizer_2", **common_kwargs
             )
 
         if self.text_encoder_id is not None:
