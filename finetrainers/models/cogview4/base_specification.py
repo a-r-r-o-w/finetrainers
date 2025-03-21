@@ -291,7 +291,11 @@ class CogView4ModelSpecification(ModelSpecification):
             latents = posterior.sample(generator=generator)
             del posterior
 
-        latents = (latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
+        if getattr(self.vae_config, "shift_factor", None) is not None:
+            latents = (latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
+        else:
+            latents = latents * self.vae_config.scaling_factor
+
         noise = torch.zeros_like(latents).normal_(generator=generator)
         timesteps = (sigmas.flatten() * 1000.0).long()
 

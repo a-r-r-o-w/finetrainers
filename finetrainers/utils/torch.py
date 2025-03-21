@@ -6,8 +6,6 @@ import torch
 import torch.backends
 import torch.distributed as dist
 import torch.distributed.tensor
-from accelerate import Accelerator
-from diffusers.utils.torch_utils import is_compiled_module
 
 from ..logging import get_logger
 
@@ -230,12 +228,6 @@ def synchronize_device() -> None:
         torch.cuda.synchronize()
     elif torch.backends.mps.is_available():
         torch.mps.synchronize()
-
-
-def unwrap_model(accelerator: Accelerator, model):
-    model = accelerator.unwrap_model(model)
-    model = model._orig_mod if is_compiled_module(model) else model
-    return model
 
 
 # TODO(aryan): remove everything below this after next torch release
