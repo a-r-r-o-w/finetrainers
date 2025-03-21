@@ -445,6 +445,7 @@ class SFTTrainer:
             train_state.observed_data_samples += self.args.batch_size * parallel_backend._dp_degree
 
             lmc_latents = latent_model_conditions["latents"]
+            # TODO(aryan): observed_num_tokens this needs to be allreduced
             train_state.observed_num_tokens += math.prod(lmc_latents.shape[:-1]) // patch_size
 
             logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
@@ -599,7 +600,11 @@ class SFTTrainer:
 
         # 1. Load validation dataset
         parallel_backend = self.state.parallel_backend
-        dp_mesh = parallel_backend.get_mesh("dp_replicate")
+
+        # Hack to make accelerate work. TODO(aryan): refactor
+        dp_mesh = None
+        if parallel_backend.world_size > 1:
+            dp_mesh = parallel_backend.get_mesh("dp_replicate")
 
         if dp_mesh is not None:
             local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
@@ -702,13 +707,18 @@ class SFTTrainer:
         module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "vae"]
         pipeline.remove_all_hooks()
         del pipeline
-        self._delete_components(module_names)
+        if self.args.enable_precomputation:
+            self._delete_components(module_names)
         torch.cuda.reset_peak_memory_stats(parallel_backend.device)
 
         # Gather artifacts from all processes. We also need to flatten them since each process returns a list of artifacts.
         # TODO(aryan): probably should only all gather from dp mesh process group
         all_artifacts = [None] * parallel_backend.world_size
-        torch.distributed.all_gather_object(all_artifacts, all_processes_artifacts)
+        if parallel_backend.world_size > 1:
+            torch.distributed.all_gather_object(all_artifacts, all_processes_artifacts)
+        else:
+            # TODO(aryan): workaround for accelerate for now, but refactor
+            all_artifacts = [all_processes_artifacts]
         all_artifacts = [artifact for artifacts in all_artifacts for artifact in artifacts]
 
         if parallel_backend.is_main_process:
