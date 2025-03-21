@@ -182,6 +182,44 @@ class SFTTrainerCogVideoXFullFinetuneTests___Accelerate(
     model_specification_cls = DummyCogVideoXModelSpecification
 
 
+class SFTTrainerCogView4LoRATests___Accelerate(SFTTrainerLoRATestsMixin___Accelerate, unittest.TestCase):
+    model_specification_cls = DummyCogView4ModelSpecification
+
+
+class SFTTrainerCogView4FullFinetuneTests___Accelerate(
+    SFTTrainerFullFinetuneTestsMixin___Accelerate, unittest.TestCase
+):
+    model_specification_cls = DummyCogView4ModelSpecification
+
+
+class SFTTrainerHunyuanVideoLoRATests___Accelerate(SFTTrainerLoRATestsMixin___Accelerate, unittest.TestCase):
+    model_specification_cls = DummyHunyuanVideoModelSpecification
+
+
+class SFTTrainerHunyuanVideoFullFinetuneTests___Accelerate(
+    SFTTrainerFullFinetuneTestsMixin___Accelerate, unittest.TestCase
+):
+    model_specification_cls = DummyHunyuanVideoModelSpecification
+
+
+class SFTTrainerLTXVideoLoRATests___Accelerate(SFTTrainerLoRATestsMixin___Accelerate, unittest.TestCase):
+    model_specification_cls = DummyLTXVideoModelSpecification
+
+
+class SFTTrainerLTXVideoFullFinetuneTests___Accelerate(
+    SFTTrainerFullFinetuneTestsMixin___Accelerate, unittest.TestCase
+):
+    model_specification_cls = DummyLTXVideoModelSpecification
+
+
+class SFTTrainerWanLoRATests___Accelerate(SFTTrainerLoRATestsMixin___Accelerate, unittest.TestCase):
+    model_specification_cls = DummyWanModelSpecification
+
+
+class SFTTrainerWanFullFinetuneTests___Accelerate(SFTTrainerFullFinetuneTestsMixin___Accelerate, unittest.TestCase):
+    model_specification_cls = DummyWanModelSpecification
+
+
 # =============== </ACCELERATE> ===============
 
 # =============== <PTD> ===============
