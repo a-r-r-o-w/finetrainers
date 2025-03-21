@@ -17,11 +17,12 @@ from diffusers.utils import load_image, load_video
 from huggingface_hub import list_repo_files, repo_exists, snapshot_download
 from tqdm.auto import tqdm
 
-from .. import constants
-from .. import functional as FF
-from ..logging import get_logger
-from ..utils.import_utils import is_datasets_version
-from . import utils
+from finetrainers import constants
+from finetrainers import functional as FF
+from finetrainers.logging import get_logger
+from finetrainers.utils.import_utils import is_datasets_version
+
+from .utils import find_files
 
 
 import decord  # isort:skip
@@ -48,7 +49,7 @@ class ImageCaptionFilePairDataset(torch.utils.data.IterableDataset, torch.distri
         self.infinite = infinite
 
         data = []
-        caption_files = sorted(utils.find_files(self.root.as_posix(), "*.txt", depth=0))
+        caption_files = sorted(find_files(self.root.as_posix(), "*.txt", depth=0))
         for caption_file in caption_files:
             data_file = self._find_data_file(caption_file)
             if data_file:
@@ -122,7 +123,7 @@ class VideoCaptionFilePairDataset(torch.utils.data.IterableDataset, torch.distri
         self.infinite = infinite
 
         data = []
-        caption_files = sorted(utils.find_files(self.root.as_posix(), "*.txt", depth=0))
+        caption_files = sorted(find_files(self.root.as_posix(), "*.txt", depth=0))
         for caption_file in caption_files:
             data_file = self._find_data_file(caption_file)
             if data_file:
@@ -926,7 +927,7 @@ def _initialize_webdataset(
 def _has_data_caption_file_pairs(root: Union[pathlib.Path, List[str]], remote: bool = False) -> bool:
     # TODO(aryan): this logic can be improved
     if not remote:
-        caption_files = utils.find_files(root.as_posix(), "*.txt", depth=0)
+        caption_files = find_files(root.as_posix(), "*.txt", depth=0)
         for caption_file in caption_files:
             caption_file = pathlib.Path(caption_file)
             for extension in [*constants.SUPPORTED_IMAGE_FILE_EXTENSIONS, *constants.SUPPORTED_VIDEO_FILE_EXTENSIONS]:

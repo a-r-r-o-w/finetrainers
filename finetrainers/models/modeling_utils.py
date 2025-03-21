@@ -5,11 +5,11 @@ from diffusers import DiffusionPipeline
 from diffusers.configuration_utils import FrozenDict
 from PIL.Image import Image
 
-from ..logging import get_logger
-from ..parallel import ParallelBackendEnum
-from ..processors import ProcessorMixin
-from ..typing import ArtifactType, SchedulerType, TokenizerType
-from ..utils import resolve_component_cls
+from finetrainers.logging import get_logger
+from finetrainers.parallel import ParallelBackendEnum
+from finetrainers.processors import ProcessorMixin
+from finetrainers.typing import ArtifactType, SchedulerType, TokenizerType
+from finetrainers.utils import resolve_component_cls
 
 
 logger = get_logger()

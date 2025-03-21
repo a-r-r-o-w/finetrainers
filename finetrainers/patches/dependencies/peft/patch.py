@@ -2,7 +2,7 @@ import functools
 
 from peft.tuners.tuners_utils import BaseTunerLayer
 
-from ...utils import DisableTensorToDtype
+from finetrainers.patches.utils import DisableTensorToDtype
 
 
 def patch_peft_move_adapter_to_device_of_base_layer() -> None:

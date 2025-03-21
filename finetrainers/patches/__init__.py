@@ -2,13 +2,13 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from ..args import BaseArgs
-    from ..parallel import ParallelBackendType
+    from finetrainers.args import BaseArgs
+    from finetrainers.parallel import ParallelBackendType
 
 
 def perform_patches_for_training(args: "BaseArgs", parallel_backend: "ParallelBackendType") -> None:
     # To avoid circular imports
-    from ..config import ModelType, TrainingType
+    from finetrainers.config import ModelType, TrainingType
 
     if args.model_name == ModelType.LTX_VIDEO:
         from .models.ltx_video import patch

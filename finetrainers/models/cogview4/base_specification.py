@@ -12,13 +12,13 @@ from diffusers import (
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from transformers import AutoTokenizer, GlmModel
 
-from ... import data
-from ... import functional as FF
-from ...logging import get_logger
-from ...processors import CogView4GLMProcessor, ProcessorMixin
-from ...typing import ArtifactType, SchedulerType
-from ...utils import _enable_vae_memory_optimizations, get_non_null_items
-from ..modeling_utils import ModelSpecification
+import finetrainers.functional as FF
+from finetrainers.data import ImageArtifact
+from finetrainers.logging import get_logger
+from finetrainers.models.modeling_utils import ModelSpecification
+from finetrainers.processors import CogView4GLMProcessor, ProcessorMixin
+from finetrainers.typing import ArtifactType, SchedulerType
+from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items
 
 
 logger = get_logger()
@@ -345,7 +345,7 @@ class CogView4ModelSpecification(ModelSpecification):
         }
         generation_kwargs = get_non_null_items(generation_kwargs)
         image = pipeline(**generation_kwargs).images[0]
-        return [data.ImageArtifact(value=image)]
+        return [ImageArtifact(value=image)]
 
     def _save_lora_weights(
         self,

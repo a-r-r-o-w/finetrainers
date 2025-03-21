@@ -2,7 +2,8 @@ from typing import List, Union
 
 import torch
 
-from .. import functional as FF
+import finetrainers.functional as FF
+
 from .base import ProcessorMixin
 
 
