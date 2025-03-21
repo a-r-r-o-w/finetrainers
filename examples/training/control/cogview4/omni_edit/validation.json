@@ -1,0 +1,116 @@
+{
+  "data": [
+    {
+      "caption": "Make the image look like it's from an ancient Egyptian mural.",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/0.png",
+      "num_inference_steps": 30,
+      "height": 1024,
+      "width": 1024
+    },
+    {
+      "caption": "Make it look like a cubist painting.",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/1.png",
+      "num_inference_steps": 30,
+      "height": 768,
+      "width": 1360
+    },
+    {
+      "caption": "turn the color of mushroom to gray",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/2.png",
+      "num_inference_steps": 30,
+      "height": 1024,
+      "width": 1024
+    },
+    {
+      "caption": "transform the setting to a misty atmosphere",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/3.png",
+      "num_inference_steps": 30,
+      "height": 1024,
+      "width": 1024
+    },
+    {
+      "caption": "Replace the vampire with cape with woman",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/4.png",
+      "num_inference_steps": 30,
+      "height": 768,
+      "width": 1344
+    },
+    {
+      "caption": "Convert this into a cartoon.",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/5.png",
+      "num_inference_steps": 30,
+      "height": 768,
+      "width": 1152
+    },
+    {
+      "caption": "Make it Pop Art.",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/6.png",
+      "num_inference_steps": 30,
+      "height": 864,
+      "width": 1152
+    },
+    {
+      "caption": "transform the setting to a stormy space",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/7.png",
+      "num_inference_steps": 30,
+      "height": 1024,
+      "width": 1024
+    },
+    {
+      "caption": "Change it to look like it's in the style of an impasto painting.",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/8.png",
+      "num_inference_steps": 30,
+      "height": 768,
+      "width": 1152
+    },
+    {
+      "caption": "Replace the MOVIES sign with RITZ sign",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/9.png",
+      "num_inference_steps": 30,
+      "height": 1152,
+      "width": 864
+    },
+    {
+      "caption": "transform the setting to a sunny day",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/10.png",
+      "num_inference_steps": 30,
+      "height": 864,
+      "width": 1152
+    },
+    {
+      "caption": "Replace the cobblestone street with road",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/11.png",
+      "num_inference_steps": 30,
+      "height": 768,
+      "width": 1344
+    },
+    {
+      "caption": "Replace the rolling hills with ocean",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/12.png",
+      "num_inference_steps": 30,
+      "height": 768,
+      "width": 1344
+    },
+    {
+      "caption": "change the setting to spring with blooming trees",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/13.png",
+      "num_inference_steps": 30,
+      "height": 768,
+      "width": 1152
+    },
+    {
+      "caption": "Make this photo look like a comic book",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/14.png",
+      "num_inference_steps": 30,
+      "height": 768,
+      "width": 1360
+    },
+    {
+      "caption": "Replace the ninja gloves with white gloves",
+      "control_image_path": "examples/training/control/cogview4/omni_edit/validation_dataset/15.png",
+      "num_inference_steps": 30,
+      "height": 768,
+      "width": 1344
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 from .base import ProcessorMixin
+from .canny import CannyProcessor
 from .clip import CLIPPooledProcessor
 from .glm import CogView4GLMProcessor
 from .llama import LlamaProcessor
