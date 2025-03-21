@@ -1,11 +1,11 @@
 import argparse
 from typing import TYPE_CHECKING, List, Union
 
-from ..config_utils import ConfigMixin
+from finetrainers.trainer.config_utils import ConfigMixin
 
 
 if TYPE_CHECKING:
-    from ...args import BaseArgs
+    from finetrainers.args import BaseArgs
 
 
 class SFTLowRankConfig(ConfigMixin):

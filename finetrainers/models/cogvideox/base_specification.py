@@ -13,13 +13,14 @@ from diffusers import (
 from PIL.Image import Image
 from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Tokenizer
 
-from ... import data
-from ...logging import get_logger
-from ...processors import ProcessorMixin, T5Processor
-from ...typing import ArtifactType, SchedulerType
-from ...utils import _enable_vae_memory_optimizations, get_non_null_items
-from ..modeling_utils import ModelSpecification
-from ..utils import DiagonalGaussianDistribution
+from finetrainers.data import VideoArtifact
+from finetrainers.logging import get_logger
+from finetrainers.models.modeling_utils import ModelSpecification
+from finetrainers.models.utils import DiagonalGaussianDistribution
+from finetrainers.processors import ProcessorMixin, T5Processor
+from finetrainers.typing import ArtifactType, SchedulerType
+from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items
+
 from .utils import prepare_rotary_positional_embeddings
 
 
@@ -359,7 +360,7 @@ class CogVideoXModelSpecification(ModelSpecification):
         }
         generation_kwargs = get_non_null_items(generation_kwargs)
         video = pipeline(**generation_kwargs).frames[0]
-        return [data.VideoArtifact(value=video)]
+        return [VideoArtifact(value=video)]
 
     def _save_lora_weights(
         self,

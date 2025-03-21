@@ -15,14 +15,14 @@ from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from PIL.Image import Image
 from transformers import AutoModel, AutoTokenizer, T5EncoderModel, T5Tokenizer
 
-from ... import data
-from ... import functional as FF
-from ...logging import get_logger
-from ...parallel import ParallelBackendEnum
-from ...processors import ProcessorMixin, T5Processor
-from ...typing import ArtifactType, SchedulerType
-from ...utils import _enable_vae_memory_optimizations, get_non_null_items
-from ..modeling_utils import ModelSpecification
+import finetrainers.functional as FF
+from finetrainers.data import VideoArtifact
+from finetrainers.logging import get_logger
+from finetrainers.models.modeling_utils import ModelSpecification
+from finetrainers.parallel import ParallelBackendEnum
+from finetrainers.processors import ProcessorMixin, T5Processor
+from finetrainers.typing import ArtifactType, SchedulerType
+from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items
 
 
 logger = get_logger()
@@ -373,7 +373,7 @@ class LTXVideoModelSpecification(ModelSpecification):
         }
         generation_kwargs = get_non_null_items(generation_kwargs)
         video = pipeline(**generation_kwargs).frames[0]
-        return [data.VideoArtifact(value=video)]
+        return [VideoArtifact(value=video)]
 
     def _save_lora_weights(
         self,
