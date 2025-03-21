@@ -8,8 +8,9 @@ from typing import Any, Callable, Dict, Optional
 import torch
 from diffusers.utils import is_accelerate_available
 
-from ..logging import get_logger
-from ..utils import get_device_info
+from finetrainers.logging import get_logger
+from finetrainers.utils import get_device_info
+
 from .base import BaseCheckpointer, BaseParallelBackend
 
 

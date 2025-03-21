@@ -4,7 +4,7 @@ from typing import Any, Dict
 import torch.distributed.checkpoint.stateful
 import torchdata.stateful_dataloader
 
-from ..logging import get_logger
+from finetrainers.logging import get_logger
 
 
 logger = get_logger()

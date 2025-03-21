@@ -20,14 +20,14 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
-from ... import data, logging, optimizer, parallel, patches, utils
-from ...config import TrainingType
-from ...state import State, TrainState
+from finetrainers import data, logging, optimizer, parallel, patches, utils
+from finetrainers.config import TrainingType
+from finetrainers.state import State, TrainState
 
 
 if TYPE_CHECKING:
-    from ...args import BaseArgs
-    from ...models import ModelSpecification
+    from finetrainers.args import BaseArgs
+    from finetrainers.models import ModelSpecification
 
 
 logger = logging.get_logger()

@@ -5,7 +5,7 @@ from typing import Union
 import importlib_metadata
 from packaging.version import Version, parse
 
-from ..logging import get_logger
+from finetrainers.logging import get_logger
 
 
 logger = get_logger()

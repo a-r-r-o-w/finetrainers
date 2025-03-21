@@ -4,8 +4,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Union
 import torch
 from tqdm.auto import tqdm
 
-from .. import utils
-from ..logging import get_logger
+from finetrainers.logging import get_logger
+from finetrainers.utils import delete_files
 
 
 logger = get_logger()
@@ -147,7 +147,7 @@ class PrecomputedDistributedDataPreprocessor(DistributedDataProcessorMixin):
         self._save_dir.mkdir(parents=True, exist_ok=True)
 
         subdirectories = [f for f in self._save_dir.iterdir() if f.is_dir()]
-        utils.delete_files(subdirectories)
+        delete_files(subdirectories)
 
     def consume(
         self,

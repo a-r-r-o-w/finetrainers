@@ -3,7 +3,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import torch
 
-from ..trackers import TrackerType, initialize_trackers
+from finetrainers.trackers import TrackerType, initialize_trackers
 
 
 class BaseParallelBackend:

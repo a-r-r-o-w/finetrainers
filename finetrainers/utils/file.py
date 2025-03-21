@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 from typing import List, Union
 
-from ..logging import get_logger
+from finetrainers.logging import get_logger
 
 
 logger = get_logger()
