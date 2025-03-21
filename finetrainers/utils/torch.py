@@ -215,11 +215,6 @@ def get_string_from_dtype(dtype: torch.dtype):
     return _DTYPE_TO_STRING[dtype]
 
 
-def is_compiled_module(module) -> bool:
-    """Check whether the module was compiled with torch.compile()"""
-    return isinstance(module, torch._dynamo.eval_frame.OptimizedModule)
-
-
 def set_requires_grad(models: Union[torch.nn.Module, List[torch.nn.Module]], value: bool) -> None:
     if isinstance(models, torch.nn.Module):
         models = [models]

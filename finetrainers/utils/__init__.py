@@ -23,7 +23,6 @@ from .torch import (
     enable_determinism,
     expand_tensor_dims,
     get_device_info,
-    is_compiled_module,
     set_requires_grad,
     synchronize_device,
 )
