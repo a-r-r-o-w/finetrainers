@@ -23,6 +23,7 @@ from tqdm import tqdm
 from ... import data, logging, optimizer, parallel, patches, utils
 from ...config import TrainingType
 from ...state import State, TrainState
+from .config import ControlFullRankConfig, ControlLowRankConfig
 from .data import IterableControlDataset, ValidationControlDataset
 
 
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from ...args import BaseArgs
     from ...models import ControlModelSpecification
 
+ArgsType = Union["BaseArgs", ControlLowRankConfig, ControlFullRankConfig]
 
 logger = logging.get_logger()
 
@@ -42,7 +44,7 @@ class ControlTrainer:
     _diffusion_component_names = ["transformer", "unet", "scheduler"]
     # fmt: on
 
-    def __init__(self, args: "BaseArgs", model_specification: "ControlModelSpecification") -> None:
+    def __init__(self, args: ArgsType, model_specification: "ControlModelSpecification") -> None:
         self.args = args
         self.state = State()
         self.state.train_state = TrainState()
@@ -82,6 +84,8 @@ class ControlTrainer:
 
         self.model_specification = model_specification
         self._are_condition_models_loaded = False
+
+        model_specification._trainer_init(args.frame_conditioning_type, args.frame_conditioning_index)
 
     def run(self) -> None:
         try:

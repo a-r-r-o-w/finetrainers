@@ -1,2 +1,2 @@
-from .control_trainer.trainer import ControlTrainer
-from .sft_trainer.trainer import SFTTrainer
+from .control_trainer import ControlTrainer
+from .sft_trainer import SFTTrainer

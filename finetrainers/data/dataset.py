@@ -724,7 +724,7 @@ class IterableDatasetPreprocessingWrapper(
             for key in sample.keys():
                 if isinstance(sample[key], PIL.Image.Image):
                     sample[key] = _preprocess_image(sample[key])
-                elif isinstance(sample[key], decord.VideoReader):
+                elif isinstance(sample[key], (decord.VideoReader, torchvision.io.video_reader.VideoReader)):
                     sample[key] = _preprocess_video(sample[key])
 
             if self.dataset_type == "image":
@@ -751,7 +751,7 @@ class IterableDatasetPreprocessingWrapper(
                             "after that."
                         )
                         logger.log_freq("WARNING", "BUCKET_TEMPORAL_SIZE_UNAVAILABLE", msg, frequency=128)
-                        sample["video"] = sample["video"][0]
+                        sample["video"] = sample["video"][:1]
 
             if isinstance(sample["caption"], list):
                 sample["caption"] = sample["caption"][0]

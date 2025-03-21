@@ -6,12 +6,10 @@ from accelerate import init_empty_weights
 from diffusers import (
     AutoencoderKLWan,
     FlowMatchEulerDiscreteScheduler,
-    WanImageToVideoPipeline,
     WanPipeline,
     WanTransformer3DModel,
 )
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
-from PIL.Image import Image
 from transformers import AutoModel, AutoTokenizer, UMT5EncoderModel
 
 from ... import data
@@ -311,7 +309,6 @@ class WanModelSpecification(ModelSpecification):
         self,
         pipeline: WanPipeline,
         prompt: str,
-        image: Optional[Image] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_frames: Optional[int] = None,
@@ -319,12 +316,8 @@ class WanModelSpecification(ModelSpecification):
         generator: Optional[torch.Generator] = None,
         **kwargs,
     ) -> List[ArtifactType]:
-        if image is not None:
-            pipeline = WanImageToVideoPipeline.from_pipe(pipeline)
-
         generation_kwargs = {
             "prompt": prompt,
-            "image": image,
             "height": height,
             "width": width,
             "num_frames": num_frames,
