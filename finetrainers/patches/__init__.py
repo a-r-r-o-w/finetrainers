@@ -10,6 +10,12 @@ def perform_patches_for_training(args: "BaseArgs", parallel_backend: "ParallelBa
     # To avoid circular imports
     from finetrainers.config import ModelType, TrainingType
 
+    if args.model_name == ModelType.COGVIEW4:
+        from .models.cogview4 import patch
+
+        if parallel_backend.tensor_parallel_enabled:
+            patch.patch_cogview4_attn_processor_for_tp_compatibility()
+
     if args.model_name == ModelType.LTX_VIDEO:
         from .models.ltx_video import patch
 

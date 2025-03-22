@@ -5,7 +5,7 @@ import json
 import torch
 import torch._inductor.config
 import torch.distributed as dist
-from diffusers import WanTransformer3DModel
+from diffusers import CogView4Transformer2DModel
 from torch._utils import _get_device_module
 from torch.distributed._symmetric_memory import enable_symm_mem_for_group
 from torch.distributed.tensor import DTensor, Replicate
@@ -17,7 +17,11 @@ from torch.distributed.tensor.parallel.style import (
     RowwiseParallel,
 )
 
+from finetrainers.patches.models.cogview4 import patch
 from finetrainers.utils import apply_activation_checkpointing
+
+
+patch.patch_cogview4_attn_processor_for_tp_compatibility()
 
 
 DEVICE_TYPE = "cuda"
@@ -114,112 +118,26 @@ def verify_numerical_correctness_and_debug(model, model_tp, inputs, rank, dtype,
 
 def tp_parallelize(model, device_mesh, tp_plan):
     if tp_plan == "only_ff":
-        for block in model.blocks:
+        for block in model.transformer_blocks:
             block_tp_plan = {
-                "ffn.net.0.proj": ColwiseParallel(),
-                "ffn.net.2": RowwiseParallel(),
+                ".net.0.proj": ColwiseParallel(),
+                ".net.2": RowwiseParallel(),
             }
             parallelize_module(block, device_mesh, block_tp_plan)
         parallelize_module(model, device_mesh, {})
 
     elif tp_plan == "ff_and_attn":
-        for block in model.blocks:
+        for block in model.transformer_blocks:
             block_tp_plan = {
-                "attn1.to_q": ColwiseParallel(output_layouts=Replicate()),
-                "attn1.to_k": ColwiseParallel(output_layouts=Replicate()),
-                "attn1.to_v": ColwiseParallel(output_layouts=Replicate()),
-                "attn1.to_out.0": RowwiseParallel(input_layouts=Replicate()),
-                "attn2.to_q": ColwiseParallel(output_layouts=Replicate()),
-                "attn2.to_k": ColwiseParallel(output_layouts=Replicate()),
-                "attn2.to_v": ColwiseParallel(output_layouts=Replicate()),
-                "attn2.to_out.0": RowwiseParallel(input_layouts=Replicate()),
-                "ffn.net.0.proj": ColwiseParallel(),
-                "ffn.net.2": RowwiseParallel(),
+                "attn1.to_q": ColwiseParallel(),
+                "attn1.to_k": ColwiseParallel(),
+                "attn1.to_v": ColwiseParallel(),
+                "attn1.to_out.0": RowwiseParallel(),
+                "ff.net.0.proj": ColwiseParallel(),
+                "ff.net.2": RowwiseParallel(),
             }
             parallelize_module(block, device_mesh, block_tp_plan)
         parallelize_module(model, device_mesh, {})
-
-
-def get_config(model_type):
-    if model_type == "Wan-T2V-1.3B":
-        config = {
-            "model_id": "StevenZhang/Wan2.1-T2V-1.3B-Diff",
-            "diffusers_config": {
-                "added_kv_proj_dim": None,
-                "attention_head_dim": 128,
-                "cross_attn_norm": True,
-                "eps": 1e-06,
-                "ffn_dim": 8960,
-                "freq_dim": 256,
-                "in_channels": 16,
-                "num_attention_heads": 12,
-                "num_layers": 30,
-                "out_channels": 16,
-                "patch_size": [1, 2, 2],
-                "qk_norm": "rms_norm_across_heads",
-                "text_dim": 4096,
-            },
-        }
-    elif model_type == "Wan-T2V-14B":
-        config = {
-            "model_id": "StevenZhang/Wan2.1-T2V-14B-Diff",
-            "diffusers_config": {
-                "added_kv_proj_dim": None,
-                "attention_head_dim": 128,
-                "cross_attn_norm": True,
-                "eps": 1e-06,
-                "ffn_dim": 13824,
-                "freq_dim": 256,
-                "in_channels": 16,
-                "num_attention_heads": 40,
-                "num_layers": 40,
-                "out_channels": 16,
-                "patch_size": [1, 2, 2],
-                "qk_norm": "rms_norm_across_heads",
-                "text_dim": 4096,
-            },
-        }
-    elif model_type == "Wan-I2V-14B-480p":
-        config = {
-            "model_id": "StevenZhang/Wan2.1-I2V-14B-480P-Diff",
-            "diffusers_config": {
-                "image_dim": 1280,
-                "added_kv_proj_dim": 5120,
-                "attention_head_dim": 128,
-                "cross_attn_norm": True,
-                "eps": 1e-06,
-                "ffn_dim": 13824,
-                "freq_dim": 256,
-                "in_channels": 36,
-                "num_attention_heads": 40,
-                "num_layers": 40,
-                "out_channels": 16,
-                "patch_size": [1, 2, 2],
-                "qk_norm": "rms_norm_across_heads",
-                "text_dim": 4096,
-            },
-        }
-    elif model_type == "Wan-I2V-14B-720p":
-        config = {
-            "model_id": "StevenZhang/Wan2.1-I2V-14B-720P-Diff",
-            "diffusers_config": {
-                "image_dim": 1280,
-                "added_kv_proj_dim": 5120,
-                "attention_head_dim": 128,
-                "cross_attn_norm": True,
-                "eps": 1e-06,
-                "ffn_dim": 13824,
-                "freq_dim": 256,
-                "in_channels": 36,
-                "num_attention_heads": 40,
-                "num_layers": 40,
-                "out_channels": 16,
-                "patch_size": [1, 2, 2],
-                "qk_norm": "rms_norm_across_heads",
-                "text_dim": 4096,
-            },
-        }
-    return config
 
 
 def run_benchmark(world_size: int, rank: int, args):
@@ -230,8 +148,7 @@ def run_benchmark(world_size: int, rank: int, args):
         enable_symm_mem_for_group(dist.group.WORLD.group_name)
 
     torch.manual_seed(0)
-    config = get_config(args.model_type)["diffusers_config"]
-    model = WanTransformer3DModel(**config).to(DEVICE_TYPE)
+    model = CogView4Transformer2DModel().to(DEVICE_TYPE)
     model.to(dtype)
 
     model_tp = copy.deepcopy(model)
@@ -241,10 +158,8 @@ def run_benchmark(world_size: int, rank: int, args):
 
     # Input Tensors
     batch_size = 2
-    num_frames, height, width = 49, 512, 832
+    height, width = 512, 832
     spatial_compression_ratio = 8
-    temporal_compression_ratio = 4
-    latent_num_frames = (num_frames - 1) // temporal_compression_ratio + 1
     latent_height = height // spatial_compression_ratio
     latent_width = width // spatial_compression_ratio
     caption_sequence_length = 256
@@ -254,7 +169,6 @@ def run_benchmark(world_size: int, rank: int, args):
         "hidden_states": torch.randn(
             batch_size,
             model.config.in_channels,
-            latent_num_frames,
             latent_height,
             latent_width,
             device=DEVICE_TYPE,
@@ -267,6 +181,13 @@ def run_benchmark(world_size: int, rank: int, args):
         "timestep": torch.randint(
             0, 1000, (batch_size,), device=DEVICE_TYPE, dtype=torch.float32, requires_grad=requires_grad
         ),
+        "original_size": torch.tensor(
+            [[height, width]], device=DEVICE_TYPE, dtype=torch.float32, requires_grad=requires_grad
+        ),
+        "target_size": torch.tensor(
+            [[height, width]], device=DEVICE_TYPE, dtype=torch.float32, requires_grad=requires_grad
+        ),
+        "crop_coords": torch.tensor([[0, 0]], device=DEVICE_TYPE, dtype=torch.float32, requires_grad=requires_grad),
         "return_dict": False,
     }
 
@@ -302,12 +223,6 @@ def run_benchmark(world_size: int, rank: int, args):
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--model-type",
-        type=str,
-        default="Wan-T2V-1.3B",
-        choices=["Wan-T2V-1.3B", "Wan-T2V-14B", "Wan-I2V-14B-480p", "Wan-I2V-14B-720p"],
-    )
     parser.add_argument("--mode", type=str, default="forward", choices=["forward", "backward", "forward_backward"])
     parser.add_argument("--warmup-steps", type=int, default=2)
     parser.add_argument("--benchmark-steps", type=int, default=3)
