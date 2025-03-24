@@ -964,7 +964,6 @@ class ControlTrainer:
             logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
 
             parallel_backend = self.state.parallel_backend
-
             if parallel_backend.world_size == 1:
                 self._move_components_to_device([self.transformer], "cpu")
                 utils.free_memory()
