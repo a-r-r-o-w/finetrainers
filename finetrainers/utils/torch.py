@@ -7,7 +7,7 @@ import torch.backends
 import torch.distributed as dist
 import torch.distributed.tensor
 
-from ..logging import get_logger
+from finetrainers.logging import get_logger
 
 
 logger = get_logger()

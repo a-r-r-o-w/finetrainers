@@ -16,6 +16,7 @@ Finetrainers is a work-in-progress library to support (accessible) training of d
 ## Table of Contents
 
 - [Quickstart](#quickstart)
+- [Features](#features)
 - [News](#news)
 - [Support Matrix](#support-matrix)
 - [Featured Projects](#featured-projects-)
@@ -25,11 +26,11 @@ Finetrainers is a work-in-progress library to support (accessible) training of d
 
 Clone the repository and make sure the requirements are installed: `pip install -r requirements.txt` and install `diffusers` from source by `pip install git+https://github.com/huggingface/diffusers`. The requirements specify `diffusers>=0.32.1`, but it is always recommended to use the `main` branch of Diffusers for the latest features and bugfixes. Note that the `main` branch for `finetrainers` is also the development branch, and stable support should be expected from the release tags.
 
-Checkout to the latest release tag:
+Checkout to the latest stable release tag:
 
 ```bash
 git fetch --all --tags
-git checkout tags/v0.0.1
+git checkout tags/v0.1.0
 ```
 
 Follow the instructions mentioned in the [README](https://github.com/a-r-r-o-w/finetrainers/tree/v0.0.1) for the latest stable release.
@@ -50,6 +51,16 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 
 > [!IMPORTANT] 
 > It is recommended to use Pytorch 2.5.1 or above for training. Previous versions can lead to completely black videos, OOM errors, or other issues and are not tested. For fully reproducible training, please use the same environment as mentioned in [environment.md](./docs/environment.md).
+
+## Features
+
+- DDP, FSDP-2 & HSDP support for all models with low-rank and full-rank training
+- Memory-efficient single-GPU training
+- Auto-detection of commonly used dataset formats
+- Combined image/video datasets, multiple chainable local/remote datasets, multi-resolution bucketing & more
+- Memory-efficient precomputation support with/without on-the-fly precomputation for large scale datasets
+- Standardized model specification format for training arbitrary models
+- Fake FP8 training (QAT upcoming!)
 
 ## News
 

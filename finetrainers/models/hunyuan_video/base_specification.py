@@ -12,13 +12,13 @@ from diffusers import (
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, LlamaModel
 
-from ... import data
-from ... import functional as FF
-from ...logging import get_logger
-from ...processors import CLIPPooledProcessor, LlamaProcessor, ProcessorMixin
-from ...typing import ArtifactType, SchedulerType
-from ...utils import _enable_vae_memory_optimizations, get_non_null_items
-from ..modeling_utils import ModelSpecification
+import finetrainers.functional as FF
+from finetrainers.data import VideoArtifact
+from finetrainers.logging import get_logger
+from finetrainers.models.modeling_utils import ModelSpecification
+from finetrainers.processors import CLIPPooledProcessor, LlamaProcessor, ProcessorMixin
+from finetrainers.typing import ArtifactType, SchedulerType
+from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items
 
 
 logger = get_logger()
@@ -347,7 +347,7 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         }
         generation_kwargs = get_non_null_items(generation_kwargs)
         video = pipeline(**generation_kwargs).frames[0]
-        return [data.VideoArtifact(value=video)]
+        return [VideoArtifact(value=video)]
 
     def _save_lora_weights(
         self,
