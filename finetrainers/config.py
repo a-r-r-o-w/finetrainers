@@ -3,7 +3,7 @@ from typing import Type
 
 from .models import ModelSpecification
 from .models.cogvideox import CogVideoXModelSpecification
-from .models.cogview4 import CogView4ModelSpecification
+from .models.cogview4 import CogView4ControlModelSpecification, CogView4ModelSpecification
 from .models.hunyuan_video import HunyuanVideoModelSpecification
 from .models.ltx_video import LTXVideoModelSpecification
 from .models.wan import WanModelSpecification
@@ -18,11 +18,18 @@ class ModelType(str, Enum):
 
 
 class TrainingType(str, Enum):
+    # SFT
     LORA = "lora"
     FULL_FINETUNE = "full-finetune"
 
+    # Control
+    CONTROL_LORA = "control-lora"
+    CONTROL_FULL_FINETUNE = "control-full-finetune"
+
 
 SUPPORTED_MODEL_CONFIGS = {
+    # TODO(aryan): autogenerate this
+    # SFT
     ModelType.COGVIDEOX: {
         TrainingType.LORA: CogVideoXModelSpecification,
         TrainingType.FULL_FINETUNE: CogVideoXModelSpecification,
@@ -30,6 +37,8 @@ SUPPORTED_MODEL_CONFIGS = {
     ModelType.COGVIEW4: {
         TrainingType.LORA: CogView4ModelSpecification,
         TrainingType.FULL_FINETUNE: CogView4ModelSpecification,
+        TrainingType.CONTROL_LORA: CogView4ControlModelSpecification,
+        TrainingType.CONTROL_FULL_FINETUNE: CogView4ControlModelSpecification,
     },
     ModelType.HUNYUAN_VIDEO: {
         TrainingType.LORA: HunyuanVideoModelSpecification,

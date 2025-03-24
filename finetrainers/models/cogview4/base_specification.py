@@ -284,6 +284,10 @@ class CogView4ModelSpecification(ModelSpecification):
         compute_posterior: bool = True,
         **kwargs,
     ) -> Tuple[torch.Tensor, ...]:
+        base_image_sequence_length = 256
+        base_shift = 0.25
+        max_shift = 0.75
+
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
         else:
@@ -298,10 +302,6 @@ class CogView4ModelSpecification(ModelSpecification):
 
         noise = torch.zeros_like(latents).normal_(generator=generator)
         timesteps = (sigmas.flatten() * 1000.0).long()
-
-        base_image_sequence_length = 256
-        base_shift = 0.25
-        max_shift = 0.75
 
         image_sequence_length = latents.size(2) * latents.size(3) // self.transformer_config.patch_size**2
         mu = (image_sequence_length / base_image_sequence_length) ** 0.5
