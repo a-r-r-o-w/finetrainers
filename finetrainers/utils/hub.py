@@ -9,14 +9,14 @@ from PIL import Image
 
 
 # Define inference examples as template functions to allow customization
-def get_ltx_inference(args, repo_id, validation_prompt):
+def get_ltx_inference(pretrained_model_name_or_path, repo_id, validation_prompt):
     return f"""
 import torch
 from diffusers import LTXPipeline
 from diffusers.utils import export_to_video
 
 pipe = LTXPipeline.from_pretrained(
-    "{args.pretrained_model_name_or_path}", torch_dtype=torch.bfloat16
+    "{pretrained_model_name_or_path}", torch_dtype=torch.bfloat16
 ).to("cuda")
 pipe.load_lora_weights("{repo_id}", adapter_name="ltxv-lora")
 pipe.set_adapters(["ltxv-lora"], [0.75])
@@ -26,7 +26,7 @@ export_to_video(video, "output.mp4", fps=8)
 """
 
 
-def get_hunyuan_inference(args, repo_id, validation_prompt):
+def get_hunyuan_inference(pretrained_model_name_or_path, repo_id, validation_prompt):
     return f"""
 import torch
 from diffusers import HunyuanVideoPipeline, HunyuanVideoTransformer3DModel
@@ -36,7 +36,7 @@ model_id = "hunyuanvideo-community/HunyuanVideo"
 transformer = HunyuanVideoTransformer3DModel.from_pretrained(
     model_id, subfolder="transformer", torch_dtype=torch.bfloat16
 )
-pipe = HunyuanVideoPipeline.from_pretrained("{args.pretrained_model_name_or_path}", transformer=transformer, torch_dtype=torch.float16)
+pipe = HunyuanVideoPipeline.from_pretrained("{pretrained_model_name_or_path}", transformer=transformer, torch_dtype=torch.float16)
 pipe.load_lora_weights("{repo_id}", adapter_name="hunyuanvideo-lora")
 pipe.set_adapters(["hunyuanvideo-lora"], [0.6])
 pipe.vae.enable_tiling()
@@ -53,14 +53,14 @@ export_to_video(output, "output.mp4", fps=15)
 """
 
 
-def get_wan_inference(args, repo_id, validation_prompt):
+def get_wan_inference(pretrained_model_name_or_path, repo_id, validation_prompt):
     return f"""
 import torch
 from diffusers import WanPipeline
 from diffusers.utils import export_to_video
 
 pipe = WanPipeline.from_pretrained(
-    "{args.pretrained_model_name_or_path}", torch_dtype=torch.bfloat16
+    "{pretrained_model_name_or_path}", torch_dtype=torch.bfloat16
 ).to("cuda")
 pipe.load_lora_weights("{repo_id}", adapter_name="wan-lora")
 pipe.set_adapters(["wan-lora"], [0.75])
@@ -70,14 +70,14 @@ export_to_video(video, "output.mp4", fps=8)
 """
 
 
-def get_cog_video_inference(args, repo_id, validation_prompt):
+def get_cog_video_inference(pretrained_model_name_or_path, repo_id, validation_prompt):
     return f"""
 import torch
 from diffusers import CogVideoXPipeline
 from diffusers.utils import export_to_video
 
 pipe = CogVideoXPipeline.from_pretrained(
-    "THUDM/CogVideoX-5b", torch_dtype=torch.bfloat16
+    "{pretrained_model_name_or_path}", torch_dtype=torch.bfloat16
 ).to("cuda")
 pipe.load_lora_weights("{repo_id}", adapter_name="cogvideox-lora")
 pipe.set_adapters(["cogvideox-lora"], [0.75])
@@ -87,14 +87,14 @@ export_to_video(video, "output.mp4")
 """
 
 
-def get_cogview4_inference(args, repo_id, validation_prompt):
+def get_cogview4_inference(pretrained_model_name_or_path, repo_id, validation_prompt):
     return f"""
 import torch
 from diffusers import CogView4Pipeline
 from diffusers.utils import export_to_video
 
 pipe = CogView4Pipeline.from_pretrained(
-    "THUDM/CogView4-6B", torch_dtype=torch.bfloat16
+    "{pretrained_model_name_or_path}", torch_dtype=torch.bfloat16
 ).to("cuda")
 pipe.load_lora_weights("{repo_id}", adapter_name="cogview4-lora")
 pipe.set_adapters(["cogview4-lora"], [0.9])
@@ -147,7 +147,6 @@ def save_model_card(
     validation_prompt = validation_prompts[0] if validation_prompts else "my-awesome-prompt"
     inference_example = get_inference_example(
         args.pretrained_model_name_or_path,
-        args,
         repo_id,
         validation_prompt
     )
