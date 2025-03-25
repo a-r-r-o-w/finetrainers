@@ -143,9 +143,8 @@ def save_model_card(
                 }
             )
 
-    # Get the appropriate inference example based on the model path and parameters
-    # Use the first validation prompt as the example (or customize as needed)
-    validation_prompt = validation_prompts[0] if validation_prompts else "a cinematic shot of a cat"
+    # get the appropriate inference example based on the model path and parameters
+    validation_prompt = validation_prompts[0] if validation_prompts else "my-awesome-prompt"
     inference_example = get_inference_example(
         args.pretrained_model_name_or_path,
         args,
