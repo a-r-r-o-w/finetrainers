@@ -1,6 +1,8 @@
 from enum import Enum
 from typing import Type
 
+from finetrainers.models.hunyuan_video.control_specification import HunyuanVideoControlModelSpecification
+
 from .models import ModelSpecification
 from .models.cogvideox import CogVideoXModelSpecification
 from .models.cogview4 import CogView4ControlModelSpecification, CogView4ModelSpecification
@@ -43,6 +45,7 @@ SUPPORTED_MODEL_CONFIGS = {
     ModelType.HUNYUAN_VIDEO: {
         TrainingType.LORA: HunyuanVideoModelSpecification,
         TrainingType.FULL_FINETUNE: HunyuanVideoModelSpecification,
+        TrainingType.CONTROL_LORA: HunyuanVideoControlModelSpecification,
     },
     ModelType.LTX_VIDEO: {
         TrainingType.LORA: LTXVideoModelSpecification,

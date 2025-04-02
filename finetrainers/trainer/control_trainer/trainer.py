@@ -20,6 +20,8 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
+from finetrainers.parallel.ptd import PTDCheckpointer
+
 from ... import data, logging, optimizer, parallel, patches, utils
 from ...config import TrainingType
 from ...state import State, TrainState
@@ -362,7 +364,7 @@ class ControlTrainer:
             parallel_backend.wait_for_everyone()
 
         enable_state_checkpointing = self.args.checkpointing_steps > 0
-        self.checkpointer = utils.PTDCheckpointManager(
+        self.checkpointer = parallel_backend.get_checkpointer(
             dataloader=self.dataloader,
             model_parts=[self.transformer],
             optimizers=self.optimizer,
@@ -967,6 +969,13 @@ class ControlTrainer:
             # )
             # self._delete_components(component_names=["transformer", "unet"])
 
+            parallel_backend = self.state.parallel_backend
+            if parallel_backend.world_size == 1:
+                self._move_components_to_device([self.transformer], "cpu")
+                utils.free_memory()
+                utils.synchronize_device()
+                torch.cuda.reset_peak_memory_stats(parallel_backend.device)
+
             if self.args.precomputation_once:
                 consume_fn = preprocessor.consume_once
             else:
@@ -1008,6 +1017,8 @@ class ControlTrainer:
 
             # self.checkpointer.load()
             # self.transformer = self.checkpointer.states["model"].model[0]
+            if parallel_backend.world_size == 1:
+                self._move_components_to_device([self.transformer])
 
         return condition_iterator, latent_iterator
 
