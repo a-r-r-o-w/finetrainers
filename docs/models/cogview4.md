@@ -6,6 +6,7 @@ For LoRA training, specify `--training_type lora`. For full finetuning, specify 
 
 Examples available:
 - [Raider White Tarot cards style](../../examples/training/sft/cogview4/raider_white_tarot/)
+- [Omni Edit Control LoRA](../../examples/training/control/cogview4/omni_edit/)
 
 To run an example, run the following from the root directory of the repository (assuming you have installed the requirements and are using Linux/WSL):
 

@@ -21,7 +21,7 @@ The following table shows the algorithms supported for training and the models t
 | Model                                     | SFT | Control | ControlNet | Distillation |
 |:-----------------------------------------:|:---:|:-------:|:----------:|:------------:|
 | [CogVideoX](./cogvideox.md)               | 🤗 | 😡 | 😡 | 😡 |
-| [CogView4](./cogview4.md)                 | 🤗 | 😡 | 😡 | 😡 |
+| [CogView4](./cogview4.md)                 | 🤗 | 🤗 | 😡 | 😡 |
 | [HunyuanVideo](./hunyuan_video.md)        | 🤗 | 😡 | 😡 | 😡 |
 | [LTX-Video](./ltx_video.md)               | 🤗 | 😡 | 😡 | 😡 |
 | [Wan](./wan.md)                           | 🤗 | 😡 | 😡 | 😡 |
