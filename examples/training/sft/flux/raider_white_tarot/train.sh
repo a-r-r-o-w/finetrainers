@@ -74,7 +74,7 @@ training_cmd=(
   --target_modules "transformer_blocks.*(to_q|to_k|to_v|to_out.0|add_q_proj|add_k_proj|add_v_proj|to_add_out)"
   --gradient_accumulation_steps 1
   --gradient_checkpointing
-  --checkpointing_steps 1000
+  --checkpointing_steps 251
   --checkpointing_limit 2
   # --resume_from_checkpoint 3000
   --enable_slicing

@@ -4,12 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from accelerate import init_empty_weights
-from diffusers import (
-    AutoencoderKL,
-    FlowMatchEulerDiscreteScheduler,
-    FluxPipeline,
-    FluxTransformer2DModel,
-)
+from diffusers import AutoencoderKL, FlowMatchEulerDiscreteScheduler, FluxPipeline, FluxTransformer2DModel
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, T5EncoderModel
 
@@ -235,6 +230,7 @@ class FluxModelSpecification(ModelSpecification):
             self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
         )
         pipe.text_encoder.to(self.text_encoder_dtype)
+        pipe.text_encoder_2.to(self.text_encoder_2_dtype)
         pipe.vae.to(self.vae_dtype)
 
         _enable_vae_memory_optimizations(pipe.vae, enable_slicing, enable_tiling)
