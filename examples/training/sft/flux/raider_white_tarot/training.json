@@ -1,0 +1,34 @@
+{
+  "datasets": [
+    {
+      "data_root": "multimodalart/1920-raider-waite-tarot-public-domain",
+      "dataset_type": "image",
+      "id_token": "TRTCRD",
+      "image_resolution_buckets": [
+        [1280, 720]
+      ],
+      "reshape_mode": "bicubic",
+      "remove_common_llm_caption_prefixes": true
+    },
+    {
+      "data_root": "multimodalart/1920-raider-waite-tarot-public-domain",
+      "dataset_type": "image",
+      "id_token": "TRTCRD",
+      "image_resolution_buckets": [
+        [512, 512]
+      ],
+      "reshape_mode": "center_crop",
+      "remove_common_llm_caption_prefixes": true
+    },
+    {
+      "data_root": "multimodalart/1920-raider-waite-tarot-public-domain",
+      "dataset_type": "image",
+      "id_token": "TRTCRD",
+      "image_resolution_buckets": [
+        [768, 768]
+      ],
+      "reshape_mode": "center_crop",
+      "remove_common_llm_caption_prefixes": true
+    }
+  ]
+}
