@@ -355,6 +355,7 @@ class FluxModelSpecification(ModelSpecification):
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_inference_steps: int = 50,
+        guidance_scale: float = 3.5,
         generator: Optional[torch.Generator] = None,
         **kwargs,
     ) -> List[ArtifactType]:
@@ -363,6 +364,7 @@ class FluxModelSpecification(ModelSpecification):
             "height": height,
             "width": width,
             "num_inference_steps": num_inference_steps,
+            "guidance_scale": guidance_scale,
             "generator": generator,
             "return_dict": True,
             "output_type": "pil",

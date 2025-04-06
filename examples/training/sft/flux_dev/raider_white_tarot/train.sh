@@ -18,8 +18,8 @@ NUM_GPUS=1
 CUDA_VISIBLE_DEVICES="3"
 
 # Check the JSON files for the expected JSON format
-TRAINING_DATASET_CONFIG="examples/training/sft/flux/raider_white_tarot/training.json"
-VALIDATION_DATASET_FILE="examples/training/sft/flux/raider_white_tarot/validation.json"
+TRAINING_DATASET_CONFIG="examples/training/sft/flux_dev/raider_white_tarot/training.json"
+VALIDATION_DATASET_FILE="examples/training/sft/flux_dev/raider_white_tarot/validation.json"
 
 # Depending on how many GPUs you have available, choose your degree of parallelism and technique!
 DDP_1="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 1 --tp_degree 1"

@@ -64,6 +64,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 
 ## News
 
+- 🔥 **2025-04-06**: Flux support added!
 - 🔥 **2025-03-07**: CogView4 support added!
 - 🔥 **2025-03-03**: Wan T2V support added!
 - 🔥 **2025-03-03**: We have shipped a complete refactor to support multi-backend distributed training, better precomputation handling for big datasets, model specification format (externally usable for training custom models), FSDP & more.
@@ -89,6 +90,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 | [CogVideoX-5b](./docs/models/cogvideox.md)     | Text-to-Video | 18 GB                              | 53 GB                                         |
 | [Wan](./docs/models/wan.md)                    | Text-to-Video | TODO                               | TODO                                          |
 | [CogView4](./docs/models/cogview4.md)          | Text-to-Image | TODO                               | TODO                                          |
+| [Flux](./docs/models/flux.md)                  | Text-to-Image | TODO                               | TODO                                          |
 
 </div>
 
