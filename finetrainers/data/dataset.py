@@ -21,9 +21,8 @@ from tqdm.auto import tqdm
 from finetrainers import constants
 from finetrainers import functional as FF
 from finetrainers.logging import get_logger
+from finetrainers.utils import find_files
 from finetrainers.utils.import_utils import is_datasets_version
-
-from .utils import find_files
 
 
 import decord  # isort:skip
@@ -838,7 +837,9 @@ def initialize_dataset(
     if does_repo_exist_on_hub:
         return _initialize_hub_dataset(dataset_name_or_root, dataset_type, infinite, _caption_options=_caption_options)
     else:
-        return _initialize_local_dataset(dataset_name_or_root, dataset_type, infinite)
+        return _initialize_local_dataset(
+            dataset_name_or_root, dataset_type, infinite, _caption_options=_caption_options
+        )
 
 
 def combine_datasets(
@@ -853,7 +854,13 @@ def wrap_iterable_dataset_for_preprocessing(
     return IterableDatasetPreprocessingWrapper(dataset, dataset_type, **config)
 
 
-def _initialize_local_dataset(dataset_name_or_root: str, dataset_type: str, infinite: bool = False):
+def _initialize_local_dataset(
+    dataset_name_or_root: str,
+    dataset_type: str,
+    infinite: bool = False,
+    *,
+    _caption_options: Optional[Dict[str, Any]] = None,
+):
     root = pathlib.Path(dataset_name_or_root)
     supported_metadata_files = ["metadata.json", "metadata.jsonl", "metadata.csv"]
     metadata_files = [root / metadata_file for metadata_file in supported_metadata_files]
@@ -868,6 +875,11 @@ def _initialize_local_dataset(dataset_name_or_root: str, dataset_type: str, infi
         else:
             dataset = VideoFolderDataset(root.as_posix(), infinite=infinite)
         return dataset
+
+    file_list = find_files(root.as_posix(), "*", depth=100)
+    has_tar_or_parquet_files = any(file.endswith(".tar") or file.endswith(".parquet") for file in file_list)
+    if has_tar_or_parquet_files:
+        return _initialize_webdataset(root.as_posix(), dataset_type, infinite, _caption_options=_caption_options)
 
     if _has_data_caption_file_pairs(root, remote=False):
         if dataset_type == "image":
@@ -898,8 +910,8 @@ def _initialize_hub_dataset(
     elif _has_data_file_caption_file_lists(repo_file_list, remote=True):
         return _initialize_data_file_caption_file_dataset_from_hub(dataset_name, dataset_type, infinite)
 
-    has_tar_files = any(file.endswith(".tar") or file.endswith(".parquet") for file in repo_file_list)
-    if has_tar_files:
+    has_tar_or_parquet_files = any(file.endswith(".tar") or file.endswith(".parquet") for file in repo_file_list)
+    if has_tar_or_parquet_files:
         return _initialize_webdataset(dataset_name, dataset_type, infinite, _caption_options=_caption_options)
 
     # TODO(aryan): This should be improved

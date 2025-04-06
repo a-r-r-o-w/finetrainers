@@ -32,7 +32,7 @@ def load_lora_weights(
     state_dict = pipeline.lora_state_dict(pretrained_model_name_or_path)
     state_dict = {k[len(f"{prefix}.") :]: v for k, v in state_dict.items() if k.startswith(f"{prefix}.")}
 
-    file_list = find_files(pretrained_model_name_or_path, suffix=".safetensors")
+    file_list = find_files(pretrained_model_name_or_path, "*.safetensors", depth=1)
     if len(file_list) == 0:
         raise ValueError(f"No .safetensors files found in {pretrained_model_name_or_path}.")
     if len(file_list) > 1:
