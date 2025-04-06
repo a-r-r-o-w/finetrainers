@@ -1,5 +1,4 @@
 import os
-import random
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
@@ -318,7 +317,7 @@ class FluxModelSpecification(ModelSpecification):
         text_ids = latents.new_zeros(condition_model_conditions["encoder_hidden_states"].shape[1], 3)
 
         if self.transformer_config.guidance_embeds:
-            guidance_scale = random.uniform(1, 12)
+            guidance_scale = 1.0
             guidance = latents.new_full((1,), guidance_scale).expand(latents.shape[0])
         else:
             guidance = None
