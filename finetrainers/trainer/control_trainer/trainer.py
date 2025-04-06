@@ -22,6 +22,7 @@ from tqdm import tqdm
 
 from finetrainers import data, logging, optimizer, parallel, patches, utils
 from finetrainers.config import TrainingType
+from finetrainers.patches import load_lora_weights
 from finetrainers.state import State, TrainState
 
 from .data import IterableControlDataset, ValidationControlDataset
@@ -141,18 +142,11 @@ class ControlTrainer:
 
         transformer_lora_config = None
         if self.args.training_type == TrainingType.CONTROL_LORA:
-            target_modules = self.args.target_modules
-            if isinstance(target_modules, list):
-                target_modules = list(target_modules)  # Make a copy to avoid modifying args
-                target_modules.append(f"^{model_spec.control_injection_layer_name}$")
-            if isinstance(target_modules, str):
-                target_modules = f"(^{model_spec.control_injection_layer_name}$)|({target_modules})"
-
             transformer_lora_config = LoraConfig(
                 r=self.args.rank,
                 lora_alpha=self.args.lora_alpha,
                 init_lora_weights=True,
-                target_modules=target_modules,
+                target_modules=self._get_lora_target_modules(),
                 rank_pattern={
                     model_spec.control_injection_layer_name: model_spec._original_control_layer_out_features
                 },
@@ -350,8 +344,19 @@ class ControlTrainer:
                         }
                         if len(qk_norm_state_dict) == 0:
                             qk_norm_state_dict = None
+                    # fmt: off
+                    metadata = {
+                        "r": self.args.rank,
+                        "lora_alpha": self.args.lora_alpha,
+                        "init_lora_weights": True,
+                        "target_modules": self._get_lora_target_modules(),
+                        "rank_pattern": {self.model_specification.control_injection_layer_name: self.model_specification._original_control_layer_out_features},
+                        "alpha_pattern": {self.model_specification.control_injection_layer_name: self.model_specification._original_control_layer_out_features},
+                    }
+                    metadata = {"lora_config": json.dumps(metadata, indent=4)}
+                    # fmt: on
                     self.model_specification._save_lora_weights(
-                        self.args.output_dir, state_dict, qk_norm_state_dict, self.scheduler
+                        self.args.output_dir, state_dict, qk_norm_state_dict, self.scheduler, metadata
                     )
                 elif self.args.training_type == TrainingType.CONTROL_FULL_FINETUNE:
                     self.model_specification._save_model(
@@ -911,7 +916,7 @@ class ControlTrainer:
 
             # Load the LoRA weights if performing LoRA finetuning
             if self.args.training_type == TrainingType.CONTROL_LORA:
-                pipeline.load_lora_weights(self.args.output_dir)
+                load_lora_weights(pipeline, self.args.output_dir)
                 norm_state_dict_path = Path(self.args.output_dir) / "norm_state_dict.safetensors"
                 if self.args.train_qk_norm and norm_state_dict_path.exists():
                     norm_state_dict = safetensors.torch.load_file(norm_state_dict_path, parallel_backend.device)
@@ -1027,3 +1032,12 @@ class ControlTrainer:
 
         info.update({"diffusion_arguments": filtered_diffusion_args})
         return info
+
+    def _get_lora_target_modules(self):
+        target_modules = self.args.target_modules
+        if isinstance(target_modules, list):
+            target_modules = list(target_modules)  # Make a copy to avoid modifying args
+            target_modules.append(f"^{self.model_specification.control_injection_layer_name}$")
+        if isinstance(target_modules, str):
+            target_modules = f"(^{self.model_specification.control_injection_layer_name}$)|({target_modules})"
+        return target_modules

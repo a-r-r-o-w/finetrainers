@@ -199,6 +199,7 @@ class ModelSpecification:
         transformer: torch.nn.Module,
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
+        metadata: Optional[Dict[str, str]] = None,
     ) -> None:
         r"""
         Save the lora state dicts of the model to the given directory.
@@ -313,6 +314,7 @@ class ControlModelSpecification(ModelSpecification):
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         norm_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
+        metadata: Optional[Dict[str, str]] = None,
     ) -> None:
         r"""
         Save the lora state dicts of the model to the given directory.

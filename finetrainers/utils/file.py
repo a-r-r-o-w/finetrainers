@@ -1,4 +1,3 @@
-import os
 import shutil
 from pathlib import Path
 from typing import List, Union
@@ -9,15 +8,20 @@ from finetrainers.logging import get_logger
 logger = get_logger()
 
 
-def find_files(dir: Union[str, Path], prefix: str = "checkpoint") -> List[str]:
+def find_files(dir: Union[str, Path], prefix: str = None, suffix: str = None) -> List[str]:
     if not isinstance(dir, Path):
         dir = Path(dir)
-    if not dir.exists():
+    if not dir.is_dir():
         return []
-    checkpoints = os.listdir(dir.as_posix())
-    checkpoints = [c for c in checkpoints if c.startswith(prefix)]
-    checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
-    return checkpoints
+    files = []
+    for file in dir.rglob("*"):
+        if file.is_file():
+            if prefix is not None and not file.name.startswith(prefix):
+                continue
+            if suffix is not None and not file.name.endswith(suffix):
+                continue
+            files.append(file.as_posix())
+    return files
 
 
 def delete_files(dirs: Union[str, List[str], Path, List[Path]]) -> None:

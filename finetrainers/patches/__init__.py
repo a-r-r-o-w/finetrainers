@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING
 
+from .dependencies.diffusers.peft import load_lora_weights
+
 
 if TYPE_CHECKING:
     from finetrainers.args import BaseArgs

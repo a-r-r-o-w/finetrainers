@@ -1,3 +1,4 @@
+import functools
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -12,7 +13,7 @@ from ... import functional as FF
 from ...patches.dependencies.diffusers.control import control_channel_concat
 from ...processors import CogView4GLMProcessor, ProcessorMixin
 from ...typing import ArtifactType, SchedulerType
-from ...utils import get_non_null_items
+from ...utils import get_non_null_items, safetensors_torch_save_function
 from ..modeling_utils import ControlModelSpecification
 from ..utils import DiagonalGaussianDistribution, _expand_linear_with_zeroed_weights
 from .base_specification import CogView4LatentEncodeProcessor
@@ -347,12 +348,18 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         norm_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *args,
         **kwargs,
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
-            CogView4Pipeline.save_lora_weights(directory, transformer_state_dict, safe_serialization=True)
+            CogView4Pipeline.save_lora_weights(
+                directory,
+                transformer_state_dict,
+                save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
+                safe_serialization=True,
+            )
         if norm_state_dict is not None:
             safetensors.torch.save_file(norm_state_dict, os.path.join(directory, "norm_state_dict.safetensors"))
         if scheduler is not None:
