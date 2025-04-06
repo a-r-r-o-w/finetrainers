@@ -101,7 +101,9 @@ If you would like to use a custom dataset, refer to the dataset preparation guid
 
 Checkout some amazing projects citing `finetrainers`:
 - [Diffusion as Shader](https://github.com/IGL-HKUST/DiffusionAsShader)
-- [SkyworkAI's SkyReels-A1](https://github.com/SkyworkAI/SkyReels-A1)
+- [SkyworkAI's SkyReels-A1](https://github.com/SkyworkAI/SkyReels-A1) & [SkyReels-A2](https://github.com/SkyworkAI/SkyReels-A2)
+- [Aether](https://github.com/OpenRobotLab/Aether)
+- [MagicMotion](https://github.com/quanhaol/MagicMotion)
 - [eisneim's LTX Image-to-Video](https://github.com/eisneim/ltx_lora_training_i2v_t2v/)
 - [wileewang's TransPixar](https://github.com/wileewang/TransPixar)
 - [Feizc's Video-In-Context](https://github.com/feizc/Video-In-Context)
