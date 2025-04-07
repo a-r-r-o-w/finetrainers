@@ -5,7 +5,7 @@ import json
 import torch
 import torch._inductor.config
 import torch.distributed as dist
-from diffusers import CogView4Transformer2DModel
+from diffusers import FluxPipeline, FluxTransformer2DModel
 from torch._utils import _get_device_module
 from torch.distributed._symmetric_memory import enable_symm_mem_for_group
 from torch.distributed.tensor import DTensor, Replicate
@@ -17,11 +17,7 @@ from torch.distributed.tensor.parallel.style import (
     RowwiseParallel,
 )
 
-from finetrainers.patches.models.cogview4 import patch
 from finetrainers.utils import apply_activation_checkpointing
-
-
-patch.patch_cogview4_attn_processor_for_tp_compatibility()
 
 
 DEVICE_TYPE = "cuda"
@@ -124,17 +120,41 @@ def tp_parallelize(model, device_mesh, tp_plan):
                 ".net.2": RowwiseParallel(),
             }
             parallelize_module(block, device_mesh, block_tp_plan)
+        for block in model.single_transformer_blocks:
+            block_tp_plan = {
+                ".net.0": ColwiseParallel(),
+                ".net.2": RowwiseParallel(),
+            }
+            parallelize_module(block, device_mesh, block_tp_plan)
         parallelize_module(model, device_mesh, {})
 
     elif tp_plan == "ff_and_attn":
         for block in model.transformer_blocks:
             block_tp_plan = {
-                "attn1.to_q": ColwiseParallel(),
-                "attn1.to_k": ColwiseParallel(),
-                "attn1.to_v": ColwiseParallel(),
-                "attn1.to_out.0": RowwiseParallel(),
-                "ff.net.0.proj": ColwiseParallel(),
-                "ff.net.2": RowwiseParallel(),
+                "attn.to_q": ColwiseParallel(output_layouts=Replicate()),
+                "attn.to_k": ColwiseParallel(output_layouts=Replicate()),
+                "attn.to_v": ColwiseParallel(output_layouts=Replicate()),
+                "attn.add_q_proj": ColwiseParallel(output_layouts=Replicate()),
+                "attn.add_k_proj": ColwiseParallel(output_layouts=Replicate()),
+                "attn.add_v_proj": ColwiseParallel(output_layouts=Replicate()),
+                "attn.to_out.0": RowwiseParallel(input_layouts=Replicate()),
+                "attn.to_add_out.0": RowwiseParallel(input_layouts=Replicate()),
+                ".net.0.proj": ColwiseParallel(),
+                ".net.2": RowwiseParallel(),
+            }
+            parallelize_module(block, device_mesh, block_tp_plan)
+        for block in model.single_transformer_blocks:
+            block_tp_plan = {
+                "attn.to_q": ColwiseParallel(output_layouts=Replicate()),
+                "attn.to_k": ColwiseParallel(output_layouts=Replicate()),
+                "attn.to_v": ColwiseParallel(output_layouts=Replicate()),
+                "attn.add_q_proj": ColwiseParallel(output_layouts=Replicate()),
+                "attn.add_k_proj": ColwiseParallel(output_layouts=Replicate()),
+                "attn.add_v_proj": ColwiseParallel(output_layouts=Replicate()),
+                "attn.to_out.0": RowwiseParallel(input_layouts=Replicate()),
+                "attn.to_add_out.0": RowwiseParallel(input_layouts=Replicate()),
+                ".net.0.proj": ColwiseParallel(),
+                ".net.2": RowwiseParallel(),
             }
             parallelize_module(block, device_mesh, block_tp_plan)
         parallelize_module(model, device_mesh, {})
@@ -148,7 +168,18 @@ def run_benchmark(world_size: int, rank: int, args):
         enable_symm_mem_for_group(dist.group.WORLD.group_name)
 
     torch.manual_seed(0)
-    model = CogView4Transformer2DModel().to(DEVICE_TYPE)
+    config = {
+        "attention_head_dim": 128,
+        "guidance_embeds": True,
+        "in_channels": 64,
+        "joint_attention_dim": 4096,
+        "num_attention_heads": 24,
+        "num_layers": 19,
+        "num_single_layers": 38,
+        "patch_size": 1,
+        "pooled_projection_dim": 768,
+    }
+    model = FluxTransformer2DModel(**config).to(DEVICE_TYPE)
     model.to(dtype)
 
     model_tp = copy.deepcopy(model)
@@ -165,29 +196,38 @@ def run_benchmark(world_size: int, rank: int, args):
     caption_sequence_length = 256
 
     requires_grad = args.mode != "forward"
+    hidden_states = torch.randn(
+        batch_size,
+        model.config.in_channels // 4,
+        latent_height,
+        latent_width,
+        device=DEVICE_TYPE,
+        dtype=dtype,
+        requires_grad=requires_grad,
+    )
+    hidden_states = FluxPipeline._pack_latents(
+        hidden_states, batch_size, model.config.in_channels // 4, latent_height, latent_width
+    )
+    img_ids = FluxPipeline._prepare_latent_image_ids(
+        batch_size, latent_height // 2, latent_width // 2, device=DEVICE_TYPE, dtype=dtype
+    )
+    txt_ids = torch.zeros(caption_sequence_length, 3, device=DEVICE_TYPE, dtype=dtype)
     inputs = {
-        "hidden_states": torch.randn(
-            batch_size,
-            model.config.in_channels,
-            latent_height,
-            latent_width,
-            device=DEVICE_TYPE,
-            dtype=dtype,
-            requires_grad=requires_grad,
-        ),
+        "hidden_states": hidden_states,
         "encoder_hidden_states": torch.randn(
             batch_size, caption_sequence_length, 4096, device=DEVICE_TYPE, dtype=dtype, requires_grad=requires_grad
+        ),
+        "pooled_projections": torch.randn(
+            batch_size, 768, device=DEVICE_TYPE, dtype=dtype, requires_grad=requires_grad
         ),
         "timestep": torch.randint(
             0, 1000, (batch_size,), device=DEVICE_TYPE, dtype=torch.float32, requires_grad=requires_grad
         ),
-        "original_size": torch.tensor(
-            [[height, width]], device=DEVICE_TYPE, dtype=torch.float32, requires_grad=requires_grad
+        "img_ids": img_ids,
+        "txt_ids": txt_ids,
+        "guidance": torch.randint(
+            0, 1000, (batch_size,), device=DEVICE_TYPE, dtype=torch.float32, requires_grad=requires_grad
         ),
-        "target_size": torch.tensor(
-            [[height, width]], device=DEVICE_TYPE, dtype=torch.float32, requires_grad=requires_grad
-        ),
-        "crop_coords": torch.tensor([[0, 0]], device=DEVICE_TYPE, dtype=torch.float32, requires_grad=requires_grad),
         "return_dict": False,
     }
 
