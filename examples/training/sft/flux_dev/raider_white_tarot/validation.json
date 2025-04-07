@@ -1,0 +1,68 @@
+{
+  "data": [
+    {
+      "caption": "TRTCRD a trtcrd of a knight mounting a running horse wearing an armor and holding a staff, \"knight of wands\"",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 1280,
+      "width": 720
+    },
+    {
+      "caption": "TRTCRD a trtcrd of a woman sitting on a throne, wearing a crown and holding a trophee, \"queen of cups\"",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 1280,
+      "width": 720
+    },
+    {
+      "caption": "TRTCRD a trtcrd of a knight holding the cup while mounts on a stationary horse",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 1280,
+      "width": 720
+    },
+    {
+      "caption": "TRTCRD a trtcrd of a person in a red robe holding a scale and giving coins to two kneeling figures, surrounded by six pentacles",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 1280,
+      "width": 720
+    },
+    {
+      "caption": "TRTCRD a trtcrd of a knight holding the cup while mounts on a stationary horse",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 512,
+      "width": 512
+    },
+    {
+      "caption": "TRTCRD a trtcrd of a person in a red robe holding a scale and giving coins to two kneeling figures, surrounded by six pentacles",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 512,
+      "width": 512
+    },
+    {
+      "caption": "TRTCRD a trtcrd of a knight holding the cup while mounts on a stationary horse",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 768,
+      "width": 768
+    },
+    {
+      "caption": "TRTCRD a trtcrd of a person in a red robe holding a scale and giving coins to two kneeling figures, surrounded by six pentacles",
+      "image_path": null,
+      "video_path": null,
+      "num_inference_steps": 50,
+      "height": 768,
+      "width": 768
+    }
+  ]
+}
