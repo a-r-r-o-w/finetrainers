@@ -16,6 +16,10 @@ chmod +x ./examples/training/sft/flux_dev/raider_white_tarot/train.sh
 
 On Windows, you will have to modify the script to a compatible format to run it. [TODO(aryan): improve instructions for Windows]
 
+> [!NOTE]
+> Currently, only FLUX.1-dev is supported. It is a guidance-distilled model which directly predicts the outputs of its teacher model when the teacher is run with CFG. To match the output distribution of the distilled model with that of the teacher model, a guidance scale of 1.0 is hardcoded into the codebase. However, other values may work too but it is experimental.
+> FLUX.1-schnell is not supported for training yet. It is a timestep-distilled model. Matching its output distribution for training is significantly more difficult.
+
 ## Supported checkpoints
 
 The following checkpoints were tested with `finetrainers` and are known to be working:
