@@ -22,6 +22,7 @@ The following table shows the algorithms supported for training and the models t
 |:-----------------------------------------:|:---:|:-------:|:----------:|:------------:|
 | [CogVideoX](./cogvideox.md)               | 🤗 | 😡 | 😡 | 😡 |
 | [CogView4](./cogview4.md)                 | 🤗 | 😡 | 😡 | 😡 |
+| [Flux](./flux.md)                         | 🤗 | 😡 | 😡 | 😡 |
 | [HunyuanVideo](./hunyuan_video.md)        | 🤗 | 😡 | 😡 | 😡 |
 | [LTX-Video](./ltx_video.md)               | 🤗 | 😡 | 😡 | 😡 |
 | [Wan](./wan.md)                           | 🤗 | 😡 | 😡 | 😡 |
