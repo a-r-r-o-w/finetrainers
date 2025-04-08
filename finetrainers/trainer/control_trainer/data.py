@@ -102,10 +102,14 @@ class IterableControlDataset(torch.utils.data.IterableDataset, torch.distributed
                 )
             shallow_copy_data.update(result)
         if "control_output" in shallow_copy_data:
-            if is_image_control:
-                shallow_copy_data["control_image"] = shallow_copy_data.pop("control_output")
-            else:
-                shallow_copy_data["control_video"] = shallow_copy_data.pop("control_output")
+            # Normalize to [-1, 1] range
+            control_output = shallow_copy_data.pop("control_output")
+            x_min = control_output.min()
+            x_max = control_output.max()
+            if not torch.isclose(x_min, x_max).any():
+                control_output = 2 * (control_output - x_min) / (x_max - x_min) - 1
+            key = "control_image" if is_image_control else "control_video"
+            shallow_copy_data[key] = control_output
         return shallow_copy_data
 
 

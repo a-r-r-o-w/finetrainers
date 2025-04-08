@@ -62,8 +62,8 @@ class CannyProcessor(ProcessorMixin):
             elif ndim == 5:
                 input = input.flatten(0, 1)
 
-            breakpoint()
             output = kornia.filters.canny(input)[1].repeat(1, 3, 1, 1)
+            print("canny output:", input.shape, output.shape)
             output = output[0] if ndim == 3 else output.unflatten(0, (batch_size, -1))
 
         # TODO(aryan): think about how one can pass parameters to the underlying function from

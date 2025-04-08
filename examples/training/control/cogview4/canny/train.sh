@@ -19,8 +19,8 @@ NUM_GPUS=8
 CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
 
 # Check the JSON files for the expected JSON format
-TRAINING_DATASET_CONFIG="examples/training/control/cogview4/omni_edit/training.json"
-VALIDATION_DATASET_FILE="examples/training/control/cogview4/omni_edit/validation.json"
+TRAINING_DATASET_CONFIG="examples/training/control/cogview4/canny/training.json"
+VALIDATION_DATASET_FILE="examples/training/control/cogview4/canny/validation.json"
 
 # Depending on how many GPUs you have available, choose your degree of parallelism and technique!
 DDP_1="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 1 --tp_degree 1"
@@ -44,10 +44,10 @@ model_cmd=(
 
 # Control arguments
 control_cmd=(
-  --control_type custom
+  --control_type canny
   --rank 128
   --lora_alpha 128
-  --target_modules "transformer_blocks.*(to_q|to_k|to_v|to_out.0)"
+  --target_modules "transformer_blocks.*(to_q|to_k|to_v|to_out.0|ff.net.0.proj|ff.net.2)"
 )
 
 # Dataset arguments
@@ -106,7 +106,7 @@ validation_cmd=(
 # Miscellaneous arguments
 miscellaneous_cmd=(
   --tracker_name "finetrainers-cogview4-control"
-  --output_dir "/fsx/aryan/cogview4-control-lora"
+  --output_dir "/fsx/aryan/cogview4-control-lora-canny"
   --init_timeout 600
   --nccl_timeout 600
   --report_to "wandb"
