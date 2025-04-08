@@ -176,6 +176,9 @@ class SFTTrainer:
             # TODO(aryan): support other checkpointing types
             utils.apply_activation_checkpointing(self.transformer, checkpointing_type="full")
 
+        if "transformer" in self.args.compile_modules:
+            utils.apply_compile(self.transformer)
+
         # Enable DDP, FSDP or HSDP
         if parallel_backend.data_sharding_enabled:
             # TODO(aryan): remove this when supported
@@ -299,6 +302,7 @@ class SFTTrainer:
         parallel_backend = self.state.parallel_backend
 
         def save_model_hook(state_dict: Dict[str, Any]) -> None:
+            state_dict = utils.get_unwrapped_model_state_dict(state_dict)
             if parallel_backend.is_main_process:
                 if self.args.training_type == TrainingType.LORA:
                     state_dict = get_peft_model_state_dict(self.transformer, state_dict)

@@ -313,6 +313,7 @@ class BaseArgs:
         "^proj_out$",
         "norm",
     ]
+    compile_modules: List[str] = []
 
     # Dataset arguments
     dataset_config: str = None
@@ -416,6 +417,7 @@ class BaseArgs:
             "layerwise_upcasting_modules": self.layerwise_upcasting_modules,
             "layerwise_upcasting_storage_dtype": self.layerwise_upcasting_storage_dtype,
             "layerwise_upcasting_skip_modules_pattern": self.layerwise_upcasting_skip_modules_pattern,
+            "compile_modules": self.compile_modules,
         }
         model_arguments = get_non_null_items(model_arguments)
 
@@ -623,6 +625,7 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
         default=["patch_embed", "pos_embed", "x_embedder", "context_embedder", "^proj_in$", "^proj_out$", "norm"],
         nargs="+",
     )
+    parser.add_argument("--compile_modules", type=str, default=[], nargs="+", choices=["transformer"])
 
 
 def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
@@ -761,6 +764,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.layerwise_upcasting_modules = args.layerwise_upcasting_modules
     result_args.layerwise_upcasting_storage_dtype = _DTYPE_MAP[args.layerwise_upcasting_storage_dtype]
     result_args.layerwise_upcasting_skip_modules_pattern = args.layerwise_upcasting_skip_modules_pattern
+    result_args.compile_modules = args.compile_modules
 
     # Dataset arguments
     result_args.dataset_config = args.dataset_config
