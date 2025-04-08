@@ -1,4 +1,4 @@
-# CogView4
+# Flux
 
 ## Training
 
