@@ -1,12 +1,13 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import torch
 import torch.distributed.checkpoint.stateful
 from diffusers.video_processor import VideoProcessor
 
-from ... import functional as FF
-from ...logging import get_logger
-from ...processors import CannyProcessor
+from finetrainers import functional as FF
+from finetrainers.logging import get_logger
+from finetrainers.processors import CannyProcessor
+
 from .config import ControlType
 
 
@@ -22,7 +23,7 @@ class IterableControlDataset(torch.utils.data.IterableDataset, torch.distributed
 
         if control_type == ControlType.CANNY:
             self.control_processors = [
-                CannyProcessor(["control_output"], input_names={"image": "input", "video": "input"})
+                CannyProcessor(output_names=["control_output"], input_names={"image": "input", "video": "input"})
             ]
 
         logger.info("Initialized IterableControlDataset")
@@ -104,26 +105,26 @@ class IterableControlDataset(torch.utils.data.IterableDataset, torch.distributed
         if "control_output" in shallow_copy_data:
             # Normalize to [-1, 1] range
             control_output = shallow_copy_data.pop("control_output")
-            x_min = control_output.min()
-            x_max = control_output.max()
-            if not torch.isclose(x_min, x_max).any():
-                control_output = 2 * (control_output - x_min) / (x_max - x_min) - 1
+            control_output = FF.normalize(control_output, min=-1.0, max=1.0)
             key = "control_image" if is_image_control else "control_video"
             shallow_copy_data[key] = control_output
         return shallow_copy_data
 
 
 class ValidationControlDataset(torch.utils.data.IterableDataset):
-    def __init__(self, dataset: torch.utils.data.IterableDataset, control_type: str):
+    def __init__(
+        self, dataset: torch.utils.data.IterableDataset, control_type: str, device: Optional[torch.device] = None
+    ):
         super().__init__()
 
         self.dataset = dataset
         self.control_type = control_type
+        self.device = device
         self._video_processor = VideoProcessor()
 
         if control_type == ControlType.CANNY:
             self.control_processors = [
-                CannyProcessor(["control_output"], input_names={"image": "input", "video": "input"})
+                CannyProcessor(["control_output"], input_names={"image": "input", "video": "input"}, device=device)
             ]
 
         logger.info("Initialized ValidationControlDataset")
@@ -165,10 +166,15 @@ class ValidationControlDataset(torch.utils.data.IterableDataset):
         if "control_output" in shallow_copy_data:
             # Normalize to [-1, 1] range
             control_output = shallow_copy_data.pop("control_output")
-            x_min = control_output.min()
-            x_max = control_output.max()
-            if not torch.isclose(x_min, x_max).any():
-                control_output = 2 * (control_output - x_min) / (x_max - x_min) - 1
+            control_output = FF.normalize(control_output, min=-1.0, max=1.0)
+            ndim = control_output.ndim
+            assert 3 <= ndim <= 5, "Control output should be at least ndim=3 and less than or equal to ndim=5"
+            if ndim == 5:
+                control_output = self._video_processor.postprocess_video(control_output, output_type="pil")
+            else:
+                if ndim == 3:
+                    control_output = control_output.unsqueeze(0)
+                control_output = self._video_processor.postprocess(control_output, output_type="pil")[0]
             key = "control_image" if is_image_control else "control_video"
             shallow_copy_data[key] = control_output
         return shallow_copy_data

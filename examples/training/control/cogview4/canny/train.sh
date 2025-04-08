@@ -40,6 +40,7 @@ parallel_cmd=(
 model_cmd=(
   --model_name "cogview4"
   --pretrained_model_name_or_path "THUDM/CogView4-6B"
+  --compile_modules transformer
 )
 
 # Control arguments
@@ -76,8 +77,8 @@ training_cmd=(
   --train_steps 10000
   --gradient_accumulation_steps 1
   --gradient_checkpointing
-  --checkpointing_steps 1000
-  --checkpointing_limit 2
+  # --checkpointing_steps 1000
+  # --checkpointing_limit 2
   # --resume_from_checkpoint 3000
   --enable_slicing
   --enable_tiling
