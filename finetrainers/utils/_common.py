@@ -3,4 +3,5 @@ DIFFUSERS_TRANSFORMER_BLOCK_NAMES = [
     "single_transformer_blocks",
     "temporal_transformer_blocks",
     "blocks",
+    "layers",
 ]

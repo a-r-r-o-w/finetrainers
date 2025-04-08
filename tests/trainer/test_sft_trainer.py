@@ -261,6 +261,15 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.layerwise_upcasting_modules = ["transformer"]
         self._test_training(args)
 
+    @parameterized.expand([(True,)])
+    def test___compile___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 1
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        args.compile_modules = ["transformer"]
+        self._test_training(args)
+
     @parameterized.expand([(False,), (True,)])
     def test___dp_degree_1___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
@@ -284,6 +293,15 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.batch_size = 1
         args.enable_precomputation = enable_precomputation
         args.layerwise_upcasting_modules = ["transformer"]
+        self._test_training(args)
+
+    @parameterized.expand([(True,)])
+    def test___compile___dp_degree_2___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 2
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        args.compile_modules = ["transformer"]
         self._test_training(args)
 
     @parameterized.expand([(True,)])
@@ -344,6 +362,15 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         self._test_training(args)
 
     @parameterized.expand([(True,)])
+    def test___compile___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 1
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        args.compile_modules = ["transformer"]
+        self._test_training(args)
+
+    @parameterized.expand([(True,)])
     def test___dp_degree_1___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
@@ -357,6 +384,15 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.dp_degree = 2
         args.batch_size = 1
         args.enable_precomputation = enable_precomputation
+        self._test_training(args)
+
+    @parameterized.expand([(True,)])
+    def test___compile___dp_degree_2___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 2
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        args.compile_modules = ["transformer"]
         self._test_training(args)
 
     @parameterized.expand([(True,)])

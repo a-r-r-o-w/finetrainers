@@ -64,6 +64,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 
 ## News
 
+- 🔥 **2025-04-08**: `torch.compile` support added!
 - 🔥 **2025-04-06**: Flux support added!
 - 🔥 **2025-03-07**: CogView4 support added!
 - 🔥 **2025-03-03**: Wan T2V support added!
