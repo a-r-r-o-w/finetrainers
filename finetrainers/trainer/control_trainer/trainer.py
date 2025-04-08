@@ -204,6 +204,9 @@ class ControlTrainer:
             # TODO(aryan): support other checkpointing types
             utils.apply_activation_checkpointing(self.transformer, checkpointing_type="full")
 
+        if "transformer" in self.args.compile_modules:
+            utils.apply_compile(self.transformer)
+
         # Enable DDP, FSDP or HSDP
         if parallel_backend.data_sharding_enabled:
             # TODO(aryan): remove this when supported
@@ -331,6 +334,7 @@ class ControlTrainer:
             if parallel_backend.is_main_process:
                 if self.args.training_type == TrainingType.CONTROL_LORA:
                     state_dict = get_peft_model_state_dict(self.transformer, state_dict)
+                    state_dict = utils.get_unwrapped_model_state_dict(state_dict)
                     qk_norm_state_dict = None
                     if self.args.train_qk_norm:
                         qk_norm_state_dict = {
@@ -661,7 +665,7 @@ class ControlTrainer:
 
         dataset = data.ValidationDataset(self.args.validation_dataset_file)
         dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, local_rank, dp_world_size)
-        dataset = ValidationControlDataset(dataset, self.args.control_type)
+        dataset = ValidationControlDataset(dataset, self.args.control_type, parallel_backend.device)
         validation_dataloader = data.DPDataLoader(
             local_rank,
             dataset,

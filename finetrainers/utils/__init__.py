@@ -20,10 +20,12 @@ from .model import resolve_component_cls
 from .serialization import safetensors_torch_save_function
 from .torch import (
     align_device_and_dtype,
+    apply_compile,
     clip_grad_norm_,
     enable_determinism,
     expand_tensor_dims,
     get_device_info,
+    get_unwrapped_model_state_dict,
     set_requires_grad,
     synchronize_device,
 )
