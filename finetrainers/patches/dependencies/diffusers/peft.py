@@ -49,10 +49,13 @@ def load_lora_weights(
 
     lora_config = LoraConfig(**metadata)
     inject_adapter_in_model(lora_config, transformer, adapter_name=adapter_name, low_cpu_mem_usage=low_cpu_mem_usage)
-    set_peft_model_state_dict(
+    result = set_peft_model_state_dict(
         transformer,
         state_dict,
         adapter_name=adapter_name,
         ignore_mismatched_sizes=False,
         low_cpu_mem_usage=low_cpu_mem_usage,
+    )
+    logger.info(
+        f"Loaded LoRA weights from {pretrained_model_name_or_path} into {pipeline.__class__.__name__}. Result: {result}"
     )
