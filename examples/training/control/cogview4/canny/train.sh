@@ -14,9 +14,9 @@ export FINETRAINERS_LOG_LEVEL="INFO"
 # BACKEND="accelerate"
 BACKEND="ptd"
 
-# In this setting, I'm using 8 GPUs on a single node for training
-NUM_GPUS=8
-CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
+# In this setting, I'm using 1 GPU on 4-GPU node for training
+NUM_GPUS=1
+CUDA_VISIBLE_DEVICES="3"
 
 # Check the JSON files for the expected JSON format
 TRAINING_DATASET_CONFIG="examples/training/control/cogview4/canny/training.json"
@@ -33,7 +33,7 @@ HSDP_2_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 2 
 
 # Parallel arguments
 parallel_cmd=(
-  $DDP_8
+  $DDP_1
 )
 
 # Model arguments
@@ -77,7 +77,7 @@ training_cmd=(
   --gradient_accumulation_steps 1
   --gradient_checkpointing
   --checkpointing_steps 1000
-  --checkpointing_limit 5
+  --checkpointing_limit 2
   # --resume_from_checkpoint 3000
   --enable_slicing
   --enable_tiling
@@ -106,7 +106,7 @@ validation_cmd=(
 # Miscellaneous arguments
 miscellaneous_cmd=(
   --tracker_name "finetrainers-cogview4-control"
-  --output_dir "/fsx/aryan/cogview4-control-lora-canny"
+  --output_dir "/raid/aryan/cogview4-control-lora-canny"
   --init_timeout 600
   --nccl_timeout 600
   --report_to "wandb"
