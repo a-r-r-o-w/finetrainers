@@ -1,5 +1,4 @@
-import random
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from diffusers import DiffusionPipeline
@@ -9,9 +8,12 @@ from PIL.Image import Image
 from finetrainers.logging import get_logger
 from finetrainers.parallel import ParallelBackendEnum
 from finetrainers.processors import ProcessorMixin
-from finetrainers.typing import ArtifactType, FrameConditioningType, SchedulerType, TokenizerType
+from finetrainers.typing import ArtifactType, SchedulerType, TokenizerType
 from finetrainers.utils import resolve_component_cls
 
+
+if TYPE_CHECKING:
+    from finetrainers.trainer.control_trainer.config import FrameConditioningType
 
 logger = get_logger()
 
@@ -302,10 +304,10 @@ class ControlModelSpecification(ModelSpecification):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.frame_conditioning_type: FrameConditioningType = None
+        self.frame_conditioning_type: "FrameConditioningType" = None
         self.frame_conditioning_index: int = None
 
-    def _trainer_init(self, frame_conditioning_type: FrameConditioningType, frame_conditioning_index: int):
+    def _trainer_init(self, frame_conditioning_type: "FrameConditioningType", frame_conditioning_index: int):
         self.frame_conditioning_type = frame_conditioning_type
         self.frame_conditioning_index = frame_conditioning_index
 
@@ -380,62 +382,3 @@ class ControlModelSpecification(ModelSpecification):
         raise NotImplementedError(
             f"ControlModelSpecification::_qk_norm_identifiers is not implemented for {self.__class__.__name__}"
         )
-
-    @staticmethod
-    def _prepare_temporal_control_latents(
-        latents: torch.Tensor,
-        expected_num_frames: int,
-        dim: int,
-        frame_conditioning_type: FrameConditioningType,
-        frame_conditioning_index: Optional[int] = None,
-        generator: Optional[torch.Generator] = None,
-    ) -> torch.Tensor:
-        num_frames = latents.size(dim)
-
-        if frame_conditioning_type == FrameConditioningType.INDEX:
-            frame_index = min(frame_conditioning_index, num_frames - 1)
-            mask = torch.zeros_like(latents)
-            indexing = [slice(None)] * latents.ndim
-            indexing[dim] = frame_index
-            mask[tuple(indexing)] = 1
-            latents = latents * mask
-
-        elif frame_conditioning_type == FrameConditioningType.PREFIX:
-            frame_index = random.randint(1, num_frames)
-            mask = torch.zeros_like(latents)
-            indexing = [slice(None)] * latents.ndim
-            indexing[dim] = slice(0, frame_index)  # Keep frames 0 to frame_index-1
-            mask[tuple(indexing)] = 1
-            latents = latents * mask
-
-        elif frame_conditioning_type == FrameConditioningType.RANDOM:
-            num_samples = min(num_frames, expected_num_frames)
-            indices = torch.randperm(num_frames, generator=generator)[:num_samples]
-            mask = torch.zeros_like(latents)
-            for index in indices:
-                indexing = [slice(None)] * latents.ndim
-                indexing[dim] = index
-                mask[tuple(indexing)] = 1
-            latents = latents * mask
-
-        elif frame_conditioning_type == FrameConditioningType.SUFFIX:
-            # Select a random frame index and keep everything after it (including itself)
-            frame_index = random.randint(0, num_frames - 1)
-            mask = torch.zeros_like(latents)
-            indexing = [slice(None)] * latents.ndim
-            indexing[dim] = slice(frame_index, num_frames)  # Keep frames from frame_index onward
-            mask[tuple(indexing)] = 1
-            latents = latents * mask
-
-        if latents.size(dim) >= expected_num_frames:
-            slicing = [slice(None)] * latents.ndim
-            slicing[dim] = slice(expected_num_frames)
-            latents = latents[tuple(slicing)]
-        else:
-            pad_size = expected_num_frames - num_frames
-            pad_shape = list(latents.shape)
-            pad_shape[dim] = pad_size
-            padding = latents.new_zeros(pad_shape)
-            latents = torch.cat([latents, padding], dim=dim)
-
-        return latents

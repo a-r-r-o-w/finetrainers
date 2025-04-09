@@ -1,12 +1,32 @@
 import argparse
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Union
 
-from ...typing import ControlType, FrameConditioningType
-from ..config_utils import ConfigMixin
+from finetrainers.trainer.config_utils import ConfigMixin
 
 
 if TYPE_CHECKING:
     from ...args import BaseArgs
+
+
+class ControlType(str, Enum):
+    r"""
+    Enum class for the control types.
+    """
+
+    CANNY = "canny"
+    CUSTOM = "custom"
+
+
+class FrameConditioningType(str, Enum):
+    r"""
+    Enum class for the frame conditioning types.
+    """
+
+    INDEX = "index"
+    PREFIX = "prefix"
+    RANDOM = "random"
+    FIRST_AND_LAST = "first_and_last"
 
 
 class ControlLowRankConfig(ConfigMixin):

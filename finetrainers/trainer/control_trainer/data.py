@@ -1,14 +1,15 @@
+import random
 from typing import Any, Dict, Optional
 
 import torch
 import torch.distributed.checkpoint.stateful
 from diffusers.video_processor import VideoProcessor
 
-from finetrainers import functional as FF
+import finetrainers.functional as FF
 from finetrainers.logging import get_logger
 from finetrainers.processors import CannyProcessor
 
-from .config import ControlType
+from .config import ControlType, FrameConditioningType
 
 
 logger = get_logger()
@@ -178,3 +179,59 @@ class ValidationControlDataset(torch.utils.data.IterableDataset):
             key = "control_image" if is_image_control else "control_video"
             shallow_copy_data[key] = control_output
         return shallow_copy_data
+
+
+def apply_frame_conditioning_on_latents(
+    latents: torch.Tensor,
+    expected_num_frames: int,
+    frame_dim: int,
+    frame_conditioning_type: FrameConditioningType,
+    frame_conditioning_index: Optional[int] = None,
+    generator: Optional[torch.Generator] = None,
+) -> torch.Tensor:
+    num_frames = latents.size(frame_dim)
+    mask = torch.zeros_like(latents)
+
+    if frame_conditioning_type == FrameConditioningType.INDEX:
+        frame_index = min(frame_conditioning_index, num_frames - 1)
+        indexing = [slice(None)] * latents.ndim
+        indexing[frame_dim] = frame_index
+        mask[tuple(indexing)] = 1
+        latents = latents * mask
+
+    elif frame_conditioning_type == FrameConditioningType.PREFIX:
+        frame_index = random.randint(1, num_frames)
+        indexing = [slice(None)] * latents.ndim
+        indexing[frame_dim] = slice(0, frame_index)  # Keep frames 0 to frame_index-1
+        mask[tuple(indexing)] = 1
+        latents = latents * mask
+
+    elif frame_conditioning_type == FrameConditioningType.RANDOM:
+        num_samples = min(num_frames, expected_num_frames)
+        indices = torch.randperm(num_frames, generator=generator)[:num_samples]
+        for index in indices:
+            indexing = [slice(None)] * latents.ndim
+            indexing[frame_dim] = index
+            mask[tuple(indexing)] = 1
+        latents = latents * mask
+
+    elif frame_conditioning_type == FrameConditioningType.FIRST_AND_LAST:
+        indexing = [slice(None)] * latents.ndim
+        indexing[frame_dim] = 0
+        mask[tuple(indexing)] = 1
+        indexing[frame_dim] = num_frames - 1
+        mask[tuple(indexing)] = 1
+        latents = latents * mask
+
+    if latents.size(frame_dim) >= expected_num_frames:
+        slicing = [slice(None)] * latents.ndim
+        slicing[frame_dim] = slice(expected_num_frames)
+        latents = latents[tuple(slicing)]
+    else:
+        pad_size = expected_num_frames - num_frames
+        pad_shape = list(latents.shape)
+        pad_shape[frame_dim] = pad_size
+        padding = latents.new_zeros(pad_shape)
+        latents = torch.cat([latents, padding], dim=frame_dim)
+
+    return latents

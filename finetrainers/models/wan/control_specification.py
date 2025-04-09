@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import safetensors
 import torch
@@ -13,17 +13,21 @@ from diffusers import (
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from transformers import AutoModel, AutoTokenizer, UMT5EncoderModel
 
-from ... import data
-from ... import functional as FF
-from ...logging import get_logger
-from ...patches.dependencies.diffusers.control import control_channel_concat
-from ...processors import ProcessorMixin, T5Processor
-from ...typing import ArtifactType, FrameConditioningType, SchedulerType
-from ...utils import get_non_null_items
-from ..modeling_utils import ControlModelSpecification
-from ..utils import _expand_conv3d_with_zeroed_weights
+import finetrainers.functional as FF
+from finetrainers.data import VideoArtifact
+from finetrainers.logging import get_logger
+from finetrainers.models.modeling_utils import ControlModelSpecification
+from finetrainers.models.utils import _expand_conv3d_with_zeroed_weights
+from finetrainers.patches.dependencies.diffusers.control import control_channel_concat
+from finetrainers.processors import ProcessorMixin, T5Processor
+from finetrainers.typing import ArtifactType, SchedulerType
+from finetrainers.utils import get_non_null_items
+
 from .base_specification import WanLatentEncodeProcessor
 
+
+if TYPE_CHECKING:
+    from finetrainers.trainer.control_trainer.config import FrameConditioningType
 
 logger = get_logger()
 
@@ -246,6 +250,8 @@ class WanControlModelSpecification(ControlModelSpecification):
         compute_posterior: bool = True,
         **kwargs,
     ) -> Tuple[torch.Tensor, ...]:
+        from finetrainers.trainer.control_trainer.data import apply_frame_conditioning_on_latents
+
         compute_posterior = False  # See explanation in prepare_latents
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
@@ -278,10 +284,10 @@ class WanControlModelSpecification(ControlModelSpecification):
         timesteps = (sigmas.flatten() * 1000.0).long()
 
         noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
-        control_latents = self._prepare_temporal_control_latents(
+        control_latents = apply_frame_conditioning_on_latents(
             control_latents,
             noisy_latents.shape[2],
-            dim=2,
+            frame_dim=2,
             frame_conditioning_type=self.frame_conditioning_type,
             frame_conditioning_index=self.frame_conditioning_index,
             generator=generator,
@@ -311,7 +317,7 @@ class WanControlModelSpecification(ControlModelSpecification):
         num_frames: Optional[int] = None,
         num_inference_steps: int = 50,
         generator: Optional[torch.Generator] = None,
-        frame_conditioning_type: FrameConditioningType = FrameConditioningType.INDEX.value,
+        frame_conditioning_type: "FrameConditioningType" = "index",
         frame_conditioning_index: int = 0,
         **kwargs,
     ) -> List[ArtifactType]:
@@ -363,7 +369,7 @@ class WanControlModelSpecification(ControlModelSpecification):
         with control_channel_concat(pipeline.transformer, ["hidden_states"], [control_latents], dims=[1]):
             video = pipeline(**generation_kwargs).frames[0]
 
-        return [data.VideoArtifact(value=video)]
+        return [VideoArtifact(value=video)]
 
     def _save_lora_weights(
         self,
