@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from finetrainers.args import BaseArgs
     from finetrainers.models import ModelSpecification
 
-ArgsType = Union["BaseArgs", SFTLowRankConfig, SFTFullRankConfig]
+ArgsType = Union["BaseArgs", SFTFullRankConfig, SFTLowRankConfig]
 
 logger = logging.get_logger()
 
