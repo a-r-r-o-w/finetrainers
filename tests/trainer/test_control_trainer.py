@@ -13,7 +13,7 @@ from parameterized import parameterized
 from PIL import Image
 
 from finetrainers import BaseArgs, ControlTrainer, TrainingType, get_logger
-from finetrainers.typing import ControlType
+from finetrainers.trainer.control_trainer.config import ControlType
 
 
 os.environ["WANDB_MODE"] = "disabled"

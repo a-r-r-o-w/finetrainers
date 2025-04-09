@@ -4,6 +4,9 @@ TODO(aryan): everything here needs to be improved.
 
 ## `trainer/` fast tests
 
+- For SFT tests: `test_sft_trainer.py`
+- For Control tests: `test_control_trainer.py`
+
 Accelerate:
 
 ```

@@ -52,7 +52,7 @@ class DummyWanControlModelSpecification(WanControlModelSpecification):
             cross_attn_norm=True,
             qk_norm="rms_norm_across_heads",
             rope_max_seq_len=32,
-        )
+        ).to(self.transformer_dtype)
 
         transformer.patch_embedding = _expand_conv3d_with_zeroed_weights(
             transformer.patch_embedding, new_in_channels=new_in_features
