@@ -331,10 +331,10 @@ class ControlTrainer:
         parallel_backend = self.state.parallel_backend
 
         def save_model_hook(state_dict: Dict[str, Any]) -> None:
+            state_dict = utils.get_unwrapped_model_state_dict(state_dict)
             if parallel_backend.is_main_process:
                 if self.args.training_type == TrainingType.CONTROL_LORA:
                     state_dict = get_peft_model_state_dict(self.transformer, state_dict)
-                    state_dict = utils.get_unwrapped_model_state_dict(state_dict)
                     qk_norm_state_dict = None
                     if self.args.train_qk_norm:
                         qk_norm_state_dict = {

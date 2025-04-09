@@ -296,8 +296,8 @@ class SFTTrainer:
         parallel_backend = self.state.parallel_backend
 
         def save_model_hook(state_dict: Dict[str, Any]) -> None:
+            state_dict = utils.get_unwrapped_model_state_dict(state_dict)
             if parallel_backend.is_main_process:
-                state_dict = utils.get_unwrapped_model_state_dict(state_dict)
                 if self.args.training_type == TrainingType.LORA:
                     state_dict = get_peft_model_state_dict(self.transformer, state_dict)
                     # fmt: off
