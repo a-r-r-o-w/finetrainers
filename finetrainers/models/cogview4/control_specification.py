@@ -8,14 +8,15 @@ from accelerate import init_empty_weights
 from diffusers import AutoencoderKL, CogView4Pipeline, CogView4Transformer2DModel, FlowMatchEulerDiscreteScheduler
 from transformers import AutoTokenizer, GlmModel
 
-from ... import data
-from ... import functional as FF
-from ...patches.dependencies.diffusers.control import control_channel_concat
-from ...processors import CogView4GLMProcessor, ProcessorMixin
-from ...typing import ArtifactType, SchedulerType
-from ...utils import get_non_null_items, safetensors_torch_save_function
-from ..modeling_utils import ControlModelSpecification
-from ..utils import DiagonalGaussianDistribution, _expand_linear_with_zeroed_weights
+import finetrainers.functional as FF
+from finetrainers.data import ImageArtifact
+from finetrainers.models.modeling_utils import ControlModelSpecification
+from finetrainers.models.utils import DiagonalGaussianDistribution, _expand_linear_with_zeroed_weights
+from finetrainers.patches.dependencies.diffusers.control import control_channel_concat
+from finetrainers.processors import CogView4GLMProcessor, ProcessorMixin
+from finetrainers.typing import ArtifactType, SchedulerType
+from finetrainers.utils import get_non_null_items, safetensors_torch_save_function
+
 from .base_specification import CogView4LatentEncodeProcessor
 
 
@@ -340,7 +341,7 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
         with control_channel_concat(pipeline.transformer, ["hidden_states"], [control_latents], dims=[1]):
             image = pipeline(**generation_kwargs).images[0]
 
-        return [data.ImageArtifact(value=image)]
+        return [ImageArtifact(value=image)]
 
     def _save_lora_weights(
         self,

@@ -10,6 +10,14 @@ export NCCL_IB_DISABLE=1
 export TORCH_NCCL_ENABLE_MONITORING=0
 export FINETRAINERS_LOG_LEVEL="INFO"
 
+# Download the validation dataset
+if [ ! -d "validation_dataset" ]; then
+  echo "Downloading validation dataset..."
+  huggingface-cli download --repo-type dataset finetrainers/Canny-image-validation-dataset --local-dir validation_dataset
+else
+  echo "Validation dataset already exists. Skipping download."
+fi
+
 # Finetrainers supports multiple backends for distributed training. Select your favourite and benchmark the differences!
 # BACKEND="accelerate"
 BACKEND="ptd"

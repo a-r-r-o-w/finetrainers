@@ -1,3 +1,4 @@
+import functools
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -13,7 +14,7 @@ from finetrainers.logging import get_logger
 from finetrainers.models.modeling_utils import ModelSpecification
 from finetrainers.processors import CLIPPooledProcessor, ProcessorMixin, T5Processor
 from finetrainers.typing import ArtifactType, SchedulerType
-from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items
+from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items, safetensors_torch_save_function
 
 
 logger = get_logger()
@@ -378,12 +379,18 @@ class FluxModelSpecification(ModelSpecification):
         directory: str,
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *args,
         **kwargs,
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
-            FluxPipeline.save_lora_weights(directory, transformer_state_dict, safe_serialization=True)
+            FluxPipeline.save_lora_weights(
+                directory,
+                transformer_state_dict,
+                save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
+                safe_serialization=True,
+            )
         if scheduler is not None:
             scheduler.save_pretrained(os.path.join(directory, "scheduler"))
 

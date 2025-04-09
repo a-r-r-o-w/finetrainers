@@ -296,11 +296,22 @@ class SFTTrainer:
         parallel_backend = self.state.parallel_backend
 
         def save_model_hook(state_dict: Dict[str, Any]) -> None:
-            state_dict = utils.get_unwrapped_model_state_dict(state_dict)
             if parallel_backend.is_main_process:
+                state_dict = utils.get_unwrapped_model_state_dict(state_dict)
                 if self.args.training_type == TrainingType.LORA:
                     state_dict = get_peft_model_state_dict(self.transformer, state_dict)
-                    self.model_specification._save_lora_weights(self.args.output_dir, state_dict, self.scheduler)
+                    # fmt: off
+                    metadata = {
+                        "r": self.args.rank,
+                        "lora_alpha": self.args.lora_alpha,
+                        "init_lora_weights": True,
+                        "target_modules": self.args.target_modules,
+                    }
+                    metadata = {"lora_config": json.dumps(metadata, indent=4)}
+                    # fmt: on
+                    self.model_specification._save_lora_weights(
+                        self.args.output_dir, state_dict, self.scheduler, metadata
+                    )
                 elif self.args.training_type == TrainingType.FULL_FINETUNE:
                     self.model_specification._save_model(
                         self.args.output_dir, self.transformer, state_dict, self.scheduler
