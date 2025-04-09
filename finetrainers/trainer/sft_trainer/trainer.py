@@ -18,15 +18,16 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
-from ... import data, logging, optimizer, parallel, patches, utils
-from ...config import TrainingType
-from ...state import State, TrainState
+from finetrainers import data, logging, optimizer, parallel, patches, utils
+from finetrainers.config import TrainingType
+from finetrainers.state import State, TrainState
+
 from .config import SFTFullRankConfig, SFTLowRankConfig
 
 
 if TYPE_CHECKING:
-    from ...args import BaseArgs
-    from ...models import ModelSpecification
+    from finetrainers.args import BaseArgs
+    from finetrainers.models import ModelSpecification
 
 ArgsType = Union["BaseArgs", SFTFullRankConfig, SFTLowRankConfig]
 
@@ -172,6 +173,9 @@ class SFTTrainer:
             # TODO(aryan): support other checkpointing types
             utils.apply_activation_checkpointing(self.transformer, checkpointing_type="full")
 
+        if "transformer" in self.args.compile_modules:
+            utils.apply_compile(self.transformer)
+
         # Enable DDP, FSDP or HSDP
         if parallel_backend.data_sharding_enabled:
             # TODO(aryan): remove this when supported
@@ -295,10 +299,22 @@ class SFTTrainer:
         parallel_backend = self.state.parallel_backend
 
         def save_model_hook(state_dict: Dict[str, Any]) -> None:
+            state_dict = utils.get_unwrapped_model_state_dict(state_dict)
             if parallel_backend.is_main_process:
                 if self.args.training_type == TrainingType.LORA:
                     state_dict = get_peft_model_state_dict(self.transformer, state_dict)
-                    self.model_specification._save_lora_weights(self.args.output_dir, state_dict, self.scheduler)
+                    # fmt: off
+                    metadata = {
+                        "r": self.args.rank,
+                        "lora_alpha": self.args.lora_alpha,
+                        "init_lora_weights": True,
+                        "target_modules": self.args.target_modules,
+                    }
+                    metadata = {"lora_config": json.dumps(metadata, indent=4)}
+                    # fmt: on
+                    self.model_specification._save_lora_weights(
+                        self.args.output_dir, state_dict, self.scheduler, metadata
+                    )
                 elif self.args.training_type == TrainingType.FULL_FINETUNE:
                     self.model_specification._save_model(
                         self.args.output_dir, self.transformer, state_dict, self.scheduler

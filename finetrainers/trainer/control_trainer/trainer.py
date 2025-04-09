@@ -22,18 +22,21 @@ from tqdm import tqdm
 
 from finetrainers.parallel.ptd import PTDCheckpointer
 
-from ... import data, logging, optimizer, parallel, patches, utils
-from ...config import TrainingType
-from ...state import State, TrainState
+
+from finetrainers import data, logging, optimizer, parallel, patches, utils
+from finetrainers.config import TrainingType
+from finetrainers.patches import load_lora_weights
+from finetrainers.state import State, TrainState
+
 from .config import ControlFullRankConfig, ControlLowRankConfig
 from .data import IterableControlDataset, ValidationControlDataset
 
 
 if TYPE_CHECKING:
-    from ...args import BaseArgs
-    from ...models import ControlModelSpecification
+    from finetrainers.args import BaseArgs
+    from finetrainers.models import ControlModelSpecification
 
-ArgsType = Union["BaseArgs", ControlLowRankConfig, ControlFullRankConfig]
+ArgsType = Union["BaseArgs", ControlFullRankConfig, ControlLowRankConfig]
 
 logger = logging.get_logger()
 
@@ -146,18 +149,11 @@ class ControlTrainer:
 
         transformer_lora_config = None
         if self.args.training_type == TrainingType.CONTROL_LORA:
-            target_modules = self.args.target_modules
-            if isinstance(target_modules, list):
-                target_modules = list(target_modules)  # Make a copy to avoid modifying args
-                target_modules.append(f"^{model_spec.control_injection_layer_name}$")
-            if isinstance(target_modules, str):
-                target_modules = f"(^{model_spec.control_injection_layer_name}$)|({target_modules})"
-
             transformer_lora_config = LoraConfig(
                 r=self.args.rank,
                 lora_alpha=self.args.lora_alpha,
                 init_lora_weights=True,
-                target_modules=target_modules,
+                target_modules=self._get_lora_target_modules(),
                 rank_pattern={
                     model_spec.control_injection_layer_name: model_spec._original_control_layer_out_features
                 },
@@ -195,7 +191,6 @@ class ControlTrainer:
     def _prepare_for_training(self) -> None:
         # 1. Apply parallelism
         parallel_backend = self.state.parallel_backend
-        world_mesh = parallel_backend.get_mesh()
         model_specification = self.model_specification
 
         if parallel_backend.context_parallel_enabled:
@@ -216,6 +211,9 @@ class ControlTrainer:
             # TODO(aryan): support other checkpointing types
             utils.apply_activation_checkpointing(self.transformer, checkpointing_type="full")
 
+        if "transformer" in self.args.compile_modules:
+            utils.apply_compile(self.transformer)
+
         # Enable DDP, FSDP or HSDP
         if parallel_backend.data_sharding_enabled:
             # TODO(aryan): remove this when supported
@@ -233,9 +231,9 @@ class ControlTrainer:
             else:
                 dp_mesh_names = ("dp_shard_cp",)
 
-            parallel.apply_fsdp2_ptd(
+            parallel_backend.apply_fsdp2(
                 model=self.transformer,
-                dp_mesh=world_mesh[dp_mesh_names],
+                dp_mesh=parallel_backend.get_mesh()[dp_mesh_names],
                 param_dtype=self.args.transformer_dtype,
                 reduce_dtype=torch.float32,
                 output_dtype=None,
@@ -245,10 +243,12 @@ class ControlTrainer:
         elif parallel_backend.data_replication_enabled:
             logger.info("Applying DDP to the model")
 
-            if world_mesh.ndim > 1:
+            if parallel_backend.get_mesh().ndim > 1:
                 raise ValueError("DDP not supported for > 1D parallelism")
 
-            parallel_backend.apply_ddp(self.transformer, world_mesh)
+            parallel_backend.apply_ddp(self.transformer, parallel_backend.get_mesh())
+        else:
+            parallel_backend.prepare_model(self.transformer)
 
         self._move_components_to_device()
 
@@ -337,7 +337,8 @@ class ControlTrainer:
     def _prepare_checkpointing(self) -> None:
         parallel_backend = self.state.parallel_backend
 
-        def save_model_hook(state_dict: Dict[str, torch.Tensor]) -> None:
+        def save_model_hook(state_dict: Dict[str, Any]) -> None:
+            state_dict = utils.get_unwrapped_model_state_dict(state_dict)
             if parallel_backend.is_main_process:
                 if self.args.training_type == TrainingType.CONTROL_LORA:
                     state_dict = get_peft_model_state_dict(self.transformer, state_dict)
@@ -354,8 +355,19 @@ class ControlTrainer:
                         }
                         if len(qk_norm_state_dict) == 0:
                             qk_norm_state_dict = None
+                    # fmt: off
+                    metadata = {
+                        "r": self.args.rank,
+                        "lora_alpha": self.args.lora_alpha,
+                        "init_lora_weights": True,
+                        "target_modules": self._get_lora_target_modules(),
+                        "rank_pattern": {self.model_specification.control_injection_layer_name: self.model_specification._original_control_layer_out_features},
+                        "alpha_pattern": {self.model_specification.control_injection_layer_name: self.model_specification._original_control_layer_out_features},
+                    }
+                    metadata = {"lora_config": json.dumps(metadata, indent=4)}
+                    # fmt: on
                     self.model_specification._save_lora_weights(
-                        self.args.output_dir, state_dict, qk_norm_state_dict, self.scheduler
+                        self.args.output_dir, state_dict, qk_norm_state_dict, self.scheduler, metadata
                     )
                 elif self.args.training_type == TrainingType.CONTROL_FULL_FINETUNE:
                     self.model_specification._save_model(
@@ -492,6 +504,7 @@ class ControlTrainer:
             train_state.observed_data_samples += self.args.batch_size * parallel_backend._dp_degree
 
             lmc_latents = latent_model_conditions["latents"]
+            # TODO(aryan): observed_num_tokens this needs to be allreduced
             train_state.observed_num_tokens += math.prod(lmc_latents.shape[:-1]) // patch_size
 
             logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
@@ -646,7 +659,11 @@ class ControlTrainer:
 
         # 1. Load validation dataset
         parallel_backend = self.state.parallel_backend
-        dp_mesh = parallel_backend.get_mesh("dp_replicate")
+
+        # Hack to make accelerate work. TODO(aryan): refactor
+        dp_mesh = None
+        if parallel_backend.world_size > 1:
+            dp_mesh = parallel_backend.get_mesh("dp_replicate")
 
         if dp_mesh is not None:
             local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
@@ -655,7 +672,7 @@ class ControlTrainer:
 
         dataset = data.ValidationDataset(self.args.validation_dataset_file)
         dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, local_rank, dp_world_size)
-        dataset = ValidationControlDataset(dataset, self.args.control_type)
+        dataset = ValidationControlDataset(dataset, self.args.control_type, parallel_backend.device)
         validation_dataloader = data.DPDataLoader(
             local_rank,
             dataset,
@@ -746,19 +763,25 @@ class ControlTrainer:
         # 3. Cleanup & log artifacts
         parallel_backend.wait_for_everyone()
 
-        # Remove all hooks that might have been added during pipeline initialization to the models
-        pipeline.remove_all_hooks()
-        del pipeline
-
-        utils.free_memory()
         memory_statistics = utils.get_memory_statistics()
         logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
+
+        # Remove all hooks that might have been added during pipeline initialization to the models
+        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "vae"]
+        pipeline.remove_all_hooks()
+        del pipeline
+        if self.args.enable_precomputation:
+            self._delete_components(module_names)
         torch.cuda.reset_peak_memory_stats(parallel_backend.device)
 
         # Gather artifacts from all processes. We also need to flatten them since each process returns a list of artifacts.
         # TODO(aryan): probably should only all gather from dp mesh process group
         all_artifacts = [None] * parallel_backend.world_size
-        torch.distributed.all_gather_object(all_artifacts, all_processes_artifacts)
+        if parallel_backend.world_size > 1:
+            torch.distributed.all_gather_object(all_artifacts, all_processes_artifacts)
+        else:
+            # TODO(aryan): workaround for accelerate for now, but refactor
+            all_artifacts = [all_processes_artifacts]
         all_artifacts = [artifact for artifacts in all_artifacts for artifact in artifacts]
 
         if parallel_backend.is_main_process:
@@ -789,8 +812,7 @@ class ControlTrainer:
         raise NotImplementedError("Evaluation has not been implemented yet.")
 
     def _init_distributed(self) -> None:
-        # TODO: Accelerate disables native_amp for MPS. Probably need to do the same with implementation.
-        world_size = int(os.environ["WORLD_SIZE"])
+        world_size = int(os.environ.get("WORLD_SIZE", torch.cuda.device_count()))
 
         # TODO(aryan): handle other backends
         backend_cls: parallel.ParallelBackendType = parallel.get_parallel_backend_cls(self.args.parallel_backend)
@@ -809,8 +831,7 @@ class ControlTrainer:
         )
 
         if self.args.seed is not None:
-            world_mesh = self.state.parallel_backend.get_mesh()
-            utils.enable_determinism(self.args.seed, world_mesh)
+            self.state.parallel_backend.enable_determinism(self.args.seed)
 
     def _init_logging(self) -> None:
         logging._set_parallel_backend(self.state.parallel_backend)
@@ -819,7 +840,7 @@ class ControlTrainer:
 
     def _init_trackers(self) -> None:
         # TODO(aryan): handle multiple trackers
-        trackers = ["wandb"]
+        trackers = [self.args.report_to]
         experiment_name = self.args.tracker_name or "finetrainers-experiment"
         self.state.parallel_backend.initialize_trackers(
             trackers, experiment_name=experiment_name, config=self._get_training_info(), log_dir=self.args.logging_dir
@@ -906,7 +927,7 @@ class ControlTrainer:
 
             # Load the LoRA weights if performing LoRA finetuning
             if self.args.training_type == TrainingType.CONTROL_LORA:
-                pipeline.load_lora_weights(self.args.output_dir)
+                load_lora_weights(pipeline, self.args.output_dir)
                 norm_state_dict_path = Path(self.args.output_dir) / "norm_state_dict.safetensors"
                 if self.args.train_qk_norm and norm_state_dict_path.exists():
                     norm_state_dict = safetensors.torch.load_file(norm_state_dict_path, parallel_backend.device)
@@ -914,7 +935,8 @@ class ControlTrainer:
 
         components = {module_name: getattr(pipeline, module_name, None) for module_name in module_names}
         self._set_components(components)
-        self._move_components_to_device(list(components.values()))
+        if not self.args.enable_model_cpu_offload:
+            self._move_components_to_device(list(components.values()))
         return pipeline
 
     def _prepare_data(
@@ -956,18 +978,6 @@ class ControlTrainer:
             self._are_condition_models_loaded = True
         else:
             logger.info("Precomputed condition & latent data exhausted. Loading & preprocessing new data.")
-
-            # TODO(aryan): This needs to be revisited. For some reason, the tests did not detect that self.transformer
-            # had become None after this but should have been loaded back from the checkpoint.
-            # parallel_backend = self.state.parallel_backend
-            # train_state = self.state.train_state
-            # self.checkpointer.save(
-            #     train_state.step,
-            #     force=True,
-            #     _device=parallel_backend.device,
-            #     _is_main_process=parallel_backend.is_main_process,
-            # )
-            # self._delete_components(component_names=["transformer", "unet"])
 
             parallel_backend = self.state.parallel_backend
             if parallel_backend.world_size == 1:
@@ -1015,8 +1025,6 @@ class ControlTrainer:
             self._delete_components(component_names)
             del latent_components, component_names, component_modules
 
-            # self.checkpointer.load()
-            # self.transformer = self.checkpointer.states["model"].model[0]
             if parallel_backend.world_size == 1:
                 self._move_components_to_device([self.transformer])
 
@@ -1035,3 +1043,12 @@ class ControlTrainer:
 
         info.update({"diffusion_arguments": filtered_diffusion_args})
         return info
+
+    def _get_lora_target_modules(self):
+        target_modules = self.args.target_modules
+        if isinstance(target_modules, list):
+            target_modules = list(target_modules)  # Make a copy to avoid modifying args
+            target_modules.append(f"^{self.model_specification.control_injection_layer_name}$")
+        if isinstance(target_modules, str):
+            target_modules = f"(^{self.model_specification.control_injection_layer_name}$)|({target_modules})"
+        return target_modules

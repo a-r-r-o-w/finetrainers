@@ -16,6 +16,7 @@ Finetrainers is a work-in-progress library to support (accessible) training of d
 ## Table of Contents
 
 - [Quickstart](#quickstart)
+- [Features](#features)
 - [News](#news)
 - [Support Matrix](#support-matrix)
 - [Featured Projects](#featured-projects-)
@@ -25,14 +26,14 @@ Finetrainers is a work-in-progress library to support (accessible) training of d
 
 Clone the repository and make sure the requirements are installed: `pip install -r requirements.txt` and install `diffusers` from source by `pip install git+https://github.com/huggingface/diffusers`. The requirements specify `diffusers>=0.32.1`, but it is always recommended to use the `main` branch of Diffusers for the latest features and bugfixes. Note that the `main` branch for `finetrainers` is also the development branch, and stable support should be expected from the release tags.
 
-Checkout to the latest release tag:
+Checkout to the latest stable release tag:
 
 ```bash
 git fetch --all --tags
-git checkout tags/v0.0.1
+git checkout tags/v0.1.0
 ```
 
-Follow the instructions mentioned in the [README](https://github.com/a-r-r-o-w/finetrainers/tree/v0.0.1) for the latest stable release.
+Follow the instructions mentioned in the [README](https://github.com/a-r-r-o-w/finetrainers/tree/v0.1.0) for the latest stable release.
 
 #### Using the main branch
 
@@ -51,8 +52,20 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 > [!IMPORTANT] 
 > It is recommended to use Pytorch 2.5.1 or above for training. Previous versions can lead to completely black videos, OOM errors, or other issues and are not tested. For fully reproducible training, please use the same environment as mentioned in [environment.md](./docs/environment.md).
 
+## Features
+
+- DDP, FSDP-2 & HSDP support for all models with low-rank and full-rank training
+- Memory-efficient single-GPU training
+- Auto-detection of commonly used dataset formats
+- Combined image/video datasets, multiple chainable local/remote datasets, multi-resolution bucketing & more
+- Memory-efficient precomputation support with/without on-the-fly precomputation for large scale datasets
+- Standardized model specification format for training arbitrary models
+- Fake FP8 training (QAT upcoming!)
+
 ## News
 
+- 🔥 **2025-04-08**: `torch.compile` support added!
+- 🔥 **2025-04-06**: Flux support added!
 - 🔥 **2025-03-07**: CogView4 support added!
 - 🔥 **2025-03-03**: Wan T2V support added!
 - 🔥 **2025-03-03**: We have shipped a complete refactor to support multi-backend distributed training, better precomputation handling for big datasets, model specification format (externally usable for training custom models), FSDP & more.
@@ -78,6 +91,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 | [CogVideoX-5b](./docs/models/cogvideox.md)     | Text-to-Video | 18 GB                              | 53 GB                                         |
 | [Wan](./docs/models/wan.md)                    | Text-to-Video | TODO                               | TODO                                          |
 | [CogView4](./docs/models/cogview4.md)          | Text-to-Image | TODO                               | TODO                                          |
+| [Flux](./docs/models/flux.md)                  | Text-to-Image | TODO                               | TODO                                          |
 
 </div>
 
@@ -90,7 +104,9 @@ If you would like to use a custom dataset, refer to the dataset preparation guid
 
 Checkout some amazing projects citing `finetrainers`:
 - [Diffusion as Shader](https://github.com/IGL-HKUST/DiffusionAsShader)
-- [SkyworkAI's SkyReels-A1](https://github.com/SkyworkAI/SkyReels-A1)
+- [SkyworkAI's SkyReels-A1](https://github.com/SkyworkAI/SkyReels-A1) & [SkyReels-A2](https://github.com/SkyworkAI/SkyReels-A2)
+- [Aether](https://github.com/OpenRobotLab/Aether)
+- [MagicMotion](https://github.com/quanhaol/MagicMotion)
 - [eisneim's LTX Image-to-Video](https://github.com/eisneim/ltx_lora_training_i2v_t2v/)
 - [wileewang's TransPixar](https://github.com/wileewang/TransPixar)
 - [Feizc's Video-In-Context](https://github.com/feizc/Video-In-Context)
