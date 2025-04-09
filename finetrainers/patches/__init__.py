@@ -1,14 +1,16 @@
 from typing import TYPE_CHECKING
 
+from .dependencies.diffusers.peft import load_lora_weights
+
 
 if TYPE_CHECKING:
-    from ..args import BaseArgs
-    from ..parallel import ParallelBackendType
+    from finetrainers.args import BaseArgs
+    from finetrainers.parallel import ParallelBackendType
 
 
 def perform_patches_for_training(args: "BaseArgs", parallel_backend: "ParallelBackendType") -> None:
     # To avoid circular imports
-    from ..config import ModelType, TrainingType
+    from finetrainers.config import ModelType, TrainingType
     from .dependencies.diffusers import patch
 
     patch.patch_diffusers_rms_norm_forward()

@@ -1,15 +1,8 @@
-import pathlib
-import sys
-
 import torch
 from diffusers import AutoencoderKL, CogView4Transformer2DModel, FlowMatchEulerDiscreteScheduler
 from transformers import AutoTokenizer, GlmModel
 
-
-project_root = pathlib.Path(__file__).resolve().parents[2]
-sys.path.append(str(project_root))
-
-from finetrainers.models.cogview4 import CogView4ModelSpecification  # noqa
+from finetrainers.models.cogview4 import CogView4ModelSpecification
 
 
 class DummyCogView4ModelSpecification(CogView4ModelSpecification):

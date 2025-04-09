@@ -4,7 +4,7 @@ from typing import Any, Union
 import torch
 from accelerate.logging import get_logger
 
-from ..constants import PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME
+from finetrainers.constants import PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME
 
 
 logger = get_logger("finetrainers")

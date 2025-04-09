@@ -1,3 +1,4 @@
+import functools
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -12,13 +13,13 @@ from diffusers import (
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from transformers import AutoModel, AutoTokenizer, UMT5EncoderModel
 
-from ... import data
-from ... import functional as FF
-from ...logging import get_logger
-from ...processors import ProcessorMixin, T5Processor
-from ...typing import ArtifactType, SchedulerType
-from ...utils import get_non_null_items
-from ..modeling_utils import ModelSpecification
+import finetrainers.functional as FF
+from finetrainers.data import VideoArtifact
+from finetrainers.logging import get_logger
+from finetrainers.models.modeling_utils import ModelSpecification
+from finetrainers.processors import ProcessorMixin, T5Processor
+from finetrainers.typing import ArtifactType, SchedulerType
+from finetrainers.utils import get_non_null_items, safetensors_torch_save_function
 
 
 logger = get_logger()
@@ -328,19 +329,25 @@ class WanModelSpecification(ModelSpecification):
         }
         generation_kwargs = get_non_null_items(generation_kwargs)
         video = pipeline(**generation_kwargs).frames[0]
-        return [data.VideoArtifact(value=video)]
+        return [VideoArtifact(value=video)]
 
     def _save_lora_weights(
         self,
         directory: str,
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *args,
         **kwargs,
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
-            WanPipeline.save_lora_weights(directory, transformer_state_dict, safe_serialization=True)
+            WanPipeline.save_lora_weights(
+                directory,
+                transformer_state_dict,
+                save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
+                safe_serialization=True,
+            )
         if scheduler is not None:
             scheduler.save_pretrained(os.path.join(directory, "scheduler"))
 

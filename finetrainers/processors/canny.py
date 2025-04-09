@@ -22,11 +22,17 @@ class CannyProcessor(ProcessorMixin):
             the input image.
     """
 
-    def __init__(self, output_names: List[str] = None, input_names: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        output_names: List[str] = None,
+        input_names: Optional[Dict[str, Any]] = None,
+        device: Optional[torch.device] = None,
+    ):
         super().__init__()
 
         self.output_names = output_names
         self.input_names = input_names
+        self.device = device
         assert len(output_names) == 1
 
     def forward(self, input: Union[torch.Tensor, PIL.Image.Image, List[PIL.Image.Image]]) -> torch.Tensor:
@@ -47,6 +53,7 @@ class CannyProcessor(ProcessorMixin):
         """
         if isinstance(input, PIL.Image.Image):
             input = kornia.utils.image.image_to_tensor(np.array(input)).unsqueeze(0) / 255.0
+            input = input.to(self.device)
             output = kornia.filters.canny(input)[1].repeat(1, 3, 1, 1).squeeze(0)
         elif isinstance(input, list):
             input = kornia.utils.image.image_list_to_tensor([np.array(img) for img in input]) / 255.0

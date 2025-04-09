@@ -1,3 +1,4 @@
+import functools
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -12,13 +13,13 @@ from diffusers import (
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, LlamaModel
 
-from ... import data
-from ... import functional as FF
-from ...logging import get_logger
-from ...processors import CLIPPooledProcessor, LlamaProcessor, ProcessorMixin
-from ...typing import ArtifactType, SchedulerType
-from ...utils import _enable_vae_memory_optimizations, get_non_null_items
-from ..modeling_utils import ModelSpecification
+import finetrainers.functional as FF
+from finetrainers.data import VideoArtifact
+from finetrainers.logging import get_logger
+from finetrainers.models.modeling_utils import ModelSpecification
+from finetrainers.processors import CLIPPooledProcessor, LlamaProcessor, ProcessorMixin
+from finetrainers.typing import ArtifactType, SchedulerType
+from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items, safetensors_torch_save_function
 
 
 logger = get_logger()
@@ -76,7 +77,9 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         self,
         pretrained_model_name_or_path: str = "hunyuanvideo-community/HunyuanVideo",
         tokenizer_id: Optional[str] = None,
+        tokenizer_2_id: Optional[str] = None,
         text_encoder_id: Optional[str] = None,
+        text_encoder_2_id: Optional[str] = None,
         transformer_id: Optional[str] = None,
         vae_id: Optional[str] = None,
         text_encoder_dtype: torch.dtype = torch.bfloat16,
@@ -91,7 +94,9 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         super().__init__(
             pretrained_model_name_or_path=pretrained_model_name_or_path,
             tokenizer_id=tokenizer_id,
+            tokenizer_2_id=tokenizer_2_id,
             text_encoder_id=text_encoder_id,
+            text_encoder_2_id=text_encoder_2_id,
             transformer_id=transformer_id,
             vae_id=vae_id,
             text_encoder_dtype=text_encoder_dtype,
@@ -347,19 +352,25 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         }
         generation_kwargs = get_non_null_items(generation_kwargs)
         video = pipeline(**generation_kwargs).frames[0]
-        return [data.VideoArtifact(value=video)]
+        return [VideoArtifact(value=video)]
 
     def _save_lora_weights(
         self,
         directory: str,
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *args,
         **kwargs,
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
-            HunyuanVideoPipeline.save_lora_weights(directory, transformer_state_dict, safe_serialization=True)
+            HunyuanVideoPipeline.save_lora_weights(
+                directory,
+                transformer_state_dict,
+                save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
+                safe_serialization=True,
+            )
         if scheduler is not None:
             scheduler.save_pretrained(os.path.join(directory, "scheduler"))
 

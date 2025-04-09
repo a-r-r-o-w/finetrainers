@@ -18,15 +18,16 @@ from torch.distributed.checkpoint.state_dict import (
     set_model_state_dict,
 )
 
-from ..data import DPDataLoader
-from ..logging import get_logger
-from ..utils import enable_determinism, get_device_info
-from ..utils._common import DIFFUSERS_TRANSFORMER_BLOCK_NAMES
+from finetrainers.data import DPDataLoader
+from finetrainers.logging import get_logger
+from finetrainers.utils import enable_determinism, get_device_info
+from finetrainers.utils._common import DIFFUSERS_TRANSFORMER_BLOCK_NAMES
+
 from .base import BaseCheckpointer, BaseParallelBackend
 
 
 if TYPE_CHECKING:
-    from .. import optimizer
+    from finetrainers import optimizer
 
 
 _device_type, _device_module = get_device_info()

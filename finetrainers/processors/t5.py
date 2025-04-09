@@ -1,4 +1,4 @@
-from typing import List, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from transformers import T5EncoderModel, T5Tokenizer, T5TokenizerFast
@@ -17,10 +17,13 @@ class T5Processor(ProcessorMixin):
             text and the second output is the attention mask for the input text.
     """
 
-    def __init__(self, output_names: List[str]):
+    def __init__(self, output_names: List[str], input_names: Optional[Dict[str, Any]] = None):
         super().__init__()
 
         self.output_names = output_names
+        self.input_names = input_names
+        if input_names is not None:
+            assert len(input_names) <= 4
 
         assert len(self.output_names) == 2
 

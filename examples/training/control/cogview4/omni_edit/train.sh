@@ -10,11 +10,19 @@ export NCCL_IB_DISABLE=1
 export TORCH_NCCL_ENABLE_MONITORING=0
 export FINETRAINERS_LOG_LEVEL="INFO"
 
+# Download the validation dataset
+if [ ! -d "validation_dataset" ]; then
+  echo "Downloading validation dataset..."
+  huggingface-cli download --repo-type dataset finetrainers/OmniEdit-validation-dataset --local-dir validation_dataset
+else
+  echo "Validation dataset already exists. Skipping download."
+fi
+
 # Finetrainers supports multiple backends for distributed training. Select your favourite and benchmark the differences!
 # BACKEND="accelerate"
 BACKEND="ptd"
 
-# In this setting, I'm using 2 GPUs on a 4-GPU node for training
+# In this setting, I'm using 8 GPUs on a single node for training
 NUM_GPUS=8
 CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
 
@@ -74,7 +82,7 @@ training_cmd=(
   --seed 42
   --batch_size 1
   --train_steps 10000
-  --gradient_accumulation_steps 4
+  --gradient_accumulation_steps 1
   --gradient_checkpointing
   --checkpointing_steps 1000
   --checkpointing_limit 5
