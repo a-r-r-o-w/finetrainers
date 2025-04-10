@@ -12,7 +12,7 @@
     {
       "data_root": "finetrainers/OpenVid-1k-split",
       "dataset_type": "video",
-      "image_resolution_buckets": [
+      "video_resolution_buckets": [
         [49, 512, 512],
         [49, 768, 768],
         [49, 1024, 1024],
