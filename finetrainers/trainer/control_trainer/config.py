@@ -27,6 +27,7 @@ class FrameConditioningType(str, Enum):
     PREFIX = "prefix"
     RANDOM = "random"
     FIRST_AND_LAST = "first_and_last"
+    FULL = "full"
 
 
 class ControlLowRankConfig(ConfigMixin):
@@ -34,16 +35,20 @@ class ControlLowRankConfig(ConfigMixin):
     Configuration class for SFT channel-concatenated Control low rank training.
 
     Args:
-        control_type (`str`):
-            Control type for the low rank approximation matrices. Can be "canny".
-        rank (int):
+        control_type (`str`, defaults to `"canny"`):
+            Control type for the low rank approximation matrices. Can be "canny", "custom".
+        rank (int, defaults to `64`):
             Rank of the low rank approximation matrix.
-        lora_alpha (int):
+        lora_alpha (int, defaults to `64`):
             The lora_alpha parameter to compute scaling factor (lora_alpha / rank) for low-rank matrices.
-        target_modules (`str` or `List[str]`):
+        target_modules (`str` or `List[str]`, defaults to `"(transformer_blocks|single_transformer_blocks).*(to_q|to_k|to_v|to_out.0|ff.net.0.proj|ff.net.2)"`):
             Target modules for the low rank approximation matrices. Can be a regex string or a list of regex strings.
-        train_qk_norm (`bool`):
+        train_qk_norm (`bool`, defaults to `False`):
             Whether to train the QK normalization layers.
+        frame_conditioning_type (`str`, defaults to `"full"`):
+            Type of frame conditioning. Can be "index", "prefix", "random", "first_and_last", or "full".
+        frame_conditioning_index (int, defaults to `0`):
+            Index of the frame conditioning. Only used if `frame_conditioning_type` is "index".
     """
 
     control_type: str = ControlType.CANNY
@@ -55,7 +60,7 @@ class ControlLowRankConfig(ConfigMixin):
     train_qk_norm: bool = False
 
     # Specific to video models
-    frame_conditioning_type: str = FrameConditioningType.INDEX
+    frame_conditioning_type: str = FrameConditioningType.FULL
     frame_conditioning_index: int = 0
 
     def add_args(self, parser: argparse.ArgumentParser):
@@ -114,6 +119,16 @@ class ControlLowRankConfig(ConfigMixin):
 class ControlFullRankConfig(ConfigMixin):
     r"""
     Configuration class for SFT channel-concatenated Control full rank training.
+
+    Args:
+        control_type (`str`, defaults to `"canny"`):
+            Control type for the low rank approximation matrices. Can be "canny", "custom".
+        train_qk_norm (`bool`, defaults to `False`):
+            Whether to train the QK normalization layers.
+        frame_conditioning_type (`str`, defaults to `"index"`):
+            Type of frame conditioning. Can be "index", "prefix", "random", "first_and_last", or "full".
+        frame_conditioning_index (int, defaults to `0`):
+            Index of the frame conditioning. Only used if `frame_conditioning_type` is "index".
     """
 
     control_type: str = ControlType.CANNY
