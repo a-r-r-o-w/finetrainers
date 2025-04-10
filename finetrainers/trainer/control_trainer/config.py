@@ -16,6 +16,7 @@ class ControlType(str, Enum):
 
     CANNY = "canny"
     CUSTOM = "custom"
+    NONE = "none"
 
 
 class FrameConditioningType(str, Enum):

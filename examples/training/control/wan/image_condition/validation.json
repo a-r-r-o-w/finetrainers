@@ -1,0 +1,11 @@
+{
+  "data": [
+    {
+      "caption": "",
+      "image_path": "",
+      "num_inference_steps": 30,
+      "height": 1024,
+      "width": 1024
+    }
+  ]
+}

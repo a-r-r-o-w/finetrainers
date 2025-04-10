@@ -11,9 +11,9 @@ export TORCH_NCCL_ENABLE_MONITORING=0
 export FINETRAINERS_LOG_LEVEL="INFO"
 
 # Download the validation dataset
-if [ ! -d "validation_dataset" ]; then
+if [ ! -d "examples/training/control/cogview4/canny/validation_dataset" ]; then
   echo "Downloading validation dataset..."
-  huggingface-cli download --repo-type dataset finetrainers/Canny-image-validation-dataset --local-dir validation_dataset
+  huggingface-cli download --repo-type dataset finetrainers/Canny-image-validation-dataset --local-dir examples/training/control/cogview4/canny/validation_dataset
 else
   echo "Validation dataset already exists. Skipping download."
 fi

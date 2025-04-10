@@ -7,7 +7,7 @@ from diffusers.video_processor import VideoProcessor
 
 import finetrainers.functional as FF
 from finetrainers.logging import get_logger
-from finetrainers.processors import CannyProcessor
+from finetrainers.processors import CannyProcessor, CopyProcessor
 
 from .config import ControlType, FrameConditioningType
 
@@ -22,10 +22,15 @@ class IterableControlDataset(torch.utils.data.IterableDataset, torch.distributed
         self.dataset = dataset
         self.control_type = control_type
 
+        self.control_processors = []
         if control_type == ControlType.CANNY:
-            self.control_processors = [
+            self.control_processors.append(
                 CannyProcessor(output_names=["control_output"], input_names={"image": "input", "video": "input"})
-            ]
+            )
+        elif control_type == ControlType.NONE:
+            self.control_processors.append(
+                CopyProcessor(output_names=["control_output"], input_names={"image": "input", "video": "input"})
+            )
 
         logger.info("Initialized IterableControlDataset")
 
