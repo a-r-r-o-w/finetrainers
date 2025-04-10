@@ -751,16 +751,18 @@ class IterableDatasetPreprocessingWrapper(
                             "after that."
                         )
                         logger.log_freq("WARNING", "BUCKET_TEMPORAL_SIZE_UNAVAILABLE", msg, frequency=128)
-                        sample["video"] = sample["video"][0]
+                        sample["video"] = sample["video"][:1]
 
-            if isinstance(sample["caption"], list):
-                sample["caption"] = sample["caption"][0]
-
+            caption = sample["caption"]
+            if isinstance(caption, list):
+                caption = caption[0]
+            if caption.startswith("b'") and caption.endswith("'"):
+                caption = FF.convert_byte_str_to_str(caption)
             if self.remove_common_llm_caption_prefixes:
-                sample["caption"] = FF.remove_prefix(sample["caption"], constants.COMMON_LLM_START_PHRASES)
-
+                caption = FF.remove_prefix(caption, constants.COMMON_LLM_START_PHRASES)
             if self.id_token is not None:
-                sample["caption"] = f"{self.id_token} {sample['caption']}"
+                caption = f"{self.id_token} {caption}"
+            sample["caption"] = caption
 
             yield sample
 

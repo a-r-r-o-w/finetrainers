@@ -172,5 +172,6 @@ outputs*
 *.slurm
 .vscode/
 *dummy*
+*curated*
 
 !requirements.txt
