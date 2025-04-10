@@ -92,6 +92,7 @@ class ControlLowRankConfig(ConfigMixin):
             choices=[x.value for x in FrameConditioningType.__members__.values()],
         )
         parser.add_argument("--frame_conditioning_index", type=int, default=0)
+        parser.add_argument("--frame_conditioning_concatenate_mask", action="store_true")
 
     def validate_args(self, args: "BaseArgs"):
         assert self.rank > 0, "Rank must be a positive integer."
@@ -107,6 +108,7 @@ class ControlLowRankConfig(ConfigMixin):
         mapped_args.train_qk_norm = argparse_args.train_qk_norm
         mapped_args.frame_conditioning_type = argparse_args.frame_conditioning_type
         mapped_args.frame_conditioning_index = argparse_args.frame_conditioning_index
+        mapped_args.frame_conditioning_concatenate_mask = argparse_args.frame_conditioning_concatenate_mask
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -117,6 +119,7 @@ class ControlLowRankConfig(ConfigMixin):
             "train_qk_norm": self.train_qk_norm,
             "frame_conditioning_type": self.frame_conditioning_type,
             "frame_conditioning_index": self.frame_conditioning_index,
+            "frame_conditioning_concatenate_mask": self.frame_conditioning_concatenate_mask,
         }
 
 
@@ -160,6 +163,7 @@ class ControlFullRankConfig(ConfigMixin):
             choices=[x.value for x in FrameConditioningType.__members__.values()],
         )
         parser.add_argument("--frame_conditioning_index", type=int, default=0)
+        parser.add_argument("--frame_conditioning_concatenate_mask", action="store_true")
 
     def validate_args(self, args: "BaseArgs"):
         pass
@@ -169,6 +173,7 @@ class ControlFullRankConfig(ConfigMixin):
         mapped_args.train_qk_norm = argparse_args.train_qk_norm
         mapped_args.frame_conditioning_type = argparse_args.frame_conditioning_type
         mapped_args.frame_conditioning_index = argparse_args.frame_conditioning_index
+        mapped_args.frame_conditioning_concatenate_mask = argparse_args.frame_conditioning_concatenate_mask
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -176,4 +181,5 @@ class ControlFullRankConfig(ConfigMixin):
             "train_qk_norm": self.train_qk_norm,
             "frame_conditioning_type": self.frame_conditioning_type,
             "frame_conditioning_index": self.frame_conditioning_index,
+            "frame_conditioning_concatenate_mask": self.frame_conditioning_concatenate_mask,
         }

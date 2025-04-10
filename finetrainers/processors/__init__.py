@@ -14,10 +14,10 @@ class CopyProcessor(ProcessorMixin):
 
     def __init__(self, output_names: List[str] = None, input_names: Optional[Dict[str, Any]] = None):
         super().__init__()
-        
+
         self.output_names = output_names
         self.input_names = input_names
         assert len(output_names) == 1
-    
+
     def forward(self, input: Any) -> Any:
         return {self.output_names[0]: input}

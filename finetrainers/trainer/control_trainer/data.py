@@ -128,10 +128,15 @@ class ValidationControlDataset(torch.utils.data.IterableDataset):
         self.device = device
         self._video_processor = VideoProcessor()
 
+        self.control_processors = []
         if control_type == ControlType.CANNY:
-            self.control_processors = [
+            self.control_processors.append(
                 CannyProcessor(["control_output"], input_names={"image": "input", "video": "input"}, device=device)
-            ]
+            )
+        elif control_type == ControlType.NONE:
+            self.control_processors.append(
+                CopyProcessor(["control_output"], input_names={"image": "input", "video": "input"}, device=device)
+            )
 
         logger.info("Initialized ValidationControlDataset")
 
