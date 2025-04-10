@@ -4,6 +4,20 @@ from typing import List, Union
 import torch
 
 
+def convert_byte_str_to_str(s: str, encoding: str = "utf-8") -> str:
+    """
+    Extracts the actual string from a stringified bytes array (common in some webdatasets).
+
+    Example: "b'hello world'" -> "hello world"
+    """
+    try:
+        s = s[2:-1]
+        s = s.encode("utf-8").decode(encoding)
+    except (UnicodeDecodeError, UnicodeEncodeError, IndexError):
+        pass
+    return s
+
+
 def dropout_caption(caption: Union[str, List[str]], dropout_p: float = 0) -> Union[str, List[str]]:
     if random.random() >= dropout_p:
         return caption

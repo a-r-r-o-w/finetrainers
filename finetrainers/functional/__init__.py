@@ -6,7 +6,7 @@ from .image import (
     resize_crop_image,
     resize_to_nearest_bucket_image,
 )
-from .text import dropout_caption, dropout_embeddings_to_zero, remove_prefix
+from .text import convert_byte_str_to_str, dropout_caption, dropout_embeddings_to_zero, remove_prefix
 from .video import (
     bicubic_resize_video,
     center_crop_video,
