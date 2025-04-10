@@ -181,13 +181,15 @@ class ValidationControlDataset(torch.utils.data.IterableDataset):
         return shallow_copy_data
 
 
+# TODO(aryan): write a test for this function
 def apply_frame_conditioning_on_latents(
     latents: torch.Tensor,
     expected_num_frames: int,
+    channel_dim: int,
     frame_dim: int,
     frame_conditioning_type: FrameConditioningType,
     frame_conditioning_index: Optional[int] = None,
-    generator: Optional[torch.Generator] = None,
+    concatenate_mask: bool = False,
 ) -> torch.Tensor:
     num_frames = latents.size(frame_dim)
     mask = torch.zeros_like(latents)
@@ -207,12 +209,12 @@ def apply_frame_conditioning_on_latents(
         latents = latents * mask
 
     elif frame_conditioning_type == FrameConditioningType.RANDOM:
-        num_samples = min(num_frames, expected_num_frames)
-        indices = torch.randperm(num_frames, generator=generator)[:num_samples]
-        for index in indices:
-            indexing = [slice(None)] * latents.ndim
-            indexing[frame_dim] = index
-            mask[tuple(indexing)] = 1
+        # Zero or more random frames to keep
+        num_frames_to_keep = random.randint(1, num_frames)
+        frame_indices = random.sample(range(num_frames), num_frames_to_keep)
+        indexing = [slice(None)] * latents.ndim
+        indexing[frame_dim] = frame_indices
+        mask[tuple(indexing)] = 1
         latents = latents * mask
 
     elif frame_conditioning_type == FrameConditioningType.FIRST_AND_LAST:
@@ -223,15 +225,27 @@ def apply_frame_conditioning_on_latents(
         mask[tuple(indexing)] = 1
         latents = latents * mask
 
+    elif frame_conditioning_type == FrameConditioningType.FULL:
+        indexing = [slice(None)] * latents.ndim
+        indexing[frame_dim] = slice(0, num_frames)
+        mask[tuple(indexing)] = 1
+
     if latents.size(frame_dim) >= expected_num_frames:
         slicing = [slice(None)] * latents.ndim
         slicing[frame_dim] = slice(expected_num_frames)
         latents = latents[tuple(slicing)]
+        mask = mask[tuple(slicing)]
     else:
         pad_size = expected_num_frames - num_frames
         pad_shape = list(latents.shape)
         pad_shape[frame_dim] = pad_size
         padding = latents.new_zeros(pad_shape)
         latents = torch.cat([latents, padding], dim=frame_dim)
+        mask = torch.cat([mask, padding], dim=frame_dim)
+
+    if concatenate_mask:
+        slicing = [slice(None)] * latents.ndim
+        slicing[channel_dim] = 0
+        latents = torch.cat([latents, mask], dim=channel_dim)
 
     return latents

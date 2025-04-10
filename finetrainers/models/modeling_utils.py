@@ -306,10 +306,14 @@ class ControlModelSpecification(ModelSpecification):
 
         self.frame_conditioning_type: "FrameConditioningType" = None
         self.frame_conditioning_index: int = None
+        self.frame_conditioning_concatenate_mask: bool = False
 
-    def _trainer_init(self, frame_conditioning_type: "FrameConditioningType", frame_conditioning_index: int):
+    def _trainer_init(
+        self, frame_conditioning_type: "FrameConditioningType", frame_conditioning_index: int, concatenate_mask: bool
+    ) -> None:
         self.frame_conditioning_type = frame_conditioning_type
         self.frame_conditioning_index = frame_conditioning_index
+        self.frame_conditioning_concatenate_mask = concatenate_mask
 
     @property
     def control_injection_layer_name(self):

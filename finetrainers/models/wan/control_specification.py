@@ -287,10 +287,11 @@ class WanControlModelSpecification(ControlModelSpecification):
         control_latents = apply_frame_conditioning_on_latents(
             control_latents,
             noisy_latents.shape[2],
+            channel_dim=1,
             frame_dim=2,
             frame_conditioning_type=self.frame_conditioning_type,
             frame_conditioning_index=self.frame_conditioning_index,
-            generator=generator,
+            concatenate_mask=self.frame_conditioning_concatenate_mask,
         )
         noisy_latents = torch.cat([noisy_latents, control_latents], dim=1)
 

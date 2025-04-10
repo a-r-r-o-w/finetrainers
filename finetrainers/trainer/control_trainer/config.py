@@ -6,7 +6,7 @@ from finetrainers.trainer.config_utils import ConfigMixin
 
 
 if TYPE_CHECKING:
-    from ...args import BaseArgs
+    from finetrainers.args import BaseArgs
 
 
 class ControlType(str, Enum):
@@ -49,6 +49,8 @@ class ControlLowRankConfig(ConfigMixin):
             Type of frame conditioning. Can be "index", "prefix", "random", "first_and_last", or "full".
         frame_conditioning_index (int, defaults to `0`):
             Index of the frame conditioning. Only used if `frame_conditioning_type` is "index".
+        frame_conditioning_concatenate_mask (`bool`, defaults to `False`):
+            Whether to concatenate the frame mask with the latents across channel dim.
     """
 
     control_type: str = ControlType.CANNY
@@ -62,6 +64,7 @@ class ControlLowRankConfig(ConfigMixin):
     # Specific to video models
     frame_conditioning_type: str = FrameConditioningType.FULL
     frame_conditioning_index: int = 0
+    frame_conditioning_concatenate_mask: bool = False
 
     def add_args(self, parser: argparse.ArgumentParser):
         parser.add_argument(
@@ -129,6 +132,8 @@ class ControlFullRankConfig(ConfigMixin):
             Type of frame conditioning. Can be "index", "prefix", "random", "first_and_last", or "full".
         frame_conditioning_index (int, defaults to `0`):
             Index of the frame conditioning. Only used if `frame_conditioning_type` is "index".
+        frame_conditioning_concatenate_mask (`bool`, defaults to `False`):
+            Whether to concatenate the frame mask with the latents across channel dim.
     """
 
     control_type: str = ControlType.CANNY
@@ -137,6 +142,7 @@ class ControlFullRankConfig(ConfigMixin):
     # Specific to video models
     frame_conditioning_type: str = FrameConditioningType.INDEX
     frame_conditioning_index: int = 0
+    frame_conditioning_concatenate_mask: bool = False
 
     def add_args(self, parser: argparse.ArgumentParser):
         parser.add_argument(
