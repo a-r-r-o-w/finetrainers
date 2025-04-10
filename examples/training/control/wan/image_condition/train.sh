@@ -57,6 +57,8 @@ control_cmd=(
   --rank 128
   --lora_alpha 128
   --target_modules "blocks.*(to_q|to_k|to_v|to_out.0|ff.net.0.proj|ff.net.2)"
+  --frame_conditioning_type index
+  --frame_conditioning_index 0
 )
 
 # Dataset arguments
@@ -115,7 +117,7 @@ validation_cmd=(
 # Miscellaneous arguments
 miscellaneous_cmd=(
   --tracker_name "finetrainers-wan-control"
-  --output_dir "/raid/aryan/wan-control-lora-canny"
+  --output_dir "/raid/aryan/wan-control-image-condition"
   --init_timeout 600
   --nccl_timeout 600
   --report_to "wandb"

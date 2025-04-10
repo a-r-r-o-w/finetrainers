@@ -1,3 +1,4 @@
+import functools
 import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -21,7 +22,7 @@ from finetrainers.models.utils import _expand_conv3d_with_zeroed_weights
 from finetrainers.patches.dependencies.diffusers.control import control_channel_concat
 from finetrainers.processors import ProcessorMixin, T5Processor
 from finetrainers.typing import ArtifactType, SchedulerType
-from finetrainers.utils import get_non_null_items
+from finetrainers.utils import get_non_null_items, safetensors_torch_save_function
 
 from .base_specification import WanLatentEncodeProcessor
 
@@ -323,7 +324,7 @@ class WanControlModelSpecification(ControlModelSpecification):
         **kwargs,
     ) -> List[ArtifactType]:
         from finetrainers.trainer.control_trainer.data import apply_frame_conditioning_on_latents
-        
+
         with torch.no_grad():
             dtype = pipeline.vae.dtype
             device = pipeline._execution_device
@@ -382,12 +383,18 @@ class WanControlModelSpecification(ControlModelSpecification):
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         norm_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *args,
         **kwargs,
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
-            WanPipeline.save_lora_weights(directory, transformer_state_dict, safe_serialization=True)
+            WanPipeline.save_lora_weights(
+                directory,
+                transformer_state_dict,
+                save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
+                safe_serialization=True,
+            )
         if norm_state_dict is not None:
             safetensors.torch.save_file(norm_state_dict, os.path.join(directory, "norm_state_dict.safetensors"))
         if scheduler is not None:
