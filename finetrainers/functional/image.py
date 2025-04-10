@@ -8,9 +8,7 @@ def center_crop_image(image: torch.Tensor, size: Tuple[int, int]) -> torch.Tenso
     num_channels, height, width = image.shape
     crop_h, crop_w = size
     if height < crop_h or width < crop_w:
-        raise ValueError(
-            f"Image size {(height, width)} is smaller than the target size {size}."
-        )
+        raise ValueError(f"Image size {(height, width)} is smaller than the target size {size}.")
     top = (height - crop_h) // 2
     left = (width - crop_w) // 2
     return image[:, top : top + crop_h, left : left + crop_w]
