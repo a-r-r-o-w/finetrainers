@@ -311,17 +311,19 @@ class WanControlModelSpecification(ControlModelSpecification):
         self,
         pipeline: WanPipeline,
         prompt: str,
-        control_image: torch.Tensor,
-        control_video: torch.Tensor,
+        control_image: Optional[torch.Tensor] = None,
+        control_video: Optional[torch.Tensor] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_frames: Optional[int] = None,
         num_inference_steps: int = 50,
         generator: Optional[torch.Generator] = None,
-        frame_conditioning_type: "FrameConditioningType" = "index",
+        frame_conditioning_type: "FrameConditioningType" = "full",
         frame_conditioning_index: int = 0,
         **kwargs,
     ) -> List[ArtifactType]:
+        from finetrainers.trainer.control_trainer.data import apply_frame_conditioning_on_latents
+        
         with torch.no_grad():
             dtype = pipeline.vae.dtype
             device = pipeline._execution_device
@@ -332,7 +334,7 @@ class WanControlModelSpecification(ControlModelSpecification):
                 .view(1, self.vae_config.z_dim, 1, 1, 1)
                 .to(latents.device, latents.dtype)
             )
-            latents_std = 1.0 / torch.tensor(self.vae.config.latents_std).view(1, self.vae.config.z_dim, 1, 1, 1).to(
+            latents_std = 1.0 / torch.tensor(self.vae_config.latents_std).view(1, self.vae_config.z_dim, 1, 1, 1).to(
                 latents.device, latents.dtype
             )
 
@@ -346,16 +348,18 @@ class WanControlModelSpecification(ControlModelSpecification):
             control_video = control_video.to(device=device, dtype=dtype)
             control_latents = pipeline.vae.encode(control_video).latent_dist.mode()
             control_latents = self._normalize_latents(control_latents, latents_mean, latents_std)
-            control_latents = self._prepare_temporal_control_latents(
+            control_latents = apply_frame_conditioning_on_latents(
                 control_latents,
                 latents.shape[2],
-                dim=2,
+                channel_dim=1,
+                frame_dim=2,
                 frame_conditioning_type=frame_conditioning_type,
                 frame_conditioning_index=frame_conditioning_index,
-                generator=generator,
+                concatenate_mask=self.frame_conditioning_concatenate_mask,
             )
 
         generation_kwargs = {
+            "latents": latents,
             "prompt": prompt,
             "height": height,
             "width": width,

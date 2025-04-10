@@ -16,7 +16,9 @@ logger = get_logger()
 
 
 class IterableControlDataset(torch.utils.data.IterableDataset, torch.distributed.checkpoint.stateful.Stateful):
-    def __init__(self, dataset: torch.utils.data.IterableDataset, control_type: str):
+    def __init__(
+        self, dataset: torch.utils.data.IterableDataset, control_type: str, device: Optional[torch.device] = None
+    ):
         super().__init__()
 
         self.dataset = dataset
@@ -25,7 +27,9 @@ class IterableControlDataset(torch.utils.data.IterableDataset, torch.distributed
         self.control_processors = []
         if control_type == ControlType.CANNY:
             self.control_processors.append(
-                CannyProcessor(output_names=["control_output"], input_names={"image": "input", "video": "input"})
+                CannyProcessor(
+                    output_names=["control_output"], input_names={"image": "input", "video": "input"}, device=device
+                )
             )
         elif control_type == ControlType.NONE:
             self.control_processors.append(
@@ -135,7 +139,7 @@ class ValidationControlDataset(torch.utils.data.IterableDataset):
             )
         elif control_type == ControlType.NONE:
             self.control_processors.append(
-                CopyProcessor(["control_output"], input_names={"image": "input", "video": "input"}, device=device)
+                CopyProcessor(["control_output"], input_names={"image": "input", "video": "input"})
             )
 
         logger.info("Initialized ValidationControlDataset")
@@ -177,15 +181,16 @@ class ValidationControlDataset(torch.utils.data.IterableDataset):
         if "control_output" in shallow_copy_data:
             # Normalize to [-1, 1] range
             control_output = shallow_copy_data.pop("control_output")
-            control_output = FF.normalize(control_output, min=-1.0, max=1.0)
-            ndim = control_output.ndim
-            assert 3 <= ndim <= 5, "Control output should be at least ndim=3 and less than or equal to ndim=5"
-            if ndim == 5:
-                control_output = self._video_processor.postprocess_video(control_output, output_type="pil")
-            else:
-                if ndim == 3:
-                    control_output = control_output.unsqueeze(0)
-                control_output = self._video_processor.postprocess(control_output, output_type="pil")[0]
+            if torch.is_tensor(control_output):
+                control_output = FF.normalize(control_output, min=-1.0, max=1.0)
+                ndim = control_output.ndim
+                assert 3 <= ndim <= 5, "Control output should be at least ndim=3 and less than or equal to ndim=5"
+                if ndim == 5:
+                    control_output = self._video_processor.postprocess_video(control_output, output_type="pil")
+                else:
+                    if ndim == 3:
+                        control_output = control_output.unsqueeze(0)
+                    control_output = self._video_processor.postprocess(control_output, output_type="pil")[0]
             key = "control_image" if is_image_control else "control_video"
             shallow_copy_data[key] = control_output
         return shallow_copy_data

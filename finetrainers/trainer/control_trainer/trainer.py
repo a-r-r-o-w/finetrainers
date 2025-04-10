@@ -325,7 +325,7 @@ class ControlTrainer:
             datasets.append(dataset)
 
         dataset = data.combine_datasets(datasets, buffer_size=self.args.dataset_shuffle_buffer_size, shuffle=True)
-        dataset = IterableControlDataset(dataset, self.args.control_type)
+        dataset = IterableControlDataset(dataset, self.args.control_type, self.state.parallel_backend.device)
         dataloader = self.state.parallel_backend.prepare_dataloader(
             dataset, batch_size=1, num_workers=self.args.dataloader_num_workers, pin_memory=self.args.pin_memory
         )
