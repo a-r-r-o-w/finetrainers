@@ -3,20 +3,15 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 from accelerate import init_empty_weights
-from diffusers import (
-    AutoencoderKLHunyuanVideo,
-    FlowMatchEulerDiscreteScheduler,
-    HunyuanVideoPipeline,
-    HunyuanVideoTransformer3DModel,
-)
+from diffusers import AutoencoderKL, FlowMatchEulerDiscreteScheduler, FluxPipeline, FluxTransformer2DModel
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
-from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, LlamaModel
+from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, T5EncoderModel
 
 import finetrainers.functional as FF
-from finetrainers.data import VideoArtifact
+from finetrainers.data import ImageArtifact
 from finetrainers.logging import get_logger
 from finetrainers.models.modeling_utils import ModelSpecification
-from finetrainers.processors import CLIPPooledProcessor, LlamaProcessor, ProcessorMixin
+from finetrainers.processors import CLIPPooledProcessor, ProcessorMixin, T5Processor
 from finetrainers.typing import ArtifactType, SchedulerType
 from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items
 
@@ -24,9 +19,9 @@ from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_it
 logger = get_logger()
 
 
-class HunyuanLatentEncodeProcessor(ProcessorMixin):
+class FluxLatentEncodeProcessor(ProcessorMixin):
     r"""
-    Processor to encode image/video into latents using the HunyuanVideo VAE.
+    Processor to encode image/video into latents using the Flux VAE.
 
     Args:
         output_names (`List[str]`):
@@ -36,12 +31,13 @@ class HunyuanLatentEncodeProcessor(ProcessorMixin):
 
     def __init__(self, output_names: List[str]):
         super().__init__()
+
         self.output_names = output_names
         assert len(self.output_names) == 1
 
     def forward(
         self,
-        vae: AutoencoderKLHunyuanVideo,
+        vae: AutoencoderKL,
         image: Optional[torch.Tensor] = None,
         video: Optional[torch.Tensor] = None,
         generator: Optional[torch.Generator] = None,
@@ -50,31 +46,31 @@ class HunyuanLatentEncodeProcessor(ProcessorMixin):
         device = vae.device
         dtype = vae.dtype
 
-        if image is not None:
-            video = image.unsqueeze(1)
+        if video is not None:
+            # TODO(aryan): perhaps better would be to flatten(0, 1), but need to account for reshaping sigmas accordingly
+            image = video[:, 0]  # [B, F, C, H, W] -> [B, 1, C, H, W]
 
-        assert video.ndim == 5, f"Expected 5D tensor, got {video.ndim}D tensor"
-        video = video.to(device=device, dtype=vae.dtype)
-        video = video.permute(0, 2, 1, 3, 4).contiguous()  # [B, F, C, H, W] -> [B, C, F, H, W]
+        assert image.ndim == 4, f"Expected 4D tensor, got {image.ndim}D tensor"
+        image = image.to(device=device, dtype=vae.dtype)
 
         if compute_posterior:
-            latents = vae.encode(video).latent_dist.sample(generator=generator)
+            latents = vae.encode(image).latent_dist.sample(generator=generator)
             latents = latents.to(dtype=dtype)
         else:
-            if vae.use_slicing and video.shape[0] > 1:
-                encoded_slices = [vae._encode(x_slice) for x_slice in video.split(1)]
+            if vae.use_slicing and image.shape[0] > 1:
+                encoded_slices = [vae._encode(x_slice) for x_slice in image.split(1)]
                 moments = torch.cat(encoded_slices)
             else:
-                moments = vae._encode(video)
+                moments = vae._encode(image)
             latents = moments.to(dtype=dtype)
 
         return {self.output_names[0]: latents}
 
 
-class HunyuanVideoModelSpecification(ModelSpecification):
+class FluxModelSpecification(ModelSpecification):
     def __init__(
         self,
-        pretrained_model_name_or_path: str = "hunyuanvideo-community/HunyuanVideo",
+        pretrained_model_name_or_path: str = "black-forest-labs/FLUX.1-dev",
         tokenizer_id: Optional[str] = None,
         tokenizer_2_id: Optional[str] = None,
         text_encoder_id: Optional[str] = None,
@@ -107,21 +103,21 @@ class HunyuanVideoModelSpecification(ModelSpecification):
 
         if condition_model_processors is None:
             condition_model_processors = [
-                LlamaProcessor(["encoder_hidden_states", "encoder_attention_mask"]),
-                CLIPPooledProcessor(
-                    ["pooled_projections"],
+                CLIPPooledProcessor(["pooled_projections"]),
+                T5Processor(
+                    ["encoder_hidden_states", "prompt_attention_mask"],
                     input_names={"tokenizer_2": "tokenizer", "text_encoder_2": "text_encoder"},
                 ),
             ]
         if latent_model_processors is None:
-            latent_model_processors = [HunyuanLatentEncodeProcessor(["latents"])]
+            latent_model_processors = [FluxLatentEncodeProcessor(["latents"])]
 
         self.condition_model_processors = condition_model_processors
         self.latent_model_processors = latent_model_processors
 
     @property
     def _resolution_dim_keys(self):
-        return {"latents": (2, 3, 4)}
+        return {"latents": (2, 3)}
 
     def load_condition_models(self) -> Dict[str, torch.nn.Module]:
         common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
@@ -129,23 +125,23 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         if self.tokenizer_id is not None:
             tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_id, **common_kwargs)
         else:
-            tokenizer = AutoTokenizer.from_pretrained(
+            tokenizer = CLIPTokenizer.from_pretrained(
                 self.pretrained_model_name_or_path, subfolder="tokenizer", **common_kwargs
             )
 
         if self.tokenizer_2_id is not None:
             tokenizer_2 = AutoTokenizer.from_pretrained(self.tokenizer_2_id, **common_kwargs)
         else:
-            tokenizer_2 = CLIPTokenizer.from_pretrained(
+            tokenizer_2 = AutoTokenizer.from_pretrained(
                 self.pretrained_model_name_or_path, subfolder="tokenizer_2", **common_kwargs
             )
 
         if self.text_encoder_id is not None:
-            text_encoder = LlamaModel.from_pretrained(
+            text_encoder = CLIPTextModel.from_pretrained(
                 self.text_encoder_id, torch_dtype=self.text_encoder_dtype, **common_kwargs
             )
         else:
-            text_encoder = LlamaModel.from_pretrained(
+            text_encoder = CLIPTextModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="text_encoder",
                 torch_dtype=self.text_encoder_dtype,
@@ -153,11 +149,11 @@ class HunyuanVideoModelSpecification(ModelSpecification):
             )
 
         if self.text_encoder_2_id is not None:
-            text_encoder_2 = CLIPTextModel.from_pretrained(
+            text_encoder_2 = T5EncoderModel.from_pretrained(
                 self.text_encoder_2_id, torch_dtype=self.text_encoder_2_dtype, **common_kwargs
             )
         else:
-            text_encoder_2 = CLIPTextModel.from_pretrained(
+            text_encoder_2 = T5EncoderModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="text_encoder_2",
                 torch_dtype=self.text_encoder_2_dtype,
@@ -175,9 +171,9 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
 
         if self.vae_id is not None:
-            vae = AutoencoderKLHunyuanVideo.from_pretrained(self.vae_id, torch_dtype=self.vae_dtype, **common_kwargs)
+            vae = AutoencoderKL.from_pretrained(self.vae_id, torch_dtype=self.vae_dtype, **common_kwargs)
         else:
-            vae = AutoencoderKLHunyuanVideo.from_pretrained(
+            vae = AutoencoderKL.from_pretrained(
                 self.pretrained_model_name_or_path, subfolder="vae", torch_dtype=self.vae_dtype, **common_kwargs
             )
 
@@ -187,11 +183,11 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
 
         if self.transformer_id is not None:
-            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
+            transformer = FluxTransformer2DModel.from_pretrained(
                 self.transformer_id, torch_dtype=self.transformer_dtype, **common_kwargs
             )
         else:
-            transformer = HunyuanVideoTransformer3DModel.from_pretrained(
+            transformer = FluxTransformer2DModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="transformer",
                 torch_dtype=self.transformer_dtype,
@@ -206,17 +202,17 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         self,
         tokenizer: Optional[AutoTokenizer] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
-        text_encoder: Optional[LlamaModel] = None,
-        text_encoder_2: Optional[CLIPTextModel] = None,
-        transformer: Optional[HunyuanVideoTransformer3DModel] = None,
-        vae: Optional[AutoencoderKLHunyuanVideo] = None,
+        text_encoder: Optional[CLIPTextModel] = None,
+        text_encoder_2: Optional[T5EncoderModel] = None,
+        transformer: Optional[FluxTransformer2DModel] = None,
+        vae: Optional[AutoencoderKL] = None,
         scheduler: Optional[FlowMatchEulerDiscreteScheduler] = None,
         enable_slicing: bool = False,
         enable_tiling: bool = False,
         enable_model_cpu_offload: bool = False,
         training: bool = False,
         **kwargs,
-    ) -> HunyuanVideoPipeline:
+    ) -> FluxPipeline:
         components = {
             "tokenizer": tokenizer,
             "tokenizer_2": tokenizer_2,
@@ -224,11 +220,12 @@ class HunyuanVideoModelSpecification(ModelSpecification):
             "text_encoder_2": text_encoder_2,
             "transformer": transformer,
             "vae": vae,
-            "scheduler": scheduler,
+            # Load the scheduler based on Flux's config instead of using the default initialization being used for training
+            # "scheduler": scheduler,
         }
         components = get_non_null_items(components)
 
-        pipe = HunyuanVideoPipeline.from_pretrained(
+        pipe = FluxPipeline.from_pretrained(
             self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
         )
         pipe.text_encoder.to(self.text_encoder_dtype)
@@ -247,10 +244,10 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         self,
         tokenizer: AutoTokenizer,
         tokenizer_2: CLIPTokenizer,
-        text_encoder: LlamaModel,
-        text_encoder_2: CLIPTextModel,
+        text_encoder: CLIPTextModel,
+        text_encoder_2: T5EncoderModel,
         caption: str,
-        max_sequence_length: int = 256,
+        max_sequence_length: int = 512,
         **kwargs,
     ) -> Dict[str, Any]:
         conditions = {
@@ -270,7 +267,7 @@ class HunyuanVideoModelSpecification(ModelSpecification):
     @torch.no_grad()
     def prepare_latents(
         self,
-        vae: AutoencoderKLHunyuanVideo,
+        vae: AutoencoderKL,
         image: Optional[torch.Tensor] = None,
         video: Optional[torch.Tensor] = None,
         generator: Optional[torch.Generator] = None,
@@ -292,11 +289,10 @@ class HunyuanVideoModelSpecification(ModelSpecification):
 
     def forward(
         self,
-        transformer: HunyuanVideoTransformer3DModel,
+        transformer: FluxTransformer2DModel,
         condition_model_conditions: Dict[str, torch.Tensor],
         latent_model_conditions: Dict[str, torch.Tensor],
         sigmas: torch.Tensor,
-        guidance: float = 1.0,
         generator: Optional[torch.Generator] = None,
         compute_posterior: bool = True,
         **kwargs,
@@ -308,34 +304,58 @@ class HunyuanVideoModelSpecification(ModelSpecification):
             latents = posterior.sample(generator=generator)
             del posterior
 
-        latents = latents * self.vae_config.scaling_factor
-        noise = torch.zeros_like(latents).normal_(generator=generator)
-        noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
+        if getattr(self.vae_config, "shift_factor", None) is not None:
+            latents = (latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
+        else:
+            latents = latents * self.vae_config.scaling_factor
 
+        noise = torch.zeros_like(latents).normal_(generator=generator)
         timesteps = (sigmas.flatten() * 1000.0).long()
-        guidance = latents.new_full((latents.size(0),), fill_value=guidance) * 1000.0
+        img_ids = FluxPipeline._prepare_latent_image_ids(
+            latents.size(0), latents.size(2) // 2, latents.size(3) // 2, latents.device, latents.dtype
+        )
+        text_ids = latents.new_zeros(condition_model_conditions["encoder_hidden_states"].shape[1], 3)
+
+        if self.transformer_config.guidance_embeds:
+            guidance_scale = 1.0
+            guidance = latents.new_full((1,), guidance_scale).expand(latents.shape[0])
+        else:
+            guidance = None
+
+        noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
+        noisy_latents = FluxPipeline._pack_latents(noisy_latents, *latents.shape)
 
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
-        latent_model_conditions["guidance"] = guidance
+        condition_model_conditions.pop("prompt_attention_mask", None)
 
+        spatial_compression_ratio = 2 ** len(self.vae_config.block_out_channels)
         pred = transformer(
             **latent_model_conditions,
             **condition_model_conditions,
-            timestep=timesteps,
+            timestep=timesteps / 1000.0,
+            guidance=guidance,
+            img_ids=img_ids,
+            txt_ids=text_ids,
             return_dict=False,
         )[0]
+        pred = FluxPipeline._unpack_latents(
+            pred,
+            latents.size(2) * spatial_compression_ratio,
+            latents.size(3) * spatial_compression_ratio,
+            spatial_compression_ratio,
+        )
         target = FF.flow_match_target(noise, latents)
 
         return pred, target, sigmas
 
     def validation(
         self,
-        pipeline: HunyuanVideoPipeline,
+        pipeline: FluxPipeline,
         prompt: str,
         height: Optional[int] = None,
         width: Optional[int] = None,
-        num_frames: Optional[int] = None,
         num_inference_steps: int = 50,
+        guidance_scale: float = 3.5,
         generator: Optional[torch.Generator] = None,
         **kwargs,
     ) -> List[ArtifactType]:
@@ -343,15 +363,15 @@ class HunyuanVideoModelSpecification(ModelSpecification):
             "prompt": prompt,
             "height": height,
             "width": width,
-            "num_frames": num_frames,
             "num_inference_steps": num_inference_steps,
+            "guidance_scale": guidance_scale,
             "generator": generator,
             "return_dict": True,
             "output_type": "pil",
         }
         generation_kwargs = get_non_null_items(generation_kwargs)
-        video = pipeline(**generation_kwargs).frames[0]
-        return [VideoArtifact(value=video)]
+        image = pipeline(**generation_kwargs).images[0]
+        return [ImageArtifact(value=image)]
 
     def _save_lora_weights(
         self,
@@ -363,21 +383,21 @@ class HunyuanVideoModelSpecification(ModelSpecification):
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
-            HunyuanVideoPipeline.save_lora_weights(directory, transformer_state_dict, safe_serialization=True)
+            FluxPipeline.save_lora_weights(directory, transformer_state_dict, safe_serialization=True)
         if scheduler is not None:
             scheduler.save_pretrained(os.path.join(directory, "scheduler"))
 
     def _save_model(
         self,
         directory: str,
-        transformer: HunyuanVideoTransformer3DModel,
+        transformer: FluxTransformer2DModel,
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
             with init_empty_weights():
-                transformer_copy = HunyuanVideoTransformer3DModel.from_config(transformer.config)
+                transformer_copy = FluxTransformer2DModel.from_config(transformer.config)
             transformer_copy.load_state_dict(transformer_state_dict, strict=True, assign=True)
             transformer_copy.save_pretrained(os.path.join(directory, "transformer"))
         if scheduler is not None:

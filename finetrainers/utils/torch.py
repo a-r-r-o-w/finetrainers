@@ -9,6 +9,8 @@ import torch.distributed.tensor
 
 from finetrainers.logging import get_logger
 
+from ._common import DIFFUSERS_TRANSFORMER_BLOCK_NAMES
+
 
 logger = get_logger()
 
@@ -39,6 +41,20 @@ def align_device_and_dtype(
         if dtype is not None:
             x = {k: align_device_and_dtype(v, device, dtype) for k, v in x.items()}
     return x
+
+
+def apply_compile(model: torch.nn.Module) -> None:
+    r"""Apply torch.compile on a model."""
+
+    def apply_torch_compile(blocks: torch.nn.ModuleList):
+        for layer_id, block in blocks.named_children():
+            block = torch.compile(block)
+            blocks.register_module(layer_id, block)
+
+    for transformer_block_name in DIFFUSERS_TRANSFORMER_BLOCK_NAMES:
+        blocks = getattr(model, transformer_block_name, None)
+        if blocks is not None:
+            apply_torch_compile(blocks)
 
 
 def _clip_grad_norm_while_handling_failing_dtensor_cases(
@@ -213,6 +229,11 @@ def get_dtype_from_string(dtype: str):
 
 def get_string_from_dtype(dtype: torch.dtype):
     return _DTYPE_TO_STRING[dtype]
+
+
+def get_unwrapped_model_state_dict(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    # Remove _orig_mod occurrences from the state dict keys
+    return {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
 
 
 def set_requires_grad(models: Union[torch.nn.Module, List[torch.nn.Module]], value: bool) -> None:

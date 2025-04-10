@@ -21,6 +21,7 @@ os.environ["FINETRAINERS_LOG_LEVEL"] = "INFO"
 
 from ..models.cogvideox.base_specification import DummyCogVideoXModelSpecification  # noqa
 from ..models.cogview4.base_specification import DummyCogView4ModelSpecification  # noqa
+from ..models.flux.base_specification import DummyFluxModelSpecification  # noqa
 from ..models.hunyuan_video.base_specification import DummyHunyuanVideoModelSpecification  # noqa
 from ..models.ltx_video.base_specification import DummyLTXVideoModelSpecification  # noqa
 from ..models.wan.base_specification import DummyWanModelSpecification  # noqa
@@ -192,6 +193,14 @@ class SFTTrainerCogView4FullFinetuneTests___Accelerate(
     model_specification_cls = DummyCogView4ModelSpecification
 
 
+class SFTTrainerFluxLoRATests___Accelerate(SFTTrainerLoRATestsMixin___Accelerate, unittest.TestCase):
+    model_specification_cls = DummyFluxModelSpecification
+
+
+class SFTTrainerFluxFullFinetuneTests___Accelerate(SFTTrainerFullFinetuneTestsMixin___Accelerate, unittest.TestCase):
+    model_specification_cls = DummyFluxModelSpecification
+
+
 class SFTTrainerHunyuanVideoLoRATests___Accelerate(SFTTrainerLoRATestsMixin___Accelerate, unittest.TestCase):
     model_specification_cls = DummyHunyuanVideoModelSpecification
 
@@ -252,6 +261,15 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.layerwise_upcasting_modules = ["transformer"]
         self._test_training(args)
 
+    @parameterized.expand([(True,)])
+    def test___compile___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 1
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        args.compile_modules = ["transformer"]
+        self._test_training(args)
+
     @parameterized.expand([(False,), (True,)])
     def test___dp_degree_1___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
@@ -275,6 +293,15 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.batch_size = 1
         args.enable_precomputation = enable_precomputation
         args.layerwise_upcasting_modules = ["transformer"]
+        self._test_training(args)
+
+    @parameterized.expand([(True,)])
+    def test___compile___dp_degree_2___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 2
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        args.compile_modules = ["transformer"]
         self._test_training(args)
 
     @parameterized.expand([(True,)])
@@ -335,6 +362,15 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         self._test_training(args)
 
     @parameterized.expand([(True,)])
+    def test___compile___dp_degree_1___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 1
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        args.compile_modules = ["transformer"]
+        self._test_training(args)
+
+    @parameterized.expand([(True,)])
     def test___dp_degree_1___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.dp_degree = 1
@@ -348,6 +384,15 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
         args.dp_degree = 2
         args.batch_size = 1
         args.enable_precomputation = enable_precomputation
+        self._test_training(args)
+
+    @parameterized.expand([(True,)])
+    def test___compile___dp_degree_2___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 2
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        args.compile_modules = ["transformer"]
         self._test_training(args)
 
     @parameterized.expand([(True,)])
@@ -406,6 +451,14 @@ class SFTTrainerCogView4LoRATests___PTD(SFTTrainerLoRATestsMixin___PTD, unittest
 
 class SFTTrainerCogView4FullFinetuneTests___PTD(SFTTrainerFullFinetuneTestsMixin___PTD, unittest.TestCase):
     model_specification_cls = DummyCogView4ModelSpecification
+
+
+class SFTTrainerFluxLoRATests___PTD(SFTTrainerLoRATestsMixin___PTD, unittest.TestCase):
+    model_specification_cls = DummyFluxModelSpecification
+
+
+class SFTTrainerFluxFullFinetuneTests___PTD(SFTTrainerFullFinetuneTestsMixin___PTD, unittest.TestCase):
+    model_specification_cls = DummyFluxModelSpecification
 
 
 class SFTTrainerHunyuanVideoLoRATests___PTD(SFTTrainerLoRATestsMixin___PTD, unittest.TestCase):
