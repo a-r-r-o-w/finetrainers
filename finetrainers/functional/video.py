@@ -7,6 +7,8 @@ import torch.nn.functional as F
 def center_crop_video(video: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
     num_frames, num_channels, height, width = video.shape
     crop_h, crop_w = size
+    if height < crop_h or width < crop_w:
+        raise ValueError(f"Video size {(height, width)} is smaller than the target size {size}.")
     top = (height - crop_h) // 2
     left = (width - crop_w) // 2
     return video[:, :, top : top + crop_h, left : left + crop_w]
