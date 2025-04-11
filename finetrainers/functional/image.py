@@ -32,7 +32,7 @@ def find_nearest_resolution_image(image: torch.Tensor, resolution_buckets: List[
     aspect_ratio = width / height
 
     def aspect_ratio_diff(bucket):
-        return abs((bucket[1] / bucket[0]) - aspect_ratio)
+        return abs((bucket[1] / bucket[0]) - aspect_ratio), (-bucket[0], -bucket[1])
 
     return min(resolution_buckets, key=aspect_ratio_diff)
 

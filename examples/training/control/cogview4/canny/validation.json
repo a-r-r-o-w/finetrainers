@@ -1,0 +1,32 @@
+{
+  "data": [
+    {
+      "caption": "an orange flamingo stands in the shallow water, solo, standing, full_body, outdoors, blurry, no_humans, bird, leaf, plant, animal_focus, beak",
+      "image_path": "examples/training/control/cogview4/canny/validation_dataset/0.png",
+      "num_inference_steps": 30,
+      "height": 1024,
+      "width": 1024
+    },
+    {
+      "caption": "a woman holding a bouquet of flowers on the street, 1girl, solo, long_hair, shirt, black_hair, long_sleeves, holding, bare_shoulders, jewelry, upper_body, flower, earrings, outdoors, parted_lips, striped, off_shoulder, black_eyes, tree, looking_to_the_side, grass, pink_flower, striped_shirt, off-shoulder_shirt, holding_flower",
+      "image_path": "examples/training/control/cogview4/canny/validation_dataset/1.png",
+      "num_inference_steps": 30,
+      "height": 1024,
+      "width": 1024
+    },
+    {
+      "caption": "there is a boat on the river in the wilderness, outdoors, sky, day, water, blurry, tree, no_humans, leaf, plant, nature, scenery, reflection, mountain, lake",
+      "image_path": "examples/training/control/cogview4/canny/validation_dataset/2.png",
+      "num_inference_steps": 30,
+      "height": 1024,
+      "width": 1024
+    },
+    {
+      "caption": "a man in white lab coat wearing a pair of virtual glasses, shirt, black_hair, 1boy, holding, male_focus, multiple_boys, indoors, blurry, cup, depth_of_field, blurry_background, blue_shirt, mug, labcoat, coffee, coffee_mug, doctor",
+      "image_path": "examples/training/control/cogview4/canny/validation_dataset/3.png",
+      "num_inference_steps": 30,
+      "height": 1024,
+      "width": 1024
+    }
+  ]
+}

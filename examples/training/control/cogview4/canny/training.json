@@ -1,0 +1,13 @@
+{
+  "datasets": [
+    {
+      "data_root": "recoilme/aesthetic_photos_xs",
+      "dataset_type": "image",
+      "image_resolution_buckets": [
+        [1024, 1024]
+      ],
+      "reshape_mode": "bicubic",
+      "remove_common_llm_caption_prefixes": true
+    }
+  ]
+}

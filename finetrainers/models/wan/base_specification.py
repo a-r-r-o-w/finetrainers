@@ -1,3 +1,4 @@
+import functools
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -6,12 +7,10 @@ from accelerate import init_empty_weights
 from diffusers import (
     AutoencoderKLWan,
     FlowMatchEulerDiscreteScheduler,
-    WanImageToVideoPipeline,
     WanPipeline,
     WanTransformer3DModel,
 )
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
-from PIL.Image import Image
 from transformers import AutoModel, AutoTokenizer, UMT5EncoderModel
 
 import finetrainers.functional as FF
@@ -20,7 +19,7 @@ from finetrainers.logging import get_logger
 from finetrainers.models.modeling_utils import ModelSpecification
 from finetrainers.processors import ProcessorMixin, T5Processor
 from finetrainers.typing import ArtifactType, SchedulerType
-from finetrainers.utils import get_non_null_items
+from finetrainers.utils import get_non_null_items, safetensors_torch_save_function
 
 
 logger = get_logger()
@@ -311,7 +310,6 @@ class WanModelSpecification(ModelSpecification):
         self,
         pipeline: WanPipeline,
         prompt: str,
-        image: Optional[Image] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_frames: Optional[int] = None,
@@ -319,12 +317,8 @@ class WanModelSpecification(ModelSpecification):
         generator: Optional[torch.Generator] = None,
         **kwargs,
     ) -> List[ArtifactType]:
-        if image is not None:
-            pipeline = WanImageToVideoPipeline.from_pipe(pipeline)
-
         generation_kwargs = {
             "prompt": prompt,
-            "image": image,
             "height": height,
             "width": width,
             "num_frames": num_frames,
@@ -342,12 +336,18 @@ class WanModelSpecification(ModelSpecification):
         directory: str,
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *args,
         **kwargs,
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
-            WanPipeline.save_lora_weights(directory, transformer_state_dict, safe_serialization=True)
+            WanPipeline.save_lora_weights(
+                directory,
+                transformer_state_dict,
+                save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
+                safe_serialization=True,
+            )
         if scheduler is not None:
             scheduler.save_pretrained(os.path.join(directory, "scheduler"))
 

@@ -7,10 +7,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
 
 import datasets.distributed
-import diffusers
 import torch
 import torch.backends
-import transformers
 import wandb
 from diffusers import DiffusionPipeline
 from diffusers.hooks import apply_layerwise_casting
@@ -24,11 +22,14 @@ from finetrainers import data, logging, optimizer, parallel, patches, utils
 from finetrainers.config import TrainingType
 from finetrainers.state import State, TrainState
 
+from .config import SFTFullRankConfig, SFTLowRankConfig
+
 
 if TYPE_CHECKING:
     from finetrainers.args import BaseArgs
     from finetrainers.models import ModelSpecification
 
+ArgsType = Union["BaseArgs", SFTFullRankConfig, SFTLowRankConfig]
 
 logger = logging.get_logger()
 
@@ -41,7 +42,7 @@ class SFTTrainer:
     _diffusion_component_names = ["transformer", "unet", "scheduler"]
     # fmt: on
 
-    def __init__(self, args: "BaseArgs", model_specification: "ModelSpecification") -> None:
+    def __init__(self, args: ArgsType, model_specification: "ModelSpecification") -> None:
         self.args = args
         self.state = State()
         self.state.train_state = TrainState()
@@ -122,7 +123,7 @@ class SFTTrainer:
         # Layerwise upcasting must be applied before adding the LoRA adapter.
         # If we don't perform this before moving to device, we might OOM on the GPU. So, best to do it on
         # CPU for now, before support is added in Diffusers for loading and enabling layerwise upcasting directly.
-        if self.args.training_type == "lora" and "transformer" in self.args.layerwise_upcasting_modules:
+        if self.args.training_type == TrainingType.LORA and "transformer" in self.args.layerwise_upcasting_modules:
             apply_layerwise_casting(
                 self.transformer,
                 storage_dtype=self.args.layerwise_upcasting_storage_dtype,
@@ -140,10 +141,6 @@ class SFTTrainer:
                 target_modules=self.args.target_modules,
             )
             self.transformer.add_adapter(transformer_lora_config)
-
-        # # TODO(aryan): it might be nice to add some assertions here to make sure that lora parameters are still in fp32
-        # # even if layerwise upcasting. Would be nice to have a test as well
-        # self.register_saving_loading_hooks(transformer_lora_config)
 
         # Make sure the trainable params are in float32 if data sharding is not enabled. For FSDP, we need all
         # parameters to be of the same dtype.
@@ -167,7 +164,7 @@ class SFTTrainer:
             # TODO(aryan): handle fp8 from TorchAO here
             model_specification.apply_tensor_parallel(
                 backend=parallel.ParallelBackendEnum.PTD,
-                device_mesh=parallel_backend.get_mesh()["tp"],
+                device_mesh=parallel_backend.get_mesh("tp"),
                 transformer=self.transformer,
             )
 
@@ -306,7 +303,18 @@ class SFTTrainer:
             if parallel_backend.is_main_process:
                 if self.args.training_type == TrainingType.LORA:
                     state_dict = get_peft_model_state_dict(self.transformer, state_dict)
-                    self.model_specification._save_lora_weights(self.args.output_dir, state_dict, self.scheduler)
+                    # fmt: off
+                    metadata = {
+                        "r": self.args.rank,
+                        "lora_alpha": self.args.lora_alpha,
+                        "init_lora_weights": True,
+                        "target_modules": self.args.target_modules,
+                    }
+                    metadata = {"lora_config": json.dumps(metadata, indent=4)}
+                    # fmt: on
+                    self.model_specification._save_lora_weights(
+                        self.args.output_dir, state_dict, self.scheduler, metadata
+                    )
                 elif self.args.training_type == TrainingType.FULL_FINETUNE:
                     self.model_specification._save_model(
                         self.args.output_dir, self.transformer, state_dict, self.scheduler
@@ -390,20 +398,21 @@ class SFTTrainer:
         self.transformer.train()
         data_iterator = iter(self.dataloader)
 
+        compute_posterior = True if self.args.enable_precomputation else (not self.args.precomputation_once)
         preprocessor = data.initialize_preprocessor(
             rank=parallel_backend.rank,
             num_items=self.args.precomputation_items if self.args.enable_precomputation else 1,
             processor_fn={
                 "condition": self.model_specification.prepare_conditions,
                 "latent": functools.partial(
-                    self.model_specification.prepare_latents, compute_posterior=not self.args.precomputation_once
+                    self.model_specification.prepare_latents, compute_posterior=compute_posterior
                 ),
             },
             save_dir=self.args.precomputation_dir,
             enable_precomputation=self.args.enable_precomputation,
         )
-        precomputed_condition_iterator: Iterable[Dict[str, Any]] = None
-        precomputed_latent_iterator: Iterable[Dict[str, Any]] = None
+        condition_iterator: Iterable[Dict[str, Any]] = None
+        latent_iterator: Iterable[Dict[str, Any]] = None
         sampler = data.ResolutionSampler(
             batch_size=self.args.batch_size, dim_keys=self.model_specification._resolution_dim_keys
         )
@@ -415,20 +424,12 @@ class SFTTrainer:
         ):
             # 1. Load & preprocess data if required
             if preprocessor.requires_data:
-                # TODO(aryan): We should do the following here:
-                # - Force checkpoint the trainable models, optimizers, schedulers and train state
-                # - Do the precomputation
-                # - Load the checkpointed models, optimizers, schedulers and train state back, and continue training
-                # This way we can be more memory efficient again, since the latest rewrite of precomputation removed
-                # this logic.
-                precomputed_condition_iterator, precomputed_latent_iterator = self._prepare_data(
-                    preprocessor, data_iterator
-                )
+                condition_iterator, latent_iterator = self._prepare_data(preprocessor, data_iterator)
 
             # 2. Prepare batch
             try:
-                condition_item = next(precomputed_condition_iterator)
-                latent_item = next(precomputed_latent_iterator)
+                condition_item = next(condition_iterator)
+                latent_item = next(latent_iterator)
                 sampler.consume(condition_item, latent_item)
             except StopIteration:
                 if requires_gradient_step:
@@ -645,10 +646,6 @@ class SFTTrainer:
             if validation_data is None:
                 break
 
-            logger.debug(
-                f"Validating {validation_data=} on rank={parallel_backend.rank}.", local_main_process_only=False
-            )
-
             validation_data = validation_data[0]
             validation_artifacts = self.model_specification.validation(
                 pipeline=pipeline, generator=generator, **validation_data
@@ -677,27 +674,21 @@ class SFTTrainer:
             # TODO(aryan): Currently, we only support WandB so we've hardcoded it here. Needs to be revisited.
             for index, (key, artifact) in enumerate(list(artifacts.items())):
                 assert isinstance(artifact, (data.ImageArtifact, data.VideoArtifact))
+                if artifact.value is None:
+                    continue
 
                 time_, rank, ext = int(time.time()), parallel_backend.rank, artifact.file_extension
                 filename = "validation-" if not final_validation else "final-"
                 filename += f"{step}-{rank}-{index}-{prompt_filename}-{time_}.{ext}"
                 output_filename = os.path.join(self.args.output_dir, filename)
 
-                if parallel_backend.is_main_process and artifact.file_extension == "mp4":
+                if parallel_backend.is_main_process and ext in ["mp4", "jpg", "jpeg", "png"]:
                     main_process_prompts_to_filenames[PROMPT] = filename
 
-                if artifact.type == "image" and artifact.value is not None:
-                    logger.debug(
-                        f"Saving image from rank={parallel_backend.rank} to {output_filename}",
-                        local_main_process_only=False,
-                    )
+                if isinstance(artifact, data.ImageArtifact):
                     artifact.value.save(output_filename)
                     all_processes_artifacts.append(wandb.Image(output_filename, caption=PROMPT))
-                elif artifact.type == "video" and artifact.value is not None:
-                    logger.debug(
-                        f"Saving video from rank={parallel_backend.rank} to {output_filename}",
-                        local_main_process_only=False,
-                    )
+                elif isinstance(artifact, data.VideoArtifact):
                     export_to_video(artifact.value, output_filename, fps=EXPORT_FPS)
                     all_processes_artifacts.append(wandb.Video(output_filename, caption=PROMPT))
 
@@ -775,29 +766,8 @@ class SFTTrainer:
             self.state.parallel_backend.enable_determinism(self.args.seed)
 
     def _init_logging(self) -> None:
-        transformers_log_level = transformers.utils.logging.set_verbosity_error
-        diffusers_log_level = diffusers.utils.logging.set_verbosity_error
-
-        if self.args.verbose == 0:
-            if self.state.parallel_backend.is_local_main_process:
-                transformers_log_level = transformers.utils.logging.set_verbosity_warning
-                diffusers_log_level = diffusers.utils.logging.set_verbosity_warning
-        elif self.args.verbose == 1:
-            if self.state.parallel_backend.is_local_main_process:
-                transformers_log_level = transformers.utils.logging.set_verbosity_info
-                diffusers_log_level = diffusers.utils.logging.set_verbosity_info
-        elif self.args.verbose == 2:
-            if self.state.parallel_backend.is_local_main_process:
-                transformers_log_level = transformers.utils.logging.set_verbosity_debug
-                diffusers_log_level = diffusers.utils.logging.set_verbosity_debug
-        else:
-            transformers_log_level = transformers.utils.logging.set_verbosity_debug
-            diffusers_log_level = diffusers.utils.logging.set_verbosity_debug
-
-        transformers_log_level()
-        diffusers_log_level()
-
         logging._set_parallel_backend(self.state.parallel_backend)
+        logging.set_dependency_log_level(self.args.verbose, self.state.parallel_backend.is_local_main_process)
         logger.info("Initialized FineTrainers")
 
     def _init_trackers(self) -> None:

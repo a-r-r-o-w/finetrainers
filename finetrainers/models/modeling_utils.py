@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from diffusers import DiffusionPipeline
@@ -11,6 +11,9 @@ from finetrainers.processors import ProcessorMixin
 from finetrainers.typing import ArtifactType, SchedulerType, TokenizerType
 from finetrainers.utils import resolve_component_cls
 
+
+if TYPE_CHECKING:
+    from finetrainers.trainer.control_trainer.config import FrameConditioningType
 
 logger = get_logger()
 
@@ -72,6 +75,9 @@ class ModelSpecification:
 
         self._load_configs()
 
+    def _trainer_init(self, *args, **kwargs):
+        pass
+
     # TODO(aryan): revisit how to do this better without user having to worry about it
     @property
     def _resolution_dim_keys(self) -> Dict[str, Tuple[int, ...]]:
@@ -115,8 +121,10 @@ class ModelSpecification:
             f"ModelSpecification::load_pipeline is not implemented for {self.__class__.__name__}"
         )
 
-    def prepare_conditions(self, **kwargs) -> Dict[str, Any]:
-        for processor in self.condition_model_processors:
+    def prepare_conditions(self, processors: Optional[ProcessorMixin] = None, **kwargs) -> Dict[str, Any]:
+        if processors is None:
+            processors = self.condition_model_processors
+        for processor in processors:
             result = processor(**kwargs)
             result_keys = set(result.keys())
             repeat_keys = result_keys.intersection(kwargs.keys())
@@ -129,8 +137,10 @@ class ModelSpecification:
             kwargs.update(result)
         return kwargs
 
-    def prepare_latents(self, **kwargs) -> Dict[str, Any]:
-        for processor in self.latent_model_processors:
+    def prepare_latents(self, processors: Optional[ProcessorMixin] = None, **kwargs) -> Dict[str, Any]:
+        if processors is None:
+            processors = self.latent_model_processors
+        for processor in processors:
             result = processor(**kwargs)
             result_keys = set(result.keys())
             repeat_keys = result_keys.intersection(kwargs.keys())
@@ -195,6 +205,7 @@ class ModelSpecification:
         transformer: torch.nn.Module,
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
+        metadata: Optional[Dict[str, str]] = None,
     ) -> None:
         r"""
         Save the lora state dicts of the model to the given directory.
@@ -287,3 +298,91 @@ class ModelSpecification:
                 self.pretrained_model_name_or_path, subfolder="vae", revision=self.revision, cache_dir=self.cache_dir
             )
         self.vae_config = FrozenDict(**self.vae_config)
+
+
+class ControlModelSpecification(ModelSpecification):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.frame_conditioning_type: "FrameConditioningType" = None
+        self.frame_conditioning_index: int = None
+        self.frame_conditioning_concatenate_mask: bool = False
+
+    def _trainer_init(
+        self, frame_conditioning_type: "FrameConditioningType", frame_conditioning_index: int, concatenate_mask: bool
+    ) -> None:
+        self.frame_conditioning_type = frame_conditioning_type
+        self.frame_conditioning_index = frame_conditioning_index
+        self.frame_conditioning_concatenate_mask = concatenate_mask
+
+    @property
+    def control_injection_layer_name(self):
+        r"""Must return the FQN (fully-qualified name) of the control injection layer."""
+        raise NotImplementedError(
+            f"ControlModelSpecification::control_injection_layer_name is not implemented for {self.__class__.__name__}"
+        )
+
+    def load_diffusion_models(self, new_in_features: int) -> Dict[str, Union[torch.nn.Module]]:
+        raise NotImplementedError(
+            f"ControlModelSpecification::load_diffusion_models is not implemented for {self.__class__.__name__}"
+        )
+
+    def _save_lora_weights(
+        self,
+        directory: str,
+        transformer: torch.nn.Module,
+        transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
+        norm_state_dict: Optional[Dict[str, torch.Tensor]] = None,
+        scheduler: Optional[SchedulerType] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> None:
+        r"""
+        Save the lora state dicts of the model to the given directory.
+
+        This API is not backwards compatible and will be changed in near future.
+        """
+        raise NotImplementedError(
+            f"ControlModelSpecification::save_lora_weights is not implemented for {self.__class__.__name__}"
+        )
+
+    def _save_model(
+        self,
+        directory: str,
+        transformer: torch.nn.Module,
+        transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
+        scheduler: Optional[SchedulerType] = None,
+    ) -> None:
+        r"""
+        Save the state dicts to the given directory.
+
+        This API is not backwards compatible and will be changed in near future.
+        """
+        raise NotImplementedError(
+            f"ControlModelSpecification::save_model is not implemented for {self.__class__.__name__}"
+        )
+
+    @property
+    def _original_control_layer_in_features(self):
+        """
+        Original in_features of the input projection layer where control is injected.
+        """
+        raise NotImplementedError(
+            f"ControlModelSpecification::_original_control_layer_in_features is not implemented for {self.__class__.__name__}"
+        )
+
+    @property
+    def _original_control_layer_out_features(self):
+        """
+        Original out_features of the input projection layer where control is injected.
+
+        This will be used as the rank for control injection layer when performing low-rank training and unused otherwise.
+        """
+        raise NotImplementedError(
+            f"ControlModelSpecification::_original_control_layer_out_features is not implemented for {self.__class__.__name__}"
+        )
+
+    @property
+    def _qk_norm_identifiers(self):
+        raise NotImplementedError(
+            f"ControlModelSpecification::_qk_norm_identifiers is not implemented for {self.__class__.__name__}"
+        )

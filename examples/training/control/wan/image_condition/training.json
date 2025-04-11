@@ -1,0 +1,26 @@
+{
+  "datasets": [
+    {
+      "data_root": "recoilme/aesthetic_photos_xs",
+      "dataset_type": "image",
+      "image_resolution_buckets": [
+        [1024, 1024]
+      ],
+      "reshape_mode": "bicubic",
+      "remove_common_llm_caption_prefixes": true
+    },
+    {
+      "data_root": "finetrainers/OpenVid-1k-split",
+      "dataset_type": "video",
+      "video_resolution_buckets": [
+        [49, 512, 512],
+        [49, 768, 768],
+        [49, 1024, 1024],
+        [49, 480, 704],
+        [49, 704, 480]
+      ],
+      "reshape_mode": "bicubic",
+      "remove_common_llm_caption_prefixes": true
+    }
+  ]
+}

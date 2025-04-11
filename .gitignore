@@ -173,5 +173,6 @@ outputs*
 .vscode/
 *dummy*
 *curated*
+validation_dataset/
 
 !requirements.txt

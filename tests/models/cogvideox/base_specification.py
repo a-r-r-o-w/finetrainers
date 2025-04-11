@@ -1,15 +1,8 @@
-import pathlib
-import sys
-
 import torch
 from diffusers import AutoencoderKLCogVideoX, CogVideoXDDIMScheduler, CogVideoXTransformer3DModel
 from transformers import AutoTokenizer, T5EncoderModel
 
-
-project_root = pathlib.Path(__file__).resolve().parents[2]
-sys.path.append(str(project_root))
-
-from finetrainers.models.cogvideox import CogVideoXModelSpecification  # noqa
+from finetrainers.models.cogvideox import CogVideoXModelSpecification
 
 
 class DummyCogVideoXModelSpecification(CogVideoXModelSpecification):

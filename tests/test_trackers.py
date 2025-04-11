@@ -1,19 +1,15 @@
 import logging
 import os
 import pathlib
-import sys
 import tempfile
 import unittest
 
 from diffusers.utils.testing_utils import CaptureLogger
 
+from finetrainers.trackers import WandbTracker
+
 
 os.environ["WANDB_MODE"] = "offline"
-project_root = pathlib.Path(__file__).resolve().parents[1]
-sys.path.append(str(project_root))
-
-
-from finetrainers.trackers import WandbTracker  # noqa
 
 
 class WandbFastTests(unittest.TestCase):

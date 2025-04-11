@@ -10,6 +10,7 @@ import huggingface_hub
 import huggingface_hub.errors
 import numpy as np
 import PIL.Image
+import PIL.JpegImagePlugin
 import torch
 import torch.distributed.checkpoint.stateful
 import torchvision
@@ -20,9 +21,8 @@ from tqdm.auto import tqdm
 from finetrainers import constants
 from finetrainers import functional as FF
 from finetrainers.logging import get_logger
+from finetrainers.utils import find_files
 from finetrainers.utils.import_utils import is_datasets_version
-
-from .utils import find_files
 
 
 import decord  # isort:skip
@@ -77,7 +77,6 @@ class ImageCaptionFilePairDataset(torch.utils.data.IterableDataset, torch.distri
             for sample in self._get_data_iter():
                 self._sample_index += 1
                 sample["caption"] = _read_caption_from_file(sample["caption"])
-                sample["image"] = _preprocess_image(sample["image"])
                 yield sample
 
             if not self.infinite:
@@ -151,7 +150,6 @@ class VideoCaptionFilePairDataset(torch.utils.data.IterableDataset, torch.distri
             for sample in self._get_data_iter():
                 self._sample_index += 1
                 sample["caption"] = _read_caption_from_file(sample["caption"])
-                sample["video"] = _preprocess_video(sample["video"])
                 yield sample
 
             if not self.infinite:
@@ -253,7 +251,6 @@ class ImageFileCaptionFileListDataset(
         while True:
             for sample in self._get_data_iter():
                 self._sample_index += 1
-                sample["image"] = _preprocess_image(sample["image"])
                 yield sample
 
             if not self.infinite:
@@ -333,7 +330,6 @@ class VideoFileCaptionFileListDataset(
         while True:
             for sample in self._get_data_iter():
                 self._sample_index += 1
-                sample["video"] = _preprocess_video(sample["video"])
                 yield sample
 
             if not self.infinite:
@@ -371,7 +367,6 @@ class ImageFolderDataset(torch.utils.data.IterableDataset, torch.distributed.che
         while True:
             for sample in self._get_data_iter():
                 self._sample_index += 1
-                sample["image"] = _preprocess_image(sample["image"])
                 yield sample
 
             if not self.infinite:
@@ -409,7 +404,6 @@ class VideoFolderDataset(torch.utils.data.IterableDataset, torch.distributed.che
         while True:
             for sample in self._get_data_iter():
                 self._sample_index += 1
-                sample["video"] = _preprocess_video(sample["video"])
                 yield sample
 
             if not self.infinite:
@@ -450,7 +444,8 @@ class ImageWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
                 caption_columns = [column for column in data.column_names if column in COMMON_WDS_CAPTION_COLUMN_NAMES]
                 if len(caption_columns) == 0:
                     raise ValueError(
-                        f"No common caption column found in the dataset. Supported columns are: {COMMON_WDS_CAPTION_COLUMN_NAMES}"
+                        f"No common caption column found in the dataset. Supported columns are: {COMMON_WDS_CAPTION_COLUMN_NAMES}. "
+                        f"Available columns are: {data.column_names}"
                     )
                 weights = [1] * len(caption_columns)
             else:
@@ -501,7 +496,6 @@ class ImageWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
                 self._sample_index += 1
                 caption_column = random.choices(self._caption_columns, weights=self._weights, k=1)[0]
                 sample["caption"] = sample[caption_column]
-                sample["image"] = _preprocess_image(sample["image"])
                 yield sample
 
             if not self.infinite:
@@ -595,7 +589,6 @@ class VideoWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
                 self._sample_index += 1
                 caption_column = random.choices(self._caption_columns, weights=self._weights, k=1)[0]
                 sample["caption"] = sample[caption_column]
-                sample["video"] = _preprocess_video(sample["video"])
                 yield sample
 
             if not self.infinite:
@@ -650,18 +643,32 @@ class ValidationDataset(torch.utils.data.IterableDataset):
             sample["video"] = None
 
             if sample.get("image_path", None) is not None:
-                image_path = pathlib.Path(sample["image_path"])
-                if not image_path.is_file():
+                image_path = sample["image_path"]
+                if not pathlib.Path(image_path).is_file() and not image_path.startswith("http"):
                     logger.warning(f"Image file {image_path.as_posix()} does not exist.")
                 else:
                     sample["image"] = load_image(sample["image_path"])
 
             if sample.get("video_path", None) is not None:
-                video_path = pathlib.Path(sample["video_path"])
-                if not video_path.is_file():
+                video_path = sample["video_path"]
+                if not pathlib.Path(video_path).is_file() and not video_path.startswith("http"):
                     logger.warning(f"Video file {video_path.as_posix()} does not exist.")
                 else:
                     sample["video"] = load_video(sample["video_path"])
+
+            if sample.get("control_image_path", None) is not None:
+                control_image_path = sample["control_image_path"]
+                if not pathlib.Path(control_image_path).is_file() and not control_image_path.startswith("http"):
+                    logger.warning(f"Control Image file {control_image_path.as_posix()} does not exist.")
+                else:
+                    sample["control_image"] = load_image(sample["control_image_path"])
+
+            if sample.get("control_video_path", None) is not None:
+                control_video_path = sample["control_video_path"]
+                if not pathlib.Path(control_video_path).is_file() and not control_video_path.startswith("http"):
+                    logger.warning(f"Control Video file {control_video_path.as_posix()} does not exist.")
+                else:
+                    sample["control_video"] = load_video(sample["control_video_path"])
 
             sample = {k: v for k, v in sample.items() if v is not None}
             yield sample
@@ -677,6 +684,8 @@ class IterableDatasetPreprocessingWrapper(
         id_token: Optional[str] = None,
         image_resolution_buckets: List[Tuple[int, int]] = None,
         video_resolution_buckets: List[Tuple[int, int, int]] = None,
+        rename_columns: Optional[Dict[str, str]] = None,
+        drop_columns: Optional[List[str]] = None,
         reshape_mode: str = "bicubic",
         remove_common_llm_caption_prefixes: bool = False,
         **kwargs,
@@ -688,6 +697,8 @@ class IterableDatasetPreprocessingWrapper(
         self.id_token = id_token
         self.image_resolution_buckets = image_resolution_buckets
         self.video_resolution_buckets = video_resolution_buckets
+        self.rename_columns = rename_columns or {}
+        self.drop_columns = drop_columns or []
         self.reshape_mode = reshape_mode
         self.remove_common_llm_caption_prefixes = remove_common_llm_caption_prefixes
 
@@ -697,6 +708,7 @@ class IterableDatasetPreprocessingWrapper(
             f"  - ID Token: {id_token}\n"
             f"  - Image Resolution Buckets: {image_resolution_buckets}\n"
             f"  - Video Resolution Buckets: {video_resolution_buckets}\n"
+            f"  - Rename Columns: {rename_columns}\n"
             f"  - Reshape Mode: {reshape_mode}\n"
             f"  - Remove Common LLM Caption Prefixes: {remove_common_llm_caption_prefixes}\n"
         )
@@ -704,6 +716,17 @@ class IterableDatasetPreprocessingWrapper(
     def __iter__(self):
         logger.info("Starting IterableDatasetPreprocessingWrapper for the dataset")
         for sample in iter(self.dataset):
+            for column in self.drop_columns:
+                sample.pop(column, None)
+
+            sample = {self.rename_columns.get(k, k): v for k, v in sample.items()}
+
+            for key in sample.keys():
+                if isinstance(sample[key], PIL.Image.Image):
+                    sample[key] = _preprocess_image(sample[key])
+                elif isinstance(sample[key], (decord.VideoReader, torchvision.io.video_reader.VideoReader)):
+                    sample[key] = _preprocess_video(sample[key])
+
             if self.dataset_type == "image":
                 if self.image_resolution_buckets:
                     sample["_original_num_frames"] = 1
@@ -731,6 +754,8 @@ class IterableDatasetPreprocessingWrapper(
                         sample["video"] = sample["video"][:1]
 
             caption = sample["caption"]
+            if isinstance(caption, list):
+                caption = caption[0]
             if caption.startswith("b'") and caption.endswith("'"):
                 caption = FF.convert_byte_str_to_str(caption)
             if self.remove_common_llm_caption_prefixes:
@@ -814,7 +839,9 @@ def initialize_dataset(
     if does_repo_exist_on_hub:
         return _initialize_hub_dataset(dataset_name_or_root, dataset_type, infinite, _caption_options=_caption_options)
     else:
-        return _initialize_local_dataset(dataset_name_or_root, dataset_type, infinite)
+        return _initialize_local_dataset(
+            dataset_name_or_root, dataset_type, infinite, _caption_options=_caption_options
+        )
 
 
 def combine_datasets(
@@ -829,7 +856,13 @@ def wrap_iterable_dataset_for_preprocessing(
     return IterableDatasetPreprocessingWrapper(dataset, dataset_type, **config)
 
 
-def _initialize_local_dataset(dataset_name_or_root: str, dataset_type: str, infinite: bool = False):
+def _initialize_local_dataset(
+    dataset_name_or_root: str,
+    dataset_type: str,
+    infinite: bool = False,
+    *,
+    _caption_options: Optional[Dict[str, Any]] = None,
+):
     root = pathlib.Path(dataset_name_or_root)
     supported_metadata_files = ["metadata.json", "metadata.jsonl", "metadata.csv"]
     metadata_files = [root / metadata_file for metadata_file in supported_metadata_files]
@@ -844,6 +877,11 @@ def _initialize_local_dataset(dataset_name_or_root: str, dataset_type: str, infi
         else:
             dataset = VideoFolderDataset(root.as_posix(), infinite=infinite)
         return dataset
+
+    file_list = find_files(root.as_posix(), "*", depth=100)
+    has_tar_or_parquet_files = any(file.endswith(".tar") or file.endswith(".parquet") for file in file_list)
+    if has_tar_or_parquet_files:
+        return _initialize_webdataset(root.as_posix(), dataset_type, infinite, _caption_options=_caption_options)
 
     if _has_data_caption_file_pairs(root, remote=False):
         if dataset_type == "image":
@@ -874,8 +912,8 @@ def _initialize_hub_dataset(
     elif _has_data_file_caption_file_lists(repo_file_list, remote=True):
         return _initialize_data_file_caption_file_dataset_from_hub(dataset_name, dataset_type, infinite)
 
-    has_tar_files = any(file.endswith(".tar") or file.endswith(".parquet") for file in repo_file_list)
-    if has_tar_files:
+    has_tar_or_parquet_files = any(file.endswith(".tar") or file.endswith(".parquet") for file in repo_file_list)
+    if has_tar_or_parquet_files:
         return _initialize_webdataset(dataset_name, dataset_type, infinite, _caption_options=_caption_options)
 
     # TODO(aryan): This should be improved

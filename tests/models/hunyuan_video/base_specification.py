@@ -1,6 +1,3 @@
-import pathlib
-import sys
-
 import torch
 from diffusers import AutoencoderKLHunyuanVideo, FlowMatchEulerDiscreteScheduler, HunyuanVideoTransformer3DModel
 from transformers import (
@@ -12,11 +9,7 @@ from transformers import (
     LlamaTokenizer,
 )
 
-
-project_root = pathlib.Path(__file__).resolve().parents[2]
-sys.path.append(str(project_root))
-
-from finetrainers.models.hunyuan_video import HunyuanVideoModelSpecification  # noqa
+from finetrainers.models.hunyuan_video import HunyuanVideoModelSpecification
 
 
 class DummyHunyuanVideoModelSpecification(HunyuanVideoModelSpecification):

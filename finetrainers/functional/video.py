@@ -44,7 +44,7 @@ def find_nearest_video_resolution(
     frame_filtered_buckets = [b for b in resolution_buckets if b[0] == best_frame_match[0]]
 
     def aspect_ratio_diff(bucket):
-        return abs((bucket[2] / bucket[1]) - aspect_ratio)
+        return abs((bucket[2] / bucket[1]) - aspect_ratio), (-bucket[1], -bucket[2])
 
     return min(frame_filtered_buckets, key=aspect_ratio_diff)
 
