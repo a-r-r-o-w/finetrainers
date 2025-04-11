@@ -56,6 +56,6 @@ def load_lora_weights(
         ignore_mismatched_sizes=False,
         low_cpu_mem_usage=low_cpu_mem_usage,
     )
-    logger.info(
+    logger.debug(
         f"Loaded LoRA weights from {pretrained_model_name_or_path} into {pipeline.__class__.__name__}. Result: {result}"
     )
