@@ -25,7 +25,7 @@ The following table shows the algorithms supported for training and the models t
 | [Flux](./flux.md)                         | 🤗 | 😡 | 😡 | 😡 |
 | [HunyuanVideo](./hunyuan_video.md)        | 🤗 | 😡 | 😡 | 😡 |
 | [LTX-Video](./ltx_video.md)               | 🤗 | 😡 | 😡 | 😡 |
-| [Wan](./wan.md)                           | 🤗 | 😡 | 😡 | 😡 |
+| [Wan](./wan.md)                           | 🤗 | 🤗 | 😡 | 😡 |
 
 For launching SFT Training:
 - `--training_type lora`: Trains a new set of low-rank weights of the model, yielding a smaller adapter model. Currently, only LoRA is supported from [🤗 PEFT](https://github.com/huggingface/peft)
