@@ -5,6 +5,7 @@ import unittest
 import torch
 from PIL import Image
 
+from finetrainers import data
 from finetrainers.data import (
     ImageCaptionFilePairDataset,
     ImageFileCaptionFileListDataset,
@@ -353,3 +354,30 @@ class ValidationDatasetFastTests(unittest.TestCase):
             self.assertEqual(data["image_path"], f"{self.tmpdir.name}/{i}.jpg")
             self.assertIsInstance(data["image"], Image.Image)
             self.assertEqual(data["image"].size, (64, 64))
+
+class DatasetFromJson(unittest.TestCase):
+
+    def test_load_json_dataset(self):
+        config = {
+            "data_root": "assets/tests",
+            "dataset_type": "video",
+            "caption_options": {},
+            "id_token": "id",
+        }
+        data_root = config.pop("data_root", None)
+        dataset_file = config.pop("dataset_file", None)
+        dataset_type = config.pop("dataset_type")
+        caption_options = config.pop("caption_options", {})
+
+        dataset_name_or_root = data_root or dataset_file
+        dataset = data.initialize_dataset(
+            dataset_name_or_root, dataset_type, streaming=True, infinite=True, _caption_options=caption_options
+        )
+
+        dataset = data.wrap_iterable_dataset_for_preprocessing(dataset, dataset_type, config)
+
+        item = dataset.__iter__().__next__()
+        self.assertIn("caption", item)
+        self.assertTrue(torch.is_tensor(item["video"]))
+        self.assertEqual(len(item["video"]), 49)
+        self.assertEqual(item["video"][0].shape, (3, 480, 720))

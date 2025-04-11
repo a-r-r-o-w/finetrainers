@@ -611,7 +611,62 @@ class VideoWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
 
     def state_dict(self):
         return {"sample_index": self._sample_index}
+    
+class FileCaptionJsonDataset(torch.utils.data.IterableDataset, torch.distributed.checkpoint.stateful.Stateful):
+    def __init__(self, root: pathlib.Path, infinite: bool = False, file_type: str = "video", dataset_format: str = "json") -> None:
+        super().__init__()
+        self.filetype = file_type
 
+        self.root = pathlib.Path(root)
+        self.infinite = infinite
+
+        data = []
+        dataset_file = self.root / ("metadata" + "." + dataset_format)
+        if not dataset_file.exists():
+            raise FileNotFoundError(f"File {dataset_file.as_posix()} does not exist")
+
+        data_file = datasets.load_dataset(dataset_format, data_files=[dataset_file.as_posix()], split="train", field="data")
+        for sample in data_file:
+            data.append(
+                {
+                    "caption": sample["caption"],
+                    file_type: (self.root / sample[file_type]).as_posix() ,
+                }
+            )
+
+        data = datasets.Dataset.from_list(data)
+        data = data.cast_column(self.filetype, datasets.Image(mode="RGB") if file_type == "image" else datasets.Video())
+
+        self._data = data.to_iterable_dataset()
+        self._sample_index = 0
+        self._precomputable_once = len(data) <= MAX_PRECOMPUTABLE_ITEMS_LIMIT
+
+    def _get_data_iter(self):
+        if self._sample_index == 0:
+            return iter(self._data)
+        return iter(self._data.skip(self._sample_index))
+
+    def __iter__(self):
+        while True:
+            for sample in self._get_data_iter():
+                self._sample_index += 1
+                if self.filetype == "video":
+                    sample[self.filetype] = _preprocess_video(sample[self.filetype])
+                elif self.filetype == "image":
+                    sample[self.filetype] = _preprocess_image(sample[self.filetype])
+                yield sample
+
+            if not self.infinite:
+                logger.warning(f"Dataset ({self.__class__.__name__}={self.root}) has run out of data")
+                break
+            else:
+                self._sample_index = 0
+
+    def load_state_dict(self, state_dict):
+        self._sample_index = state_dict["sample_index"]
+
+    def state_dict(self):
+        return {"sample_index": self._sample_index}
 
 class ValidationDataset(torch.utils.data.IterableDataset):
     def __init__(self, filename: str):
@@ -805,7 +860,6 @@ def initialize_dataset(
     _caption_options: Optional[Dict[str, Any]] = None,
 ) -> torch.utils.data.IterableDataset:
     assert dataset_type in ["image", "video"]
-
     try:
         does_repo_exist_on_hub = repo_exists(dataset_name_or_root, repo_type="dataset")
     except huggingface_hub.errors.HFValidationError:
@@ -838,13 +892,17 @@ def _initialize_local_dataset(dataset_name_or_root: str, dataset_type: str, infi
     if len(metadata_files) > 1:
         raise ValueError("Found multiple metadata files. Please ensure there is only one metadata file.")
 
+    suffix = metadata_files[0].suffix
+    if suffix == ".json":
+        return FileCaptionJsonDataset(root, infinite=infinite, file_type=dataset_type, dataset_format=suffix[1:])
+    
     if len(metadata_files) == 1:
         if dataset_type == "image":
             dataset = ImageFolderDataset(root.as_posix(), infinite=infinite)
         else:
             dataset = VideoFolderDataset(root.as_posix(), infinite=infinite)
         return dataset
-
+    
     if _has_data_caption_file_pairs(root, remote=False):
         if dataset_type == "image":
             dataset = ImageCaptionFilePairDataset(root.as_posix(), infinite=infinite)
