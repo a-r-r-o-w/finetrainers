@@ -15,7 +15,10 @@ class ProcessorMixin:
                 if k in shallow_copy_kwargs:
                     shallow_copy_kwargs[v] = shallow_copy_kwargs.pop(k)
         acceptable_kwargs = {k: v for k, v in shallow_copy_kwargs.items() if k in self._forward_parameter_names}
-        return self.forward(*args, **acceptable_kwargs)
+        output = self.forward(*args, **acceptable_kwargs)
+        if "__drop__" in output:
+            output.pop("__drop__")
+        return output
 
-    def forward(self, *args, **kwargs) -> Any:
+    def forward(self, *args, **kwargs) -> Dict[str, Any]:
         raise NotImplementedError("ProcessorMixin::forward method should be implemented by the subclass.")

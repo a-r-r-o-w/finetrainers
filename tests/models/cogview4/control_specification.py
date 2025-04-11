@@ -19,7 +19,7 @@ class DummyCogView4ControlModelSpecification(CogView4ControlModelSpecification):
         text_encoder_config = GlmConfig(
             hidden_size=32, intermediate_size=8, num_hidden_layers=2, num_attention_heads=4, head_dim=8
         )
-        text_encoder = GlmModel(text_encoder_config)
+        text_encoder = GlmModel(text_encoder_config).to(self.text_encoder_dtype)
         # TODO(aryan): try to not rely on trust_remote_code by creating dummy tokenizer
         tokenizer = AutoTokenizer.from_pretrained("THUDM/glm-4-9b-chat", trust_remote_code=True)
         return {"text_encoder": text_encoder, "tokenizer": tokenizer}
@@ -34,7 +34,7 @@ class DummyCogView4ControlModelSpecification(CogView4ControlModelSpecification):
             up_block_types=["UpDecoderBlock2D", "UpDecoderBlock2D"],
             latent_channels=4,
             sample_size=128,
-        )
+        ).to(self.vae_dtype)
         return {"vae": vae}
 
     def load_diffusion_models(self, new_in_features: int):
@@ -49,8 +49,7 @@ class DummyCogView4ControlModelSpecification(CogView4ControlModelSpecification):
             text_embed_dim=32,
             time_embed_dim=8,
             condition_dim=4,
-        )
-
+        ).to(self.transformer_dtype)
         actual_new_in_features = new_in_features * transformer.config.patch_size**2
         transformer.patch_embed.proj = _expand_linear_with_zeroed_weights(
             transformer.patch_embed.proj, new_in_features=actual_new_in_features

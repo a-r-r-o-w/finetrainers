@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from diffusers import DiffusionPipeline
@@ -11,6 +11,9 @@ from finetrainers.processors import ProcessorMixin
 from finetrainers.typing import ArtifactType, SchedulerType, TokenizerType
 from finetrainers.utils import resolve_component_cls
 
+
+if TYPE_CHECKING:
+    from finetrainers.trainer.control_trainer.config import FrameConditioningType
 
 logger = get_logger()
 
@@ -71,6 +74,9 @@ class ModelSpecification:
         self.vae_config: Dict[str, Any] = None
 
         self._load_configs()
+
+    def _trainer_init(self, *args, **kwargs):
+        pass
 
     # TODO(aryan): revisit how to do this better without user having to worry about it
     @property
@@ -295,6 +301,20 @@ class ModelSpecification:
 
 
 class ControlModelSpecification(ModelSpecification):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.frame_conditioning_type: "FrameConditioningType" = None
+        self.frame_conditioning_index: int = None
+        self.frame_conditioning_concatenate_mask: bool = False
+
+    def _trainer_init(
+        self, frame_conditioning_type: "FrameConditioningType", frame_conditioning_index: int, concatenate_mask: bool
+    ) -> None:
+        self.frame_conditioning_type = frame_conditioning_type
+        self.frame_conditioning_index = frame_conditioning_index
+        self.frame_conditioning_concatenate_mask = concatenate_mask
+
     @property
     def control_injection_layer_name(self):
         r"""Must return the FQN (fully-qualified name) of the control injection layer."""

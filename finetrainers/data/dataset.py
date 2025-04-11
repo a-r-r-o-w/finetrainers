@@ -724,7 +724,7 @@ class IterableDatasetPreprocessingWrapper(
             for key in sample.keys():
                 if isinstance(sample[key], PIL.Image.Image):
                     sample[key] = _preprocess_image(sample[key])
-                elif isinstance(sample[key], decord.VideoReader):
+                elif isinstance(sample[key], (decord.VideoReader, torchvision.io.video_reader.VideoReader)):
                     sample[key] = _preprocess_video(sample[key])
 
             if self.dataset_type == "image":

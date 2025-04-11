@@ -1,30 +1,40 @@
+import random
 from typing import Any, Dict, Optional
 
 import torch
 import torch.distributed.checkpoint.stateful
 from diffusers.video_processor import VideoProcessor
 
-from finetrainers import functional as FF
+import finetrainers.functional as FF
 from finetrainers.logging import get_logger
-from finetrainers.processors import CannyProcessor
+from finetrainers.processors import CannyProcessor, CopyProcessor
 
-from .config import ControlType
+from .config import ControlType, FrameConditioningType
 
 
 logger = get_logger()
 
 
 class IterableControlDataset(torch.utils.data.IterableDataset, torch.distributed.checkpoint.stateful.Stateful):
-    def __init__(self, dataset: torch.utils.data.IterableDataset, control_type: str):
+    def __init__(
+        self, dataset: torch.utils.data.IterableDataset, control_type: str, device: Optional[torch.device] = None
+    ):
         super().__init__()
 
         self.dataset = dataset
         self.control_type = control_type
 
+        self.control_processors = []
         if control_type == ControlType.CANNY:
-            self.control_processors = [
-                CannyProcessor(output_names=["control_output"], input_names={"image": "input", "video": "input"})
-            ]
+            self.control_processors.append(
+                CannyProcessor(
+                    output_names=["control_output"], input_names={"image": "input", "video": "input"}, device=device
+                )
+            )
+        elif control_type == ControlType.NONE:
+            self.control_processors.append(
+                CopyProcessor(output_names=["control_output"], input_names={"image": "input", "video": "input"})
+            )
 
         logger.info("Initialized IterableControlDataset")
 
@@ -122,10 +132,15 @@ class ValidationControlDataset(torch.utils.data.IterableDataset):
         self.device = device
         self._video_processor = VideoProcessor()
 
+        self.control_processors = []
         if control_type == ControlType.CANNY:
-            self.control_processors = [
+            self.control_processors.append(
                 CannyProcessor(["control_output"], input_names={"image": "input", "video": "input"}, device=device)
-            ]
+            )
+        elif control_type == ControlType.NONE:
+            self.control_processors.append(
+                CopyProcessor(["control_output"], input_names={"image": "input", "video": "input"})
+            )
 
         logger.info("Initialized ValidationControlDataset")
 
@@ -166,15 +181,86 @@ class ValidationControlDataset(torch.utils.data.IterableDataset):
         if "control_output" in shallow_copy_data:
             # Normalize to [-1, 1] range
             control_output = shallow_copy_data.pop("control_output")
-            control_output = FF.normalize(control_output, min=-1.0, max=1.0)
-            ndim = control_output.ndim
-            assert 3 <= ndim <= 5, "Control output should be at least ndim=3 and less than or equal to ndim=5"
-            if ndim == 5:
-                control_output = self._video_processor.postprocess_video(control_output, output_type="pil")
-            else:
-                if ndim == 3:
-                    control_output = control_output.unsqueeze(0)
-                control_output = self._video_processor.postprocess(control_output, output_type="pil")[0]
+            if torch.is_tensor(control_output):
+                control_output = FF.normalize(control_output, min=-1.0, max=1.0)
+                ndim = control_output.ndim
+                assert 3 <= ndim <= 5, "Control output should be at least ndim=3 and less than or equal to ndim=5"
+                if ndim == 5:
+                    control_output = self._video_processor.postprocess_video(control_output, output_type="pil")
+                else:
+                    if ndim == 3:
+                        control_output = control_output.unsqueeze(0)
+                    control_output = self._video_processor.postprocess(control_output, output_type="pil")[0]
             key = "control_image" if is_image_control else "control_video"
             shallow_copy_data[key] = control_output
         return shallow_copy_data
+
+
+# TODO(aryan): write a test for this function
+def apply_frame_conditioning_on_latents(
+    latents: torch.Tensor,
+    expected_num_frames: int,
+    channel_dim: int,
+    frame_dim: int,
+    frame_conditioning_type: FrameConditioningType,
+    frame_conditioning_index: Optional[int] = None,
+    concatenate_mask: bool = False,
+) -> torch.Tensor:
+    num_frames = latents.size(frame_dim)
+    mask = torch.zeros_like(latents)
+
+    if frame_conditioning_type == FrameConditioningType.INDEX:
+        frame_index = min(frame_conditioning_index, num_frames - 1)
+        indexing = [slice(None)] * latents.ndim
+        indexing[frame_dim] = frame_index
+        mask[tuple(indexing)] = 1
+        latents = latents * mask
+
+    elif frame_conditioning_type == FrameConditioningType.PREFIX:
+        frame_index = random.randint(1, num_frames)
+        indexing = [slice(None)] * latents.ndim
+        indexing[frame_dim] = slice(0, frame_index)  # Keep frames 0 to frame_index-1
+        mask[tuple(indexing)] = 1
+        latents = latents * mask
+
+    elif frame_conditioning_type == FrameConditioningType.RANDOM:
+        # Zero or more random frames to keep
+        num_frames_to_keep = random.randint(1, num_frames)
+        frame_indices = random.sample(range(num_frames), num_frames_to_keep)
+        indexing = [slice(None)] * latents.ndim
+        indexing[frame_dim] = frame_indices
+        mask[tuple(indexing)] = 1
+        latents = latents * mask
+
+    elif frame_conditioning_type == FrameConditioningType.FIRST_AND_LAST:
+        indexing = [slice(None)] * latents.ndim
+        indexing[frame_dim] = 0
+        mask[tuple(indexing)] = 1
+        indexing[frame_dim] = num_frames - 1
+        mask[tuple(indexing)] = 1
+        latents = latents * mask
+
+    elif frame_conditioning_type == FrameConditioningType.FULL:
+        indexing = [slice(None)] * latents.ndim
+        indexing[frame_dim] = slice(0, num_frames)
+        mask[tuple(indexing)] = 1
+
+    if latents.size(frame_dim) >= expected_num_frames:
+        slicing = [slice(None)] * latents.ndim
+        slicing[frame_dim] = slice(expected_num_frames)
+        latents = latents[tuple(slicing)]
+        mask = mask[tuple(slicing)]
+    else:
+        pad_size = expected_num_frames - num_frames
+        pad_shape = list(latents.shape)
+        pad_shape[frame_dim] = pad_size
+        padding = latents.new_zeros(pad_shape)
+        latents = torch.cat([latents, padding], dim=frame_dim)
+        mask = torch.cat([mask, padding], dim=frame_dim)
+
+    if concatenate_mask:
+        slicing = [slice(None)] * latents.ndim
+        slicing[channel_dim] = 0
+        latents = torch.cat([latents, mask], dim=channel_dim)
+
+    return latents

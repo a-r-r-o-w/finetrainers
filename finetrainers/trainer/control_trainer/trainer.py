@@ -87,6 +87,10 @@ class ControlTrainer:
         self.model_specification = model_specification
         self._are_condition_models_loaded = False
 
+        model_specification._trainer_init(
+            args.frame_conditioning_type, args.frame_conditioning_index, args.frame_conditioning_concatenate_mask
+        )
+
     def run(self) -> None:
         try:
             self._prepare_models()
@@ -321,7 +325,7 @@ class ControlTrainer:
             datasets.append(dataset)
 
         dataset = data.combine_datasets(datasets, buffer_size=self.args.dataset_shuffle_buffer_size, shuffle=True)
-        dataset = IterableControlDataset(dataset, self.args.control_type)
+        dataset = IterableControlDataset(dataset, self.args.control_type, self.state.parallel_backend.device)
         dataloader = self.state.parallel_backend.prepare_dataloader(
             dataset, batch_size=1, num_workers=self.args.dataloader_num_workers, pin_memory=self.args.pin_memory
         )
@@ -909,6 +913,8 @@ class ControlTrainer:
 
             # TODO(aryan): allow multiple control conditions instead of just one if there's a use case for it
             new_in_features = self.model_specification._original_control_layer_in_features * 2
+            if self.args.frame_conditioning_concatenate_mask:
+                new_in_features += 1
             transformer = self.model_specification.load_diffusion_models(new_in_features)["transformer"]
 
             pipeline = self.model_specification.load_pipeline(

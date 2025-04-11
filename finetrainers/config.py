@@ -7,7 +7,7 @@ from .models.cogview4 import CogView4ControlModelSpecification, CogView4ModelSpe
 from .models.flux import FluxModelSpecification
 from .models.hunyuan_video import HunyuanVideoModelSpecification
 from .models.ltx_video import LTXVideoModelSpecification
-from .models.wan import WanModelSpecification
+from .models.wan import WanControlModelSpecification, WanModelSpecification
 
 
 class ModelType(str, Enum):
@@ -57,6 +57,8 @@ SUPPORTED_MODEL_CONFIGS = {
     ModelType.WAN: {
         TrainingType.LORA: WanModelSpecification,
         TrainingType.FULL_FINETUNE: WanModelSpecification,
+        TrainingType.CONTROL_LORA: WanControlModelSpecification,
+        TrainingType.CONTROL_FULL_FINETUNE: WanControlModelSpecification,
     },
 }
 

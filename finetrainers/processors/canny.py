@@ -65,12 +65,12 @@ class CannyProcessor(ProcessorMixin):
             batch_size = 1 if ndim == 3 else input.size(0)
 
             if ndim == 3:
-                input = input.unsqueeze(0)
+                input = input.unsqueeze(0)  # [C, H, W] -> [1, C, H, W]
             elif ndim == 5:
-                input = input.flatten(0, 1)
+                input = input.flatten(0, 1)  # [B, F, C, H, W] -> [B*F, C, H, W]
 
             output = kornia.filters.canny(input)[1].repeat(1, 3, 1, 1)
-            output = output[0] if ndim == 3 else output.unflatten(0, (batch_size, -1))
+            output = output[0] if ndim == 3 else output.unflatten(0, (batch_size, -1)) if ndim == 5 else output
 
         # TODO(aryan): think about how one can pass parameters to the underlying function from
         # a UI perspective. It's important to think about ProcessorMixin in terms of a Graph-based

@@ -1,29 +1,42 @@
 import functools
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-import safetensors.torch
+import safetensors
 import torch
 from accelerate import init_empty_weights
-from diffusers import AutoencoderKL, CogView4Pipeline, CogView4Transformer2DModel, FlowMatchEulerDiscreteScheduler
-from transformers import AutoTokenizer, GlmModel
+from diffusers import (
+    AutoencoderKLWan,
+    FlowMatchEulerDiscreteScheduler,
+    WanPipeline,
+    WanTransformer3DModel,
+)
+from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
+from transformers import AutoModel, AutoTokenizer, UMT5EncoderModel
 
 import finetrainers.functional as FF
-from finetrainers.data import ImageArtifact
+from finetrainers.data import VideoArtifact
+from finetrainers.logging import get_logger
 from finetrainers.models.modeling_utils import ControlModelSpecification
-from finetrainers.models.utils import DiagonalGaussianDistribution, _expand_linear_with_zeroed_weights
+from finetrainers.models.utils import _expand_conv3d_with_zeroed_weights
 from finetrainers.patches.dependencies.diffusers.control import control_channel_concat
-from finetrainers.processors import CogView4GLMProcessor, ProcessorMixin
+from finetrainers.processors import ProcessorMixin, T5Processor
 from finetrainers.typing import ArtifactType, SchedulerType
-from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items, safetensors_torch_save_function
+from finetrainers.utils import get_non_null_items, safetensors_torch_save_function
 
-from .base_specification import CogView4LatentEncodeProcessor
+from .base_specification import WanLatentEncodeProcessor
 
 
-class CogView4ControlModelSpecification(ControlModelSpecification):
+if TYPE_CHECKING:
+    from finetrainers.trainer.control_trainer.config import FrameConditioningType
+
+logger = get_logger()
+
+
+class WanControlModelSpecification(ControlModelSpecification):
     def __init__(
         self,
-        pretrained_model_name_or_path: str = "THUDM/CogView4-6B",
+        pretrained_model_name_or_path: str = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers",
         tokenizer_id: Optional[str] = None,
         text_encoder_id: Optional[str] = None,
         transformer_id: Optional[str] = None,
@@ -52,27 +65,23 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
         )
 
         if condition_model_processors is None:
-            condition_model_processors = [CogView4GLMProcessor(["encoder_hidden_states"])]
+            condition_model_processors = [T5Processor(["encoder_hidden_states", "prompt_attention_mask"])]
         if latent_model_processors is None:
-            latent_model_processors = [
-                CogView4LatentEncodeProcessor(["latents", "original_size", "target_size", "crop_coords"])
-            ]
+            latent_model_processors = [WanLatentEncodeProcessor(["latents", "latents_mean", "latents_std"])]
         if control_model_processors is None:
-            control_model_processors = [
-                CogView4LatentEncodeProcessor(["control_latents", "original_size", "target_size", "crop_coords"])
-            ]
+            control_model_processors = [WanLatentEncodeProcessor(["control_latents", "__drop__", "__drop__"])]
 
         self.condition_model_processors = condition_model_processors
         self.latent_model_processors = latent_model_processors
         self.control_model_processors = control_model_processors
 
     @property
-    def control_injection_layer_name(self):
-        return "patch_embed.proj"
+    def control_injection_layer_name(self) -> str:
+        return "patch_embedding"
 
     @property
     def _resolution_dim_keys(self):
-        return {"latents": (2, 3)}
+        return {"latents": (2, 3, 4)}
 
     def load_condition_models(self) -> Dict[str, torch.nn.Module]:
         common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
@@ -85,11 +94,11 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
             )
 
         if self.text_encoder_id is not None:
-            text_encoder = GlmModel.from_pretrained(
+            text_encoder = AutoModel.from_pretrained(
                 self.text_encoder_id, torch_dtype=self.text_encoder_dtype, **common_kwargs
             )
         else:
-            text_encoder = GlmModel.from_pretrained(
+            text_encoder = UMT5EncoderModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="text_encoder",
                 torch_dtype=self.text_encoder_dtype,
@@ -102,9 +111,9 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
         common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
 
         if self.vae_id is not None:
-            vae = AutoencoderKL.from_pretrained(self.vae_id, torch_dtype=self.vae_dtype, **common_kwargs)
+            vae = AutoencoderKLWan.from_pretrained(self.vae_id, torch_dtype=self.vae_dtype, **common_kwargs)
         else:
-            vae = AutoencoderKL.from_pretrained(
+            vae = AutoencoderKLWan.from_pretrained(
                 self.pretrained_model_name_or_path, subfolder="vae", torch_dtype=self.vae_dtype, **common_kwargs
             )
 
@@ -114,20 +123,19 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
         common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
 
         if self.transformer_id is not None:
-            transformer = CogView4Transformer2DModel.from_pretrained(
+            transformer = WanTransformer3DModel.from_pretrained(
                 self.transformer_id, torch_dtype=self.transformer_dtype, **common_kwargs
             )
         else:
-            transformer = CogView4Transformer2DModel.from_pretrained(
+            transformer = WanTransformer3DModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="transformer",
                 torch_dtype=self.transformer_dtype,
                 **common_kwargs,
             )
 
-        actual_new_in_features = new_in_features * transformer.config.patch_size**2
-        transformer.patch_embed.proj = _expand_linear_with_zeroed_weights(
-            transformer.patch_embed.proj, new_in_features=actual_new_in_features
+        transformer.patch_embedding = _expand_conv3d_with_zeroed_weights(
+            transformer.patch_embedding, new_in_channels=new_in_features
         )
         transformer.register_to_config(in_channels=new_in_features)
 
@@ -138,35 +146,39 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
     def load_pipeline(
         self,
         tokenizer: Optional[AutoTokenizer] = None,
-        text_encoder: Optional[GlmModel] = None,
-        transformer: Optional[CogView4Transformer2DModel] = None,
-        vae: Optional[AutoencoderKL] = None,
+        text_encoder: Optional[UMT5EncoderModel] = None,
+        transformer: Optional[WanTransformer3DModel] = None,
+        vae: Optional[AutoencoderKLWan] = None,
         scheduler: Optional[FlowMatchEulerDiscreteScheduler] = None,
         enable_slicing: bool = False,
         enable_tiling: bool = False,
         enable_model_cpu_offload: bool = False,
         training: bool = False,
         **kwargs,
-    ) -> CogView4Pipeline:
+    ) -> WanPipeline:
         components = {
             "tokenizer": tokenizer,
             "text_encoder": text_encoder,
             "transformer": transformer,
             "vae": vae,
-            # Load the scheduler based on CogView4's config instead of using the default initialization being used for training
-            # "scheduler": scheduler,
+            "scheduler": scheduler,
         }
         components = get_non_null_items(components)
 
-        pipe = CogView4Pipeline.from_pretrained(
+        pipe = WanPipeline.from_pretrained(
             self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
         )
         pipe.text_encoder.to(self.text_encoder_dtype)
         pipe.vae.to(self.vae_dtype)
 
-        _enable_vae_memory_optimizations(pipe.vae, enable_slicing, enable_tiling)
         if not training:
             pipe.transformer.to(self.transformer_dtype)
+
+        # TODO(aryan): add support in diffusers
+        # if enable_slicing:
+        #     pipe.vae.enable_slicing()
+        # if enable_tiling:
+        #     pipe.vae.enable_tiling()
         if enable_model_cpu_offload:
             pipe.enable_model_cpu_offload()
 
@@ -176,9 +188,9 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
     def prepare_conditions(
         self,
         tokenizer: AutoTokenizer,
-        text_encoder: GlmModel,
+        text_encoder: UMT5EncoderModel,
         caption: str,
-        max_sequence_length: int = 1024,
+        max_sequence_length: int = 512,
         **kwargs,
     ) -> Dict[str, Any]:
         conditions = {
@@ -191,33 +203,33 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
         input_keys = set(conditions.keys())
         conditions = super().prepare_conditions(**conditions)
         conditions = {k: v for k, v in conditions.items() if k not in input_keys}
+        conditions.pop("prompt_attention_mask", None)
         return conditions
 
     @torch.no_grad()
     def prepare_latents(
         self,
-        vae: AutoencoderKL,
+        vae: AutoencoderKLWan,
         image: Optional[torch.Tensor] = None,
         video: Optional[torch.Tensor] = None,
         control_image: Optional[torch.Tensor] = None,
         control_video: Optional[torch.Tensor] = None,
         generator: Optional[torch.Generator] = None,
         compute_posterior: bool = True,
-        _original_height: Optional[int] = None,
-        _original_width: Optional[int] = None,
         **kwargs,
     ) -> Dict[str, torch.Tensor]:
         common_kwargs = {
             "vae": vae,
             "generator": generator,
-            "compute_posterior": compute_posterior,
-            "_original_height": _original_height,
-            "_original_width": _original_width,
+            # We must force this to False because the latent normalization should be done before
+            # the posterior is computed. The VAE does not handle this any more:
+            # https://github.com/huggingface/diffusers/pull/10998
+            "compute_posterior": False,
             **kwargs,
         }
         conditions = {"image": image, "video": video, **common_kwargs}
         input_keys = set(conditions.keys())
-        conditions = ControlModelSpecification.prepare_latents(self, self.latent_model_processors, **conditions)
+        conditions = super().prepare_latents(**conditions)
         conditions = {k: v for k, v in conditions.items() if k not in input_keys}
 
         control_conditions = {"image": control_image, "video": control_video, **common_kwargs}
@@ -231,7 +243,7 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
 
     def forward(
         self,
-        transformer: CogView4Transformer2DModel,
+        transformer: WanTransformer3DModel,
         condition_model_conditions: Dict[str, torch.Tensor],
         latent_model_conditions: Dict[str, torch.Tensor],
         sigmas: torch.Tensor,
@@ -239,34 +251,49 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
         compute_posterior: bool = True,
         **kwargs,
     ) -> Tuple[torch.Tensor, ...]:
-        base_image_sequence_length = 256
-        base_shift = 0.25
-        max_shift = 0.75
+        from finetrainers.trainer.control_trainer.data import apply_frame_conditioning_on_latents
 
+        compute_posterior = False  # See explanation in prepare_latents
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
             control_latents = latent_model_conditions.pop("control_latents")
         else:
-            posterior = DiagonalGaussianDistribution(latent_model_conditions.pop("latents"))
-            latents = posterior.sample(generator=generator)
+            latents = latent_model_conditions.pop("latents")
+            control_latents = latent_model_conditions.pop("control_latents")
+            latents_mean = latent_model_conditions.pop("latents_mean")
+            latents_std = latent_model_conditions.pop("latents_std")
+
+            mu, logvar = torch.chunk(latents, 2, dim=1)
+            mu = self._normalize_latents(mu, latents_mean, latents_std)
+            logvar = self._normalize_latents(logvar, latents_mean, latents_std)
+            latents = torch.cat([mu, logvar], dim=1)
+
+            mu, logvar = torch.chunk(control_latents, 2, dim=1)
+            mu = self._normalize_latents(mu, latents_mean, latents_std)
+            logvar = self._normalize_latents(logvar, latents_mean, latents_std)
+            control_latents = torch.cat([mu, logvar], dim=1)
+
+            posterior = DiagonalGaussianDistribution(latents)
+            latents = posterior.mode()
             del posterior
 
-            control_posterior = DiagonalGaussianDistribution(latent_model_conditions.pop("control_latents"))
-            control_latents = control_posterior.sample(generator=generator)
+            control_posterior = DiagonalGaussianDistribution(control_latents)
+            control_latents = control_posterior.mode()
             del control_posterior
-
-        if getattr(self.vae_config, "shift_factor") is not None:
-            latents = (latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
-            control_latents = (control_latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
 
         noise = torch.zeros_like(latents).normal_(generator=generator)
         timesteps = (sigmas.flatten() * 1000.0).long()
 
-        image_sequence_length = latents.size(2) * latents.size(3) // self.transformer_config.patch_size**2
-        mu = (image_sequence_length / base_image_sequence_length) ** 0.5
-        mu = mu * max_shift + base_shift
-        shifted_sigmas = mu / (mu + (1 / sigmas - 1) ** 1.0)
-        noisy_latents = FF.flow_match_xt(latents, noise, shifted_sigmas)
+        noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
+        control_latents = apply_frame_conditioning_on_latents(
+            control_latents,
+            noisy_latents.shape[2],
+            channel_dim=1,
+            frame_dim=2,
+            frame_conditioning_type=self.frame_conditioning_type,
+            frame_conditioning_index=self.frame_conditioning_index,
+            concatenate_mask=self.frame_conditioning_concatenate_mask,
+        )
         noisy_latents = torch.cat([noisy_latents, control_latents], dim=1)
 
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
@@ -279,38 +306,65 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
         )[0]
         target = FF.flow_match_target(noise, latents)
 
-        # NOTE: shifted_sigmas loss weighting seems to work better than sigmas. Needs more investigation
-        # but let's keep it this way for now. Longer training runs should reveal more insights.
-        # return pred, target, sigmas
-        return pred, target, shifted_sigmas
+        return pred, target, sigmas
 
     def validation(
         self,
-        pipeline: CogView4Pipeline,
+        pipeline: WanPipeline,
         prompt: str,
-        control_image: torch.Tensor,
+        control_image: Optional[torch.Tensor] = None,
+        control_video: Optional[torch.Tensor] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
+        num_frames: Optional[int] = None,
         num_inference_steps: int = 50,
         generator: Optional[torch.Generator] = None,
+        frame_conditioning_type: "FrameConditioningType" = "full",
+        frame_conditioning_index: int = 0,
         **kwargs,
     ) -> List[ArtifactType]:
+        from finetrainers.trainer.control_trainer.data import apply_frame_conditioning_on_latents
+
         with torch.no_grad():
             dtype = pipeline.vae.dtype
             device = pipeline._execution_device
             in_channels = self.transformer_config.in_channels  # We need to use the original in_channels
-            latents = pipeline.prepare_latents(1, in_channels, height, width, dtype, device, generator)
-            control_image = pipeline.image_processor.preprocess(control_image, height=height, width=width)
-            control_image = control_image.to(device=device, dtype=dtype)
-            control_latents = pipeline.vae.encode(control_image).latent_dist.sample(generator=generator)
-            if getattr(self.vae_config, "shift_factor") is not None:
-                control_latents = (control_latents - self.vae_config.shift_factor) * self.vae_config.scaling_factor
+            latents = pipeline.prepare_latents(1, in_channels, height, width, num_frames, dtype, device, generator)
+            latents_mean = (
+                torch.tensor(self.vae_config.latents_mean)
+                .view(1, self.vae_config.z_dim, 1, 1, 1)
+                .to(latents.device, latents.dtype)
+            )
+            latents_std = 1.0 / torch.tensor(self.vae_config.latents_std).view(1, self.vae_config.z_dim, 1, 1, 1).to(
+                latents.device, latents.dtype
+            )
+
+            if control_image is not None:
+                control_video = pipeline.video_processor.preprocess(
+                    control_image, height=height, width=width
+                ).unsqueeze(2)
+            else:
+                control_video = pipeline.video_processor.preprocess_video(control_video, height=height, width=width)
+
+            control_video = control_video.to(device=device, dtype=dtype)
+            control_latents = pipeline.vae.encode(control_video).latent_dist.mode()
+            control_latents = self._normalize_latents(control_latents, latents_mean, latents_std)
+            control_latents = apply_frame_conditioning_on_latents(
+                control_latents,
+                latents.shape[2],
+                channel_dim=1,
+                frame_dim=2,
+                frame_conditioning_type=frame_conditioning_type,
+                frame_conditioning_index=frame_conditioning_index,
+                concatenate_mask=self.frame_conditioning_concatenate_mask,
+            )
 
         generation_kwargs = {
             "latents": latents,
             "prompt": prompt,
             "height": height,
             "width": width,
+            "num_frames": num_frames,
             "num_inference_steps": num_inference_steps,
             "generator": generator,
             "return_dict": True,
@@ -319,9 +373,9 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
         generation_kwargs = get_non_null_items(generation_kwargs)
 
         with control_channel_concat(pipeline.transformer, ["hidden_states"], [control_latents], dims=[1]):
-            image = pipeline(**generation_kwargs).images[0]
+            video = pipeline(**generation_kwargs).frames[0]
 
-        return [ImageArtifact(value=image)]
+        return [VideoArtifact(value=video)]
 
     def _save_lora_weights(
         self,
@@ -335,7 +389,7 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
-            CogView4Pipeline.save_lora_weights(
+            WanPipeline.save_lora_weights(
                 directory,
                 transformer_state_dict,
                 save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
@@ -349,18 +403,27 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
     def _save_model(
         self,
         directory: str,
-        transformer: CogView4Transformer2DModel,
+        transformer: WanTransformer3DModel,
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
             with init_empty_weights():
-                transformer_copy = CogView4Transformer2DModel.from_config(transformer.config)
+                transformer_copy = WanTransformer3DModel.from_config(transformer.config)
             transformer_copy.load_state_dict(transformer_state_dict, strict=True, assign=True)
             transformer_copy.save_pretrained(os.path.join(directory, "transformer"))
         if scheduler is not None:
             scheduler.save_pretrained(os.path.join(directory, "scheduler"))
+
+    @staticmethod
+    def _normalize_latents(
+        latents: torch.Tensor, latents_mean: torch.Tensor, latents_std: torch.Tensor
+    ) -> torch.Tensor:
+        latents_mean = latents_mean.view(1, -1, 1, 1, 1).to(device=latents.device)
+        latents_std = latents_std.view(1, -1, 1, 1, 1).to(device=latents.device)
+        latents = ((latents.float() - latents_mean) * latents_std).to(latents)
+        return latents
 
     @property
     def _original_control_layer_in_features(self):
@@ -372,4 +435,4 @@ class CogView4ControlModelSpecification(ControlModelSpecification):
 
     @property
     def _qk_norm_identifiers(self):
-        return ["attn1.norm_q", "attn1.norm_k"]
+        return ["norm_q", "norm_k", "norm_added_q", "norm_added_k"]

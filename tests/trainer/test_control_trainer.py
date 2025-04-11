@@ -20,6 +20,7 @@ os.environ["WANDB_MODE"] = "disabled"
 os.environ["FINETRAINERS_LOG_LEVEL"] = "INFO"
 
 from ..models.cogview4.control_specification import DummyCogView4ControlModelSpecification  # noqa
+from ..models.wan.control_specification import DummyWanControlModelSpecification  # noqa
 
 
 logger = get_logger()
@@ -92,6 +93,8 @@ class ControlTrainerFastTestsMixin:
 
         args.control_type = ControlType.CANNY
         args.train_qk_norm = True
+        args.frame_conditioning_type = "random"
+        args.frame_conditioning_index = None
 
         return args
 
@@ -259,3 +262,11 @@ class ControlTrainerCogView4LoRATests___PTD(ControlTrainerLoRATestsMixin___PTD, 
 
 class ControlTrainerCogView4FullFinetuneTests___PTD(ControlTrainerFullFinetuneTestsMixin___PTD, unittest.TestCase):
     model_specification_cls = DummyCogView4ControlModelSpecification
+
+
+class ControlTrainerWanLoRATests___PTD(ControlTrainerLoRATestsMixin___PTD, unittest.TestCase):
+    model_specification_cls = DummyWanControlModelSpecification
+
+
+class ControlTrainerWanFullFinetuneTests___PTD(ControlTrainerFullFinetuneTestsMixin___PTD, unittest.TestCase):
+    model_specification_cls = DummyWanControlModelSpecification

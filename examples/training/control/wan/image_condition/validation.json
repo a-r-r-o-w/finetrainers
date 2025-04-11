@@ -1,0 +1,44 @@
+{
+  "data": [
+    {
+      "caption": "A vibrant green Mustang GT parked in a parking lot. The car is positioned at an angle, showcasing its sleek design and black rims. The car's hood is black, contrasting with the green body. The Mustang GT logo is visible on the side of the car. The parking lot appears to be empty, with the car being the main focus of the video. The car's position and the absence of other vehicles suggest that the video might be a promotional or showcase video for the Mustang GT. The overall style of the video is simple and straightforward, focusing on the car and its design.",
+      "video_path": "examples/training/control/wan/image_condition/validation_dataset/0.mp4",
+      "num_inference_steps": 30,
+      "num_frames": 49,
+      "height": 480,
+      "width": 704,
+      "frame_conditioning_type": "index",
+      "frame_conditioning_index": 0
+    },
+    {
+      "caption": "A cooking tutorial featuring a man in a kitchen. He is wearing a white t-shirt and a black apron. In the first frame, he is holding a bowl and appears to be explaining something. In the second frame, he is mixing ingredients in the bowl. In the third frame, he is pouring the mixture into another bowl. The kitchen is well-equipped with various appliances and utensils. There are also other people in the background, possibly assisting with the cooking process. The style of the video is informative and instructional, with a focus on the cooking process.",
+      "video_path": "examples/training/control/wan/image_condition/validation_dataset/1.mp4",
+      "num_inference_steps": 30,
+      "num_frames": 49,
+      "height": 480,
+      "width": 704,
+      "frame_conditioning_type": "index",
+      "frame_conditioning_index": 0
+    },
+    {
+      "caption": "A man in a suit and tie, standing against a blue background with a digital pattern. He appears to be speaking or presenting, as suggested by his open mouth and focused expression. The style of the video is likely a news segment or an interview, given the professional attire of the man and the formal setting. The background suggests a modern, technology-focused theme, which could be related to the content of the man's speech or the context of the interview. The overall impression is one of professionalism and seriousness.",
+      "video_path": "examples/training/control/wan/image_condition/validation_dataset/2.mp4",
+      "num_inference_steps": 30,
+      "num_frames": 49,
+      "height": 480,
+      "width": 704,
+      "frame_conditioning_type": "index",
+      "frame_conditioning_index": 0
+    },
+    {
+      "caption": "A man in a workshop, dressed in a black shirt and a beige hat, with a beard and glasses. He is holding a hammer and a metal object, possibly a piece of iron or a tool. The workshop is filled with various tools and equipment, including a workbench, a vice, and a shelf with various items. The man appears to be engaged in a craft or a repair project. The style of the video is realistic and documentary, capturing the man's actions and the environment of the workshop in detail. The focus is on the man and his work, with no additional text or graphics. The lighting is natural, suggesting that the video was taken during the day. The overall impression is of a skilled craftsman at work in his workshop.",
+      "video_path": "examples/training/control/wan/image_condition/validation_dataset/3.mp4",
+      "num_inference_steps": 30,
+      "num_frames": 49,
+      "height": 480,
+      "width": 704,
+      "frame_conditioning_type": "index",
+      "frame_conditioning_index": 0
+    }
+  ]
+}
