@@ -436,9 +436,9 @@ class ImageWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
     ) -> None:
         super().__init__()
 
-        assert weights == -1 or isinstance(
-            weights, dict
-        ), "`weights` must be a dictionary of probabilities for each caption column"
+        assert weights == -1 or isinstance(weights, dict), (
+            "`weights` must be a dictionary of probabilities for each caption column"
+        )
 
         self.dataset_name = dataset_name
         self.infinite = infinite
@@ -530,9 +530,9 @@ class VideoWebDataset(torch.utils.data.IterableDataset, torch.distributed.checkp
     ) -> None:
         super().__init__()
 
-        assert weights == -1 or isinstance(
-            weights, dict
-        ), "`weights` must be a dictionary of probabilities for each caption column"
+        assert weights == -1 or isinstance(weights, dict), (
+            "`weights` must be a dictionary of probabilities for each caption column"
+        )
 
         self.dataset_name = dataset_name
         self.infinite = infinite

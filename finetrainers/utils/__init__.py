@@ -37,7 +37,7 @@ def get_parameter_names(obj: Any, method_name: Optional[str] = None) -> Set[str]
 
 
 def get_non_null_items(
-    x: Union[List[Any], Tuple[Any], Dict[str, Any]]
+    x: Union[List[Any], Tuple[Any], Dict[str, Any]],
 ) -> Union[List[Any], Tuple[Any], Dict[str, Any]]:
     if isinstance(x, dict):
         return {k: v for k, v in x.items() if v is not None}
