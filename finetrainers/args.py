@@ -88,6 +88,8 @@ class BaseArgs:
         Modules to skip for layerwise upcasting. Layers such as normalization and modulation, when casted to fp8 precision
         naively (as done in layerwise upcasting), can lead to poorer training and inference quality. We skip these layers
         by default, and recommend adding more layers to the default list based on the model architecture.
+    compile_modules (`List[str]`, defaults to `[]`):
+        Modules that should be regionally compiled with `torch.compile`. Choose one or more from ['transformer'].
 
     DATASET ARGUMENTS
     -----------------
@@ -847,9 +849,9 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
 
 def _validate_model_args(args: BaseArgs):
     if args.training_type == "full-finetune":
-        assert (
-            "transformer" not in args.layerwise_upcasting_modules
-        ), "Layerwise upcasting is not supported for full-finetune training"
+        assert "transformer" not in args.layerwise_upcasting_modules, (
+            "Layerwise upcasting is not supported for full-finetune training"
+        )
 
 
 def _validate_dataset_args(args: BaseArgs):

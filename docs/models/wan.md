@@ -43,32 +43,6 @@ To use trained Control LoRAs, the following can be used for inference (ideally, 
 <summary> Control Lora inference </summary>
 
 ```python
-# # import torch
-# # from finetrainers.trainer.control_trainer.data import apply_frame_conditioning_on_latents
-
-# # num_frames = 10
-# # latents = torch.randn(1, 1, num_frames, 2, 2)
-# # result = apply_frame_conditioning_on_latents(
-# #     latents,
-# #     expected_num_frames=num_frames,
-# #     channel_dim=1,
-# #     frame_dim=2,
-# #     frame_conditioning_type="index",
-# #     frame_conditioning_index=0,
-# #     concatenate_mask=True,
-# # )
-
-
-# from finetrainers.data import initialize_dataset, wrap_iterable_dataset_for_preprocessing
-
-# ds = initialize_dataset("finetrainers/OpenVid-1K-split", dataset_type="video")
-# ds = wrap_iterable_dataset_for_preprocessing(ds, dataset_type="video", config={})
-# iterator = iter(ds)
-
-# for i in range(1):
-#     data = next(iterator)
-#     breakpoint()
-
 import numpy as np
 import torch
 from diffusers import WanPipeline

@@ -57,9 +57,9 @@ class ControlLowRankConfig(ConfigMixin):
     control_type: str = ControlType.CANNY
     rank: int = 64
     lora_alpha: int = 64
-    target_modules: Union[
-        str, List[str]
-    ] = "(transformer_blocks|single_transformer_blocks).*(to_q|to_k|to_v|to_out.0|ff.net.0.proj|ff.net.2)"
+    target_modules: Union[str, List[str]] = (
+        "(transformer_blocks|single_transformer_blocks).*(to_q|to_k|to_v|to_out.0|ff.net.0.proj|ff.net.2)"
+    )
     train_qk_norm: bool = False
 
     # Specific to video models
