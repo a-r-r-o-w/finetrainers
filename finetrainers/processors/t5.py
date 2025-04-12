@@ -17,14 +17,16 @@ class T5Processor(ProcessorMixin):
             text and the second output is the attention mask for the input text.
     """
 
-    def __init__(self, output_names: List[str], input_names: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self, output_names: List[str], input_names: Optional[Dict[str, Any]] = None, use_attention_mask: bool = False
+    ):
         super().__init__()
 
         self.output_names = output_names
         self.input_names = input_names
-        if input_names is not None:
-            assert len(input_names) <= 4
+        self.use_attention_mask = use_attention_mask
 
+        assert input_names is None or len(input_names) <= 4
         assert len(self.output_names) == 2
 
     def forward(
@@ -65,8 +67,13 @@ class T5Processor(ProcessorMixin):
         text_input_ids = text_inputs.input_ids
         prompt_attention_mask = text_inputs.attention_mask
         prompt_attention_mask = prompt_attention_mask.bool().to(device)
+        text_input_ids = text_input_ids.to(device)
 
-        prompt_embeds = text_encoder(text_input_ids.to(device))[0]
+        if self.use_attention_mask:
+            prompt_embeds = text_encoder(text_input_ids, attention_mask=prompt_attention_mask)[0]
+        else:
+            prompt_embeds = text_encoder(text_input_ids)[0]
+
         prompt_embeds = prompt_embeds.to(dtype=dtype, device=device)
         prompt_attention_mask = prompt_attention_mask.view(batch_size, -1)
 

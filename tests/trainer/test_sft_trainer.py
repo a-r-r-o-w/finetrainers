@@ -22,6 +22,7 @@ os.environ["FINETRAINERS_LOG_LEVEL"] = "INFO"
 from ..models.cogvideox.base_specification import DummyCogVideoXModelSpecification  # noqa
 from ..models.cogview4.base_specification import DummyCogView4ModelSpecification  # noqa
 from ..models.flux.base_specification import DummyFluxModelSpecification  # noqa
+from ..models.hidream.base_specification import DummyHiDreamImageModelSpecification  # noqa
 from ..models.hunyuan_video.base_specification import DummyHunyuanVideoModelSpecification  # noqa
 from ..models.ltx_video.base_specification import DummyLTXVideoModelSpecification  # noqa
 from ..models.wan.base_specification import DummyWanModelSpecification  # noqa
@@ -459,6 +460,14 @@ class SFTTrainerFluxLoRATests___PTD(SFTTrainerLoRATestsMixin___PTD, unittest.Tes
 
 class SFTTrainerFluxFullFinetuneTests___PTD(SFTTrainerFullFinetuneTestsMixin___PTD, unittest.TestCase):
     model_specification_cls = DummyFluxModelSpecification
+
+
+class SFTTrainerHiDreamImageLoRATests___PTD(SFTTrainerLoRATestsMixin___PTD, unittest.TestCase):
+    model_specification_cls = DummyHiDreamImageModelSpecification
+
+
+class SFTTrainerHiDreamImageFullFinetuneTests___PTD(SFTTrainerFullFinetuneTestsMixin___PTD, unittest.TestCase):
+    model_specification_cls = DummyHiDreamImageModelSpecification
 
 
 class SFTTrainerHunyuanVideoLoRATests___PTD(SFTTrainerLoRATestsMixin___PTD, unittest.TestCase):

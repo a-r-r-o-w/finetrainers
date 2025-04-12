@@ -36,14 +36,17 @@ class ModelSpecification:
         tokenizer_id: Optional[str] = None,
         tokenizer_2_id: Optional[str] = None,
         tokenizer_3_id: Optional[str] = None,
+        tokenizer_4_id: Optional[str] = None,
         text_encoder_id: Optional[str] = None,
         text_encoder_2_id: Optional[str] = None,
         text_encoder_3_id: Optional[str] = None,
+        text_encoder_4_id: Optional[str] = None,
         transformer_id: Optional[str] = None,
         vae_id: Optional[str] = None,
         text_encoder_dtype: torch.dtype = torch.bfloat16,
         text_encoder_2_dtype: torch.dtype = torch.bfloat16,
         text_encoder_3_dtype: torch.dtype = torch.bfloat16,
+        text_encoder_4_dtype: torch.dtype = torch.bfloat16,
         transformer_dtype: torch.dtype = torch.bfloat16,
         vae_dtype: str = torch.bfloat16,
         revision: Optional[str] = None,
@@ -55,14 +58,17 @@ class ModelSpecification:
         self.tokenizer_id = tokenizer_id
         self.tokenizer_2_id = tokenizer_2_id
         self.tokenizer_3_id = tokenizer_3_id
+        self.tokenizer_4_id = tokenizer_4_id
         self.text_encoder_id = text_encoder_id
         self.text_encoder_2_id = text_encoder_2_id
         self.text_encoder_3_id = text_encoder_3_id
+        self.text_encoder_4_id = text_encoder_4_id
         self.transformer_id = transformer_id
         self.vae_id = vae_id
         self.text_encoder_dtype = text_encoder_dtype
         self.text_encoder_2_dtype = text_encoder_2_dtype
         self.text_encoder_3_dtype = text_encoder_3_dtype
+        self.text_encoder_4_dtype = text_encoder_4_dtype
         self.transformer_dtype = transformer_dtype
         self.vae_dtype = vae_dtype
         self.revision = revision
@@ -105,9 +111,11 @@ class ModelSpecification:
         tokenizer: Optional[TokenizerType] = None,
         tokenizer_2: Optional[TokenizerType] = None,
         tokenizer_3: Optional[TokenizerType] = None,
+        tokenizer_4: Optional[TokenizerType] = None,
         text_encoder: Optional[torch.nn.Module] = None,
         text_encoder_2: Optional[torch.nn.Module] = None,
         text_encoder_3: Optional[torch.nn.Module] = None,
+        text_encoder_4: Optional[torch.nn.Module] = None,
         transformer: Optional[torch.nn.Module] = None,
         vae: Optional[torch.nn.Module] = None,
         scheduler: Optional[SchedulerType] = None,
@@ -237,6 +245,7 @@ class ModelSpecification:
         text_encoder: torch.nn.Module,
         text_encoder_2: torch.nn.Module,
         text_encoder_3: torch.nn.Module,
+        text_encoder_4: torch.nn.Module,
         transformer: torch.nn.Module,
         vae: torch.nn.Module,
     ) -> None:

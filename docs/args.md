@@ -46,12 +46,16 @@ tokenizer_2_id (`str`, defaults to `None`):
     Identifier for the second tokenizer model. This is useful when using a different tokenizer than the default from `pretrained_model_name_or_path`.
 tokenizer_3_id (`str`, defaults to `None`):
     Identifier for the third tokenizer model. This is useful when using a different tokenizer than the default from `pretrained_model_name_or_path`.
+tokenizer_4_id (`str`, defaults to `None`):
+    Identifier for the fourth tokenizer model. This is useful when using a different tokenizer than the default from `pretrained_model_name_or_path`.
 text_encoder_id (`str`, defaults to `None`):
     Identifier for the text encoder model. This is useful when using a different text encoder than the default from `pretrained_model_name_or_path`.
 text_encoder_2_id (`str`, defaults to `None`):
     Identifier for the second text encoder model. This is useful when using a different text encoder than the default from `pretrained_model_name_or_path`.
 text_encoder_3_id (`str`, defaults to `None`):
     Identifier for the third text encoder model. This is useful when using a different text encoder than the default from `pretrained_model_name_or_path`.
+text_encoder_4_id (`str`, defaults to `None`):
+    Identifier for the fourth text encoder model. This is useful when using a different text encoder than the default from `pretrained_model_name_or_path`.
 transformer_id (`str`, defaults to `None`):
     Identifier for the transformer model. This is useful when using a different transformer model than the default from `pretrained_model_name_or_path`.
 vae_id (`str`, defaults to `None`):

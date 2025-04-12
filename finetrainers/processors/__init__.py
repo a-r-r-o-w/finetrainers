@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional
 
 from .base import ProcessorMixin
 from .canny import CannyProcessor
-from .clip import CLIPPooledProcessor
+from .clip import CLIPTextModelPooledProcessor, CLIPTextModelWithProjectionPooledProcessor
 from .glm import CogView4GLMProcessor
 from .llama import LlamaProcessor
 from .t5 import T5Processor

@@ -36,8 +36,8 @@ logger = logging.get_logger()
 
 class SFTTrainer:
     # fmt: off
-    _all_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
-    _condition_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3"]
+    _all_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "tokenizer_4", "text_encoder", "text_encoder_2", "text_encoder_3", "text_encoder_4", "transformer", "unet", "vae", "scheduler"]
+    _condition_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "tokenizer_4", "text_encoder", "text_encoder_2", "text_encoder_3", "text_encoder_4"]
     _latent_component_names = ["vae"]
     _diffusion_component_names = ["transformer", "unet", "scheduler"]
     # fmt: on
@@ -51,11 +51,13 @@ class SFTTrainer:
         self.tokenizer = None
         self.tokenizer_2 = None
         self.tokenizer_3 = None
+        self.tokenizer_4 = None
 
         # Text encoders
         self.text_encoder = None
         self.text_encoder_2 = None
         self.text_encoder_3 = None
+        self.text_encoder_4 = None
 
         # Denoisers
         self.transformer = None
@@ -699,7 +701,7 @@ class SFTTrainer:
         logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
 
         # Remove all hooks that might have been added during pipeline initialization to the models
-        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "vae"]
+        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "text_encoder_4", "vae"]
         pipeline.remove_all_hooks()
         del pipeline
         if self.args.enable_precomputation:
@@ -799,7 +801,14 @@ class SFTTrainer:
         if device is None:
             device = self.state.parallel_backend.device
         if components is None:
-            components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.transformer, self.vae]
+            components = [
+                self.text_encoder,
+                self.text_encoder_2,
+                self.text_encoder_3,
+                self.text_encoder_4,
+                self.transformer,
+                self.vae,
+            ]
         components = utils.get_non_null_items(components)
         components = list(filter(lambda x: hasattr(x, "to"), components))
         for component in components:
@@ -820,7 +829,7 @@ class SFTTrainer:
         utils.synchronize_device()
 
     def _init_pipeline(self, final_validation: bool = False) -> DiffusionPipeline:
-        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "vae"]
+        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "text_encoder_4", "transformer", "vae"]
 
         if not final_validation:
             module_names.remove("transformer")
@@ -828,9 +837,11 @@ class SFTTrainer:
                 tokenizer=self.tokenizer,
                 tokenizer_2=self.tokenizer_2,
                 tokenizer_3=self.tokenizer_3,
+                tokenizer_4=self.tokenizer_4,
                 text_encoder=self.text_encoder,
                 text_encoder_2=self.text_encoder_2,
                 text_encoder_3=self.text_encoder_3,
+                text_encoder_4=self.text_encoder_4,
                 # TODO(aryan): handle unwrapping for compiled modules
                 # transformer=utils.unwrap_model(accelerator, self.transformer),
                 transformer=self.transformer,
