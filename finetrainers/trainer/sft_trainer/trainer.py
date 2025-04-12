@@ -195,12 +195,12 @@ class SFTTrainer:
 
             parallel_backend.apply_fsdp2(
                 model=self.transformer,
-                dp_mesh=parallel_backend.get_mesh()[dp_mesh_names],
                 param_dtype=self.args.transformer_dtype,
                 reduce_dtype=torch.float32,
                 output_dtype=None,
                 pp_enabled=parallel_backend.pipeline_parallel_enabled,
                 cpu_offload=False,  # TODO(aryan): needs to be tested and allowed for enabling later
+                device_mesh=parallel_backend.get_mesh()[dp_mesh_names],
             )
         elif parallel_backend.data_replication_enabled:
             logger.info("Applying DDP to the model")
