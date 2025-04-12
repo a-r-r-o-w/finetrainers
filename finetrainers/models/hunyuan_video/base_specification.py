@@ -17,7 +17,7 @@ import finetrainers.functional as FF
 from finetrainers.data import VideoArtifact
 from finetrainers.logging import get_logger
 from finetrainers.models.modeling_utils import ModelSpecification
-from finetrainers.processors import CLIPPooledProcessor, LlamaProcessor, ProcessorMixin
+from finetrainers.processors import CLIPTextModelPooledProcessor, LlamaProcessor, ProcessorMixin
 from finetrainers.typing import ArtifactType, SchedulerType
 from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items, safetensors_torch_save_function
 
@@ -109,7 +109,7 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         if condition_model_processors is None:
             condition_model_processors = [
                 LlamaProcessor(["encoder_hidden_states", "encoder_attention_mask"]),
-                CLIPPooledProcessor(
+                CLIPTextModelPooledProcessor(
                     ["pooled_projections"],
                     input_names={"tokenizer_2": "tokenizer", "text_encoder_2": "text_encoder"},
                 ),

@@ -60,12 +60,16 @@ class BaseArgs:
         Identifier for the second tokenizer model. This is useful when using a different tokenizer than the default from `pretrained_model_name_or_path`.
     tokenizer_3_id (`str`, defaults to `None`):
         Identifier for the third tokenizer model. This is useful when using a different tokenizer than the default from `pretrained_model_name_or_path`.
+    tokenizer_4_id (`str`, defaults to `None`):
+        Identifier for the fourth tokenizer model. This is useful when using a different tokenizer than the default from `pretrained_model_name_or_path`.
     text_encoder_id (`str`, defaults to `None`):
         Identifier for the text encoder model. This is useful when using a different text encoder than the default from `pretrained_model_name_or_path`.
     text_encoder_2_id (`str`, defaults to `None`):
         Identifier for the second text encoder model. This is useful when using a different text encoder than the default from `pretrained_model_name_or_path`.
     text_encoder_3_id (`str`, defaults to `None`):
         Identifier for the third text encoder model. This is useful when using a different text encoder than the default from `pretrained_model_name_or_path`.
+    text_encoder_4_id (`str`, defaults to `None`):
+        Identifier for the fourth text encoder model. This is useful when using a different text encoder than the default from `pretrained_model_name_or_path`.
     transformer_id (`str`, defaults to `None`):
         Identifier for the transformer model. This is useful when using a different transformer model than the default from `pretrained_model_name_or_path`.
     vae_id (`str`, defaults to `None`):
@@ -76,6 +80,8 @@ class BaseArgs:
         Data type for the text encoder 2 when generating text embeddings.
     text_encoder_3_dtype (`torch.dtype`, defaults to `torch.bfloat16`):
         Data type for the text encoder 3 when generating text embeddings.
+    text_encoder_4_dtype (`torch.dtype`, defaults to `torch.bfloat16`):
+        Data type for the text encoder 4 when generating text embeddings.
     transformer_dtype (`torch.dtype`, defaults to `torch.bfloat16`):
         Data type for the transformer model.
     vae_dtype (`torch.dtype`, defaults to `torch.bfloat16`):
@@ -294,14 +300,17 @@ class BaseArgs:
     tokenizer_id: Optional[str] = None
     tokenizer_2_id: Optional[str] = None
     tokenizer_3_id: Optional[str] = None
+    tokenizer_4_id: Optional[str] = None
     text_encoder_id: Optional[str] = None
     text_encoder_2_id: Optional[str] = None
     text_encoder_3_id: Optional[str] = None
+    text_encoder_4_id: Optional[str] = None
     transformer_id: Optional[str] = None
     vae_id: Optional[str] = None
     text_encoder_dtype: torch.dtype = torch.bfloat16
     text_encoder_2_dtype: torch.dtype = torch.bfloat16
     text_encoder_3_dtype: torch.dtype = torch.bfloat16
+    text_encoder_4_dtype: torch.dtype = torch.bfloat16
     transformer_dtype: torch.dtype = torch.bfloat16
     vae_dtype: torch.dtype = torch.bfloat16
     layerwise_upcasting_modules: List[str] = []
@@ -410,14 +419,17 @@ class BaseArgs:
             "tokenizer_id": self.tokenizer_id,
             "tokenizer_2_id": self.tokenizer_2_id,
             "tokenizer_3_id": self.tokenizer_3_id,
+            "tokenizer_4_id": self.tokenizer_4_id,
             "text_encoder_id": self.text_encoder_id,
             "text_encoder_2_id": self.text_encoder_2_id,
             "text_encoder_3_id": self.text_encoder_3_id,
+            "text_encoder_4_id": self.text_encoder_4_id,
             "transformer_id": self.transformer_id,
             "vae_id": self.vae_id,
             "text_encoder_dtype": self.text_encoder_dtype,
             "text_encoder_2_dtype": self.text_encoder_2_dtype,
             "text_encoder_3_dtype": self.text_encoder_3_dtype,
+            "text_encoder_4_dtype": self.text_encoder_4_dtype,
             "transformer_dtype": self.transformer_dtype,
             "vae_dtype": self.vae_dtype,
             "layerwise_upcasting_modules": self.layerwise_upcasting_modules,
@@ -609,14 +621,17 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tokenizer_id", type=str, default=None)
     parser.add_argument("--tokenizer_2_id", type=str, default=None)
     parser.add_argument("--tokenizer_3_id", type=str, default=None)
+    parser.add_argument("--tokenizer_4_id", type=str, default=None)
     parser.add_argument("--text_encoder_id", type=str, default=None)
     parser.add_argument("--text_encoder_2_id", type=str, default=None)
     parser.add_argument("--text_encoder_3_id", type=str, default=None)
+    parser.add_argument("--text_encoder_4_id", type=str, default=None)
     parser.add_argument("--transformer_id", type=str, default=None)
     parser.add_argument("--vae_id", type=str, default=None)
     parser.add_argument("--text_encoder_dtype", type=str, default="bf16")
     parser.add_argument("--text_encoder_2_dtype", type=str, default="bf16")
     parser.add_argument("--text_encoder_3_dtype", type=str, default="bf16")
+    parser.add_argument("--text_encoder_4_dtype", type=str, default="bf16")
     parser.add_argument("--transformer_dtype", type=str, default="bf16")
     parser.add_argument("--vae_dtype", type=str, default="bf16")
     parser.add_argument("--layerwise_upcasting_modules", type=str, default=[], nargs="+", choices=["transformer"])
@@ -758,14 +773,17 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.tokenizer_id = args.tokenizer_id
     result_args.tokenizer_2_id = args.tokenizer_2_id
     result_args.tokenizer_3_id = args.tokenizer_3_id
+    result_args.tokenizer_4_id = args.tokenizer_4_id
     result_args.text_encoder_id = args.text_encoder_id
     result_args.text_encoder_2_id = args.text_encoder_2_id
     result_args.text_encoder_3_id = args.text_encoder_3_id
+    result_args.text_encoder_4_id = args.text_encoder_4_id
     result_args.transformer_id = args.transformer_id
     result_args.vae_id = args.vae_id
     result_args.text_encoder_dtype = _DTYPE_MAP[args.text_encoder_dtype]
     result_args.text_encoder_2_dtype = _DTYPE_MAP[args.text_encoder_2_dtype]
     result_args.text_encoder_3_dtype = _DTYPE_MAP[args.text_encoder_3_dtype]
+    result_args.text_encoder_4_dtype = _DTYPE_MAP[args.text_encoder_4_dtype]
     result_args.transformer_dtype = _DTYPE_MAP[args.transformer_dtype]
     result_args.vae_dtype = _DTYPE_MAP[args.vae_dtype]
     result_args.layerwise_upcasting_modules = args.layerwise_upcasting_modules

@@ -108,7 +108,9 @@ class WanModelSpecification(ModelSpecification):
         )
 
         if condition_model_processors is None:
-            condition_model_processors = [T5Processor(["encoder_hidden_states", "prompt_attention_mask"])]
+            condition_model_processors = [
+                T5Processor(["encoder_hidden_states", "prompt_attention_mask"], use_attention_mask=True)
+            ]
         if latent_model_processors is None:
             latent_model_processors = [WanLatentEncodeProcessor(["latents", "latents_mean", "latents_std"])]
 

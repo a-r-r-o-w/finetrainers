@@ -1,18 +1,35 @@
 import functools
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from accelerate import init_empty_weights
-from diffusers import AutoencoderKL, FlowMatchEulerDiscreteScheduler, FluxPipeline, FluxTransformer2DModel
+from diffusers import (
+    AutoencoderKL,
+    FlowMatchEulerDiscreteScheduler,
+    HiDreamImagePipeline,
+    HiDreamImageTransformer2DModel,
+)
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
-from transformers import AutoTokenizer, CLIPTextModel, CLIPTokenizer, T5EncoderModel
+from transformers import (
+    AutoTokenizer,
+    CLIPTextModelWithProjection,
+    CLIPTokenizer,
+    LlamaForCausalLM,
+    PreTrainedTokenizerFast,
+    T5EncoderModel,
+    T5Tokenizer,
+)
 
 import finetrainers.functional as FF
 from finetrainers.data import ImageArtifact
 from finetrainers.logging import get_logger
 from finetrainers.models.modeling_utils import ModelSpecification
-from finetrainers.processors import CLIPTextModelPooledProcessor, ProcessorMixin, T5Processor
+from finetrainers.processors import (
+    CLIPTextModelWithProjectionPooledProcessor,
+    ProcessorMixin,
+    T5Processor,
+)
 from finetrainers.typing import ArtifactType, SchedulerType
 from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items, safetensors_torch_save_function
 
@@ -20,9 +37,68 @@ from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_it
 logger = get_logger()
 
 
-class FluxLatentEncodeProcessor(ProcessorMixin):
+class HiDreamImageLlamaProcessor(ProcessorMixin):
     r"""
-    Processor to encode image/video into latents using the Flux VAE.
+    Processor for the Llama family of models specific to HiDream. This processor is used to encode text inputs
+    and return the embeddings and attention masks for the input text.
+
+    Args:
+        output_names (`List[str]`):
+            The names of the outputs that the processor should return. The first output is the embeddings of the input
+            text and the second output is the attention mask for the input text.
+    """
+
+    def __init__(
+        self, output_names: List[str], input_names: Optional[Dict[str, Any]] = None, use_attention_mask: bool = False
+    ):
+        super().__init__()
+
+        self.output_names = output_names
+        self.input_names = input_names
+        self.use_attention_mask = use_attention_mask
+
+        assert input_names is None or len(input_names) <= 4
+        assert len(self.output_names) == 1
+
+    def forward(
+        self,
+        tokenizer: AutoTokenizer,
+        text_encoder: LlamaForCausalLM,
+        caption: Union[str, List[str]],
+        max_sequence_length: int,
+    ) -> torch.Tensor:
+        if isinstance(caption, str):
+            caption = [caption]
+
+        device = text_encoder.device
+        dtype = text_encoder.dtype
+
+        text_inputs = tokenizer(
+            caption,
+            padding="max_length",
+            max_length=min(max_sequence_length, tokenizer.model_max_length),
+            truncation=True,
+            add_special_tokens=True,
+            return_tensors="pt",
+        )
+        text_input_ids = text_inputs.input_ids.to(device)
+        attention_mask = text_inputs.attention_mask.to(device)
+
+        outputs = text_encoder(
+            text_input_ids,
+            attention_mask=attention_mask,
+            output_hidden_states=True,
+            output_attentions=True,
+        )
+        prompt_embeds = outputs.hidden_states[1:]
+        prompt_embeds = torch.stack(prompt_embeds, dim=0).to(dtype=dtype)
+
+        return {self.output_names[0]: prompt_embeds}
+
+
+class HiDreamImageLatentEncodeProcessor(ProcessorMixin):
+    r"""
+    Processor to encode image/video into latents using the HiDream VAE.
 
     Args:
         output_names (`List[str]`):
@@ -68,17 +144,24 @@ class FluxLatentEncodeProcessor(ProcessorMixin):
         return {self.output_names[0]: latents}
 
 
-class FluxModelSpecification(ModelSpecification):
+class HiDreamImageModelSpecification(ModelSpecification):
     def __init__(
         self,
-        pretrained_model_name_or_path: str = "black-forest-labs/FLUX.1-dev",
+        pretrained_model_name_or_path: str = "HiDream-ai/HiDream-I1-Full",
         tokenizer_id: Optional[str] = None,
         tokenizer_2_id: Optional[str] = None,
+        tokenizer_3_id: Optional[str] = None,
+        tokenizer_4_id: Optional[str] = None,
         text_encoder_id: Optional[str] = None,
         text_encoder_2_id: Optional[str] = None,
+        text_encoder_3_id: Optional[str] = None,
+        text_encoder_4_id: Optional[str] = None,
         transformer_id: Optional[str] = None,
         vae_id: Optional[str] = None,
         text_encoder_dtype: torch.dtype = torch.bfloat16,
+        text_encoder_2_dtype: torch.dtype = torch.bfloat16,
+        text_encoder_3_dtype: torch.dtype = torch.bfloat16,
+        text_encoder_4_dtype: torch.dtype = torch.bfloat16,
         transformer_dtype: torch.dtype = torch.bfloat16,
         vae_dtype: torch.dtype = torch.bfloat16,
         revision: Optional[str] = None,
@@ -91,11 +174,18 @@ class FluxModelSpecification(ModelSpecification):
             pretrained_model_name_or_path=pretrained_model_name_or_path,
             tokenizer_id=tokenizer_id,
             tokenizer_2_id=tokenizer_2_id,
+            tokenizer_3_id=tokenizer_3_id,
+            tokenizer_4_id=tokenizer_4_id,
             text_encoder_id=text_encoder_id,
             text_encoder_2_id=text_encoder_2_id,
+            text_encoder_3_id=text_encoder_3_id,
+            text_encoder_4_id=text_encoder_4_id,
             transformer_id=transformer_id,
             vae_id=vae_id,
             text_encoder_dtype=text_encoder_dtype,
+            text_encoder_2_dtype=text_encoder_2_dtype,
+            text_encoder_3_dtype=text_encoder_3_dtype,
+            text_encoder_4_dtype=text_encoder_4_dtype,
             transformer_dtype=transformer_dtype,
             vae_dtype=vae_dtype,
             revision=revision,
@@ -104,14 +194,23 @@ class FluxModelSpecification(ModelSpecification):
 
         if condition_model_processors is None:
             condition_model_processors = [
-                CLIPTextModelPooledProcessor(["pooled_projections"]),
-                T5Processor(
-                    ["encoder_hidden_states", "prompt_attention_mask"],
+                CLIPTextModelWithProjectionPooledProcessor(["pooled_prompt_embeds_1"]),
+                CLIPTextModelWithProjectionPooledProcessor(
+                    ["pooled_prompt_embeds_2"],
                     input_names={"tokenizer_2": "tokenizer", "text_encoder_2": "text_encoder"},
+                ),
+                T5Processor(
+                    ["encoder_hidden_states_t5", "__drop__"],
+                    input_names={"tokenizer_3": "tokenizer", "text_encoder_3": "text_encoder"},
+                    use_attention_mask=True,
+                ),
+                HiDreamImageLlamaProcessor(
+                    ["encoder_hidden_states_llama"],
+                    input_names={"tokenizer_4": "tokenizer", "text_encoder_4": "text_encoder"},
                 ),
             ]
         if latent_model_processors is None:
-            latent_model_processors = [FluxLatentEncodeProcessor(["latents"])]
+            latent_model_processors = [HiDreamImageLatentEncodeProcessor(["latents"])]
 
         self.condition_model_processors = condition_model_processors
         self.latent_model_processors = latent_model_processors
@@ -129,43 +228,82 @@ class FluxModelSpecification(ModelSpecification):
             tokenizer = CLIPTokenizer.from_pretrained(
                 self.pretrained_model_name_or_path, subfolder="tokenizer", **common_kwargs
             )
-
         if self.tokenizer_2_id is not None:
             tokenizer_2 = AutoTokenizer.from_pretrained(self.tokenizer_2_id, **common_kwargs)
         else:
-            tokenizer_2 = AutoTokenizer.from_pretrained(
+            tokenizer_2 = CLIPTokenizer.from_pretrained(
                 self.pretrained_model_name_or_path, subfolder="tokenizer_2", **common_kwargs
             )
+        if self.tokenizer_3_id is not None:
+            tokenizer_3 = AutoTokenizer.from_pretrained(self.tokenizer_3_id, **common_kwargs)
+        else:
+            tokenizer_3 = T5Tokenizer.from_pretrained(
+                self.pretrained_model_name_or_path, subfolder="tokenizer_3", **common_kwargs
+            )
+        if self.tokenizer_4_id is not None:
+            tokenizer_4 = AutoTokenizer.from_pretrained(self.tokenizer_4_id, **common_kwargs)
+        else:
+            tokenizer_4 = PreTrainedTokenizerFast.from_pretrained("meta-llama/Meta-Llama-3.1-8B-Instruct")
+        tokenizer_4.pad_token = tokenizer_4.eos_token
 
         if self.text_encoder_id is not None:
-            text_encoder = CLIPTextModel.from_pretrained(
+            text_encoder = CLIPTextModelWithProjection.from_pretrained(
                 self.text_encoder_id, torch_dtype=self.text_encoder_dtype, **common_kwargs
             )
         else:
-            text_encoder = CLIPTextModel.from_pretrained(
+            text_encoder = CLIPTextModelWithProjection.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="text_encoder",
                 torch_dtype=self.text_encoder_dtype,
                 **common_kwargs,
             )
-
         if self.text_encoder_2_id is not None:
-            text_encoder_2 = T5EncoderModel.from_pretrained(
+            text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
                 self.text_encoder_2_id, torch_dtype=self.text_encoder_2_dtype, **common_kwargs
             )
         else:
-            text_encoder_2 = T5EncoderModel.from_pretrained(
+            text_encoder_2 = CLIPTextModelWithProjection.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="text_encoder_2",
                 torch_dtype=self.text_encoder_2_dtype,
                 **common_kwargs,
             )
+        if self.text_encoder_3_id is not None:
+            text_encoder_3 = T5EncoderModel.from_pretrained(
+                self.text_encoder_3_id, torch_dtype=self.text_encoder_3_dtype, **common_kwargs
+            )
+        else:
+            text_encoder_3 = T5EncoderModel.from_pretrained(
+                self.pretrained_model_name_or_path,
+                subfolder="text_encoder_3",
+                torch_dtype=self.text_encoder_3_dtype,
+                **common_kwargs,
+            )
+        if self.text_encoder_4_id is not None:
+            text_encoder_4 = LlamaForCausalLM.from_pretrained(
+                self.text_encoder_4_id,
+                torch_dtype=self.text_encoder_4_dtype,
+                output_hidden_states=True,
+                output_attentions=True,
+                **common_kwargs,
+            )
+        else:
+            text_encoder_4 = LlamaForCausalLM.from_pretrained(
+                "meta-llama/Meta-Llama-3.1-8B-Instruct",
+                output_hidden_states=True,
+                output_attentions=True,
+                torch_dtype=self.text_encoder_4_dtype,
+            )
 
         return {
             "tokenizer": tokenizer,
             "tokenizer_2": tokenizer_2,
+            "tokenizer_3": tokenizer_3,
+            "tokenizer_4": tokenizer_4,
             "text_encoder": text_encoder,
             "text_encoder_2": text_encoder_2,
+            "text_encoder_3": text_encoder_3,
+            "text_encoder_4": text_encoder_4,
         }
 
     def load_latent_models(self) -> Dict[str, torch.nn.Module]:
@@ -184,11 +322,11 @@ class FluxModelSpecification(ModelSpecification):
         common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
 
         if self.transformer_id is not None:
-            transformer = FluxTransformer2DModel.from_pretrained(
+            transformer = HiDreamImageTransformer2DModel.from_pretrained(
                 self.transformer_id, torch_dtype=self.transformer_dtype, **common_kwargs
             )
         else:
-            transformer = FluxTransformer2DModel.from_pretrained(
+            transformer = HiDreamImageTransformer2DModel.from_pretrained(
                 self.pretrained_model_name_or_path,
                 subfolder="transformer",
                 torch_dtype=self.transformer_dtype,
@@ -201,11 +339,15 @@ class FluxModelSpecification(ModelSpecification):
 
     def load_pipeline(
         self,
-        tokenizer: Optional[AutoTokenizer] = None,
+        tokenizer: Optional[CLIPTokenizer] = None,
         tokenizer_2: Optional[CLIPTokenizer] = None,
-        text_encoder: Optional[CLIPTextModel] = None,
-        text_encoder_2: Optional[T5EncoderModel] = None,
-        transformer: Optional[FluxTransformer2DModel] = None,
+        tokenizer_3: Optional[T5Tokenizer] = None,
+        tokenizer_4: Optional[AutoTokenizer] = None,
+        text_encoder: Optional[CLIPTextModelWithProjection] = None,
+        text_encoder_2: Optional[CLIPTextModelWithProjection] = None,
+        text_encoder_3: Optional[T5EncoderModel] = None,
+        text_encoder_4: Optional[LlamaForCausalLM] = None,
+        transformer: Optional[HiDreamImageTransformer2DModel] = None,
         vae: Optional[AutoencoderKL] = None,
         scheduler: Optional[FlowMatchEulerDiscreteScheduler] = None,
         enable_slicing: bool = False,
@@ -213,24 +355,27 @@ class FluxModelSpecification(ModelSpecification):
         enable_model_cpu_offload: bool = False,
         training: bool = False,
         **kwargs,
-    ) -> FluxPipeline:
+    ) -> HiDreamImagePipeline:
         components = {
             "tokenizer": tokenizer,
             "tokenizer_2": tokenizer_2,
+            "tokenizer_3": tokenizer_3,
+            "tokenizer_4": tokenizer_4,
             "text_encoder": text_encoder,
             "text_encoder_2": text_encoder_2,
+            "text_encoder_3": text_encoder_3,
+            "text_encoder_4": text_encoder_4,
             "transformer": transformer,
             "vae": vae,
-            # Load the scheduler based on Flux's config instead of using the default initialization being used for training
+            # Load the scheduler based on HiDream's config instead of using the default initialization being used for training
             # "scheduler": scheduler,
         }
         components = get_non_null_items(components)
 
-        pipe = FluxPipeline.from_pretrained(
+        pipe = HiDreamImagePipeline.from_pretrained(
             self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
         )
         pipe.text_encoder.to(self.text_encoder_dtype)
-        pipe.text_encoder_2.to(self.text_encoder_2_dtype)
         pipe.vae.to(self.vae_dtype)
 
         _enable_vae_memory_optimizations(pipe.vae, enable_slicing, enable_tiling)
@@ -243,19 +388,27 @@ class FluxModelSpecification(ModelSpecification):
     @torch.no_grad()
     def prepare_conditions(
         self,
-        tokenizer: AutoTokenizer,
+        tokenizer: CLIPTokenizer,
         tokenizer_2: CLIPTokenizer,
-        text_encoder: CLIPTextModel,
-        text_encoder_2: T5EncoderModel,
+        tokenizer_3: T5Tokenizer,
+        tokenizer_4: AutoTokenizer,
+        text_encoder: CLIPTextModelWithProjection,
+        text_encoder_2: CLIPTextModelWithProjection,
+        text_encoder_3: T5EncoderModel,
+        text_encoder_4: LlamaForCausalLM,
         caption: str,
-        max_sequence_length: int = 512,
+        max_sequence_length: int = 128,
         **kwargs,
     ) -> Dict[str, Any]:
         conditions = {
             "tokenizer": tokenizer,
             "tokenizer_2": tokenizer_2,
+            "tokenizer_3": tokenizer_3,
+            "tokenizer_4": tokenizer_4,
             "text_encoder": text_encoder,
             "text_encoder_2": text_encoder_2,
+            "text_encoder_3": text_encoder_3,
+            "text_encoder_4": text_encoder_4,
             "caption": caption,
             "max_sequence_length": max_sequence_length,
             **kwargs,
@@ -290,7 +443,7 @@ class FluxModelSpecification(ModelSpecification):
 
     def forward(
         self,
-        transformer: FluxTransformer2DModel,
+        transformer: HiDreamImageTransformer2DModel,
         condition_model_conditions: Dict[str, torch.Tensor],
         latent_model_conditions: Dict[str, torch.Tensor],
         sigmas: torch.Tensor,
@@ -312,60 +465,91 @@ class FluxModelSpecification(ModelSpecification):
 
         noise = torch.zeros_like(latents).normal_(generator=generator)
         timesteps = (sigmas.flatten() * 1000.0).long()
-        img_ids = FluxPipeline._prepare_latent_image_ids(
-            latents.size(0), latents.size(2) // 2, latents.size(3) // 2, latents.device, latents.dtype
-        )
-        text_ids = latents.new_zeros(condition_model_conditions["encoder_hidden_states"].shape[1], 3)
-
-        if self.transformer_config.guidance_embeds:
-            guidance_scale = 1.0
-            guidance = latents.new_full((1,), guidance_scale).expand(latents.shape[0])
-        else:
-            guidance = None
-
         noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
-        noisy_latents = FluxPipeline._pack_latents(noisy_latents, *latents.shape)
+
+        batch_size, num_channels, height, width = latents.shape
+        img_sizes = img_ids = None
+        p = self.transformer_config.patch_size
+        if height != width:
+            patch_height, patch_width = height // p, width // p
+
+            img_sizes = torch.tensor([patch_height, patch_width], dtype=torch.int64).reshape(-1)
+            img_ids = torch.zeros(patch_height, patch_width, 3)
+            img_ids[..., 1] = img_ids[..., 1] + torch.arange(patch_height)[:, None]
+            img_ids[..., 2] = img_ids[..., 2] + torch.arange(patch_width)[None, :]
+            img_ids = img_ids.reshape(patch_height * patch_width, -1)
+            img_ids_pad = torch.zeros(transformer.max_seq, 3)
+            img_ids_pad[: patch_height * patch_width, :] = img_ids
+
+            img_sizes = img_sizes.unsqueeze(0).to(latents.device)
+            img_ids = img_ids_pad.unsqueeze(0).to(latents.device)
+
+        pooled_prompt_embeds_1 = condition_model_conditions.pop("pooled_prompt_embeds_1")
+        pooled_prompt_embeds_2 = condition_model_conditions.pop("pooled_prompt_embeds_2")
+        pooled_embeds = torch.cat([pooled_prompt_embeds_1, pooled_prompt_embeds_2], dim=-1)
+        encoder_hidden_states_t5 = condition_model_conditions.pop("encoder_hidden_states_t5")
+        encoder_hidden_states_llama = condition_model_conditions.pop("encoder_hidden_states_llama")
+        encoder_hidden_states = [encoder_hidden_states_t5, encoder_hidden_states_llama]
 
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
-        condition_model_conditions.pop("prompt_attention_mask", None)
+        latent_model_conditions["encoder_hidden_states"] = encoder_hidden_states
+        latent_model_conditions["pooled_embeds"] = pooled_embeds
+        latent_model_conditions["img_ids"] = img_ids
+        latent_model_conditions["img_sizes"] = img_sizes
 
-        spatial_compression_ratio = 2 ** len(self.vae_config.block_out_channels)
         pred = transformer(
             **latent_model_conditions,
             **condition_model_conditions,
-            timestep=timesteps / 1000.0,
-            guidance=guidance,
-            img_ids=img_ids,
-            txt_ids=text_ids,
+            timesteps=timesteps,
             return_dict=False,
         )[0]
-        pred = FluxPipeline._unpack_latents(
-            pred,
-            latents.size(2) * spatial_compression_ratio,
-            latents.size(3) * spatial_compression_ratio,
-            spatial_compression_ratio,
-        )
+        pred = -pred
         target = FF.flow_match_target(noise, latents)
+
+        if height != width:
+            expanded_target = pred.new_zeros(batch_size, num_channels, transformer.max_seq, p * p)
+            target = target.reshape(batch_size, num_channels, patch_height, p, patch_width, p)
+            target = target.permute(0, 1, 2, 4, 3, 5).flatten(4, 5).flatten(2, 3)
+            expanded_target[:, :, : patch_height * patch_width, :] = target
+            target = expanded_target
+        else:
+            pred = pred.reshape(batch_size, num_channels, patch_height, p, patch_width, p)
+            pred = pred.permute(0, 2, 4, 3, 5, 1)
+            pred = pred.reshape(batch_size, patch_height * patch_width, -1)
 
         return pred, target, sigmas
 
     def validation(
         self,
-        pipeline: FluxPipeline,
+        pipeline: HiDreamImagePipeline,
         prompt: str,
+        prompt_2: Optional[str] = None,
+        prompt_3: Optional[str] = None,
+        prompt_4: Optional[str] = None,
+        negative_prompt: Optional[str] = None,
+        negative_prompt_2: Optional[str] = None,
+        negative_prompt_3: Optional[str] = None,
+        negative_prompt_4: Optional[str] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_inference_steps: int = 50,
-        guidance_scale: float = 3.5,
+        guidance_scale: float = 5.0,
         generator: Optional[torch.Generator] = None,
         **kwargs,
     ) -> List[ArtifactType]:
         generation_kwargs = {
             "prompt": prompt,
+            "prompt_2": prompt_2,
+            "prompt_3": prompt_3,
+            "prompt_4": prompt_4,
+            "negative_prompt": negative_prompt,
+            "negative_prompt_2": negative_prompt_2,
+            "negative_prompt_3": negative_prompt_3,
+            "negative_prompt_4": negative_prompt_4,
             "height": height,
             "width": width,
-            "num_inference_steps": num_inference_steps,
             "guidance_scale": guidance_scale,
+            "num_inference_steps": num_inference_steps,
             "generator": generator,
             "return_dict": True,
             "output_type": "pil",
@@ -385,7 +569,7 @@ class FluxModelSpecification(ModelSpecification):
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
-            FluxPipeline.save_lora_weights(
+            HiDreamImagePipeline.save_lora_weights(
                 directory,
                 transformer_state_dict,
                 save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
@@ -397,14 +581,14 @@ class FluxModelSpecification(ModelSpecification):
     def _save_model(
         self,
         directory: str,
-        transformer: FluxTransformer2DModel,
+        transformer: HiDreamImageTransformer2DModel,
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
             with init_empty_weights():
-                transformer_copy = FluxTransformer2DModel.from_config(transformer.config)
+                transformer_copy = HiDreamImageTransformer2DModel.from_config(transformer.config)
             transformer_copy.load_state_dict(transformer_state_dict, strict=True, assign=True)
             transformer_copy.save_pretrained(os.path.join(directory, "transformer"))
         if scheduler is not None:
