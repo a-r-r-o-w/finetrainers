@@ -16,3 +16,4 @@ torchao>=0.7.0
 sentencepiece>=0.2.0
 imageio-ffmpeg>=0.5.1
 numpy>=1.26.4
+ruff==0.9.10
