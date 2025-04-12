@@ -50,7 +50,6 @@ SUPPORTED_MODEL_CONFIGS = {
     },
     ModelType.HIDREAM: {
         TrainingType.LORA: HiDreamImageModelSpecification,
-        TrainingType.FULL_FINETUNE: HiDreamImageModelSpecification,
     },
     ModelType.HUNYUAN_VIDEO: {
         TrainingType.LORA: HunyuanVideoModelSpecification,

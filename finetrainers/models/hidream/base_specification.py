@@ -16,6 +16,7 @@ from transformers import (
     CLIPTextModelWithProjection,
     CLIPTokenizer,
     LlamaForCausalLM,
+    PreTrainedTokenizerFast,
     T5EncoderModel,
     T5Tokenizer,
 )
@@ -242,9 +243,8 @@ class HiDreamImageModelSpecification(ModelSpecification):
         if self.tokenizer_4_id is not None:
             tokenizer_4 = AutoTokenizer.from_pretrained(self.tokenizer_4_id, **common_kwargs)
         else:
-            tokenizer_4 = AutoTokenizer.from_pretrained(
-                self.pretrained_model_name_or_path, subfolder="tokenizer_4", **common_kwargs
-            )
+            tokenizer_4 = PreTrainedTokenizerFast.from_pretrained("meta-llama/Meta-Llama-3.1-8B-Instruct")
+        tokenizer_4.pad_token = tokenizer_4.eos_token
 
         if self.text_encoder_id is not None:
             text_encoder = CLIPTextModelWithProjection.from_pretrained(
@@ -289,12 +289,10 @@ class HiDreamImageModelSpecification(ModelSpecification):
             )
         else:
             text_encoder_4 = LlamaForCausalLM.from_pretrained(
-                self.pretrained_model_name_or_path,
-                subfolder="text_encoder_4",
-                torch_dtype=self.text_encoder_4_dtype,
+                "meta-llama/Meta-Llama-3.1-8B-Instruct",
                 output_hidden_states=True,
                 output_attentions=True,
-                **common_kwargs,
+                torch_dtype=self.text_encoder_4_dtype,
             )
 
         return {
@@ -480,7 +478,7 @@ class HiDreamImageModelSpecification(ModelSpecification):
             img_ids[..., 1] = img_ids[..., 1] + torch.arange(patch_height)[:, None]
             img_ids[..., 2] = img_ids[..., 2] + torch.arange(patch_width)[None, :]
             img_ids = img_ids.reshape(patch_height * patch_width, -1)
-            img_ids_pad = torch.zeros(self.transformer.max_seq, 3)
+            img_ids_pad = torch.zeros(transformer.max_seq, 3)
             img_ids_pad[: patch_height * patch_width, :] = img_ids
 
             img_sizes = img_sizes.unsqueeze(0).to(latents.device)
@@ -505,9 +503,19 @@ class HiDreamImageModelSpecification(ModelSpecification):
             timesteps=timesteps,
             return_dict=False,
         )[0]
-        pred = pred.flatten(-2, -1).unflatten(-1, (height, width))
         pred = -pred
         target = FF.flow_match_target(noise, latents)
+
+        if height != width:
+            expanded_target = pred.new_zeros(batch_size, num_channels, transformer.max_seq, p * p)
+            target = target.reshape(batch_size, num_channels, patch_height, p, patch_width, p)
+            target = target.permute(0, 1, 2, 4, 3, 5).flatten(4, 5).flatten(2, 3)
+            expanded_target[:, :, : patch_height * patch_width, :] = target
+            target = expanded_target
+        else:
+            pred = pred.reshape(batch_size, num_channels, patch_height, p, patch_width, p)
+            pred = pred.permute(0, 2, 4, 3, 5, 1)
+            pred = pred.reshape(batch_size, patch_height * patch_width, -1)
 
         return pred, target, sigmas
 
