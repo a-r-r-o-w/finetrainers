@@ -1,1 +1,2 @@
 from .base_specification import HunyuanVideoModelSpecification
+from .control_specification import HunyuanVideoControlModelSpecification
