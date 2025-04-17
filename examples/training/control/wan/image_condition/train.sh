@@ -64,7 +64,7 @@ control_cmd=(
 # Dataset arguments
 dataset_cmd=(
   --dataset_config $TRAINING_DATASET_CONFIG
-  --dataset_shuffle_buffer_size 32
+  --dataset_shuffle_buffer_size 1
 )
 
 # Dataloader arguments
@@ -84,10 +84,10 @@ training_cmd=(
   --training_type control-lora
   --seed 42
   --batch_size 1
-  --train_steps 10000
+  --train_steps 3
   --gradient_accumulation_steps 1
   --gradient_checkpointing
-  --checkpointing_steps 1000
+  --checkpointing_steps 2
   --checkpointing_limit 2
   # --resume_from_checkpoint 3000
   --enable_slicing

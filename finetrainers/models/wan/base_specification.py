@@ -345,7 +345,7 @@ class WanModelSpecification(ModelSpecification):
             WanPipeline.save_lora_weights(
                 directory,
                 transformer_state_dict,
-                save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
+                # save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
                 safe_serialization=True,
             )
         if scheduler is not None:

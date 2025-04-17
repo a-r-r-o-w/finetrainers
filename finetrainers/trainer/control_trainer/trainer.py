@@ -928,7 +928,8 @@ class ControlTrainer:
 
             # Load the LoRA weights if performing LoRA finetuning
             if self.args.training_type == TrainingType.CONTROL_LORA:
-                load_lora_weights(pipeline, self.args.output_dir)
+                pipeline.load_lora_weights(self.args.output_dir)
+                # load_lora_weights(pipeline, self.args.output_dir)
                 norm_state_dict_path = Path(self.args.output_dir) / "norm_state_dict.safetensors"
                 if self.args.train_qk_norm and norm_state_dict_path.exists():
                     norm_state_dict = safetensors.torch.load_file(norm_state_dict_path, parallel_backend.device)
