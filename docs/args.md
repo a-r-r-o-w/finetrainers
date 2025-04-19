@@ -75,7 +75,10 @@ layerwise_upcasting_skip_modules_pattern (`List[str]`, defaults to `["patch_embe
     naively (as done in layerwise upcasting), can lead to poorer training and inference quality. We skip these layers
     by default, and recommend adding more layers to the default list based on the model architecture.
 compile_modules (`List[str]`, defaults to `[]`):
-    Modules that should be regionally compiled with `torch.compile`. Choose one or more from ['transformer'].
+    Modules that should be regionally compiled with `torch.compile`.
+compile_scopes (`str`, defaults to `None`):
+    The scope of compilation for each `--compile_modules`. Choose between ['regional', 'full']. Must have the same length as
+    `--compile_modules`. If `None`, will default to `regional` for all modules.
 
 DATASET ARGUMENTS
 -----------------

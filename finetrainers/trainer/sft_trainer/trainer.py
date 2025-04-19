@@ -35,13 +35,6 @@ logger = logging.get_logger()
 
 
 class SFTTrainer:
-    # fmt: off
-    _all_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
-    _condition_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3"]
-    _latent_component_names = ["vae"]
-    _diffusion_component_names = ["transformer", "unet", "scheduler"]
-    # fmt: on
-
     def __init__(self, args: ArgsType, model_specification: "ModelSpecification") -> None:
         self.args = args
         self.state = State()
@@ -56,6 +49,10 @@ class SFTTrainer:
         self.text_encoder = None
         self.text_encoder_2 = None
         self.text_encoder_3 = None
+
+        # Image encoders
+        self.image_encoder = None
+        self.image_processor = None
 
         # Denoisers
         self.transformer = None
@@ -173,8 +170,10 @@ class SFTTrainer:
             # TODO(aryan): support other checkpointing types
             utils.apply_activation_checkpointing(self.transformer, checkpointing_type="full")
 
-        if "transformer" in self.args.compile_modules:
-            utils.apply_compile(self.transformer)
+        for model_name, compile_scope in zip(self.args.compile_modules, self.args.compile_scopes):
+            model = getattr(self, model_name, None)
+            if model is not None:
+                utils.apply_compile(model, compile_scope)
 
         # Enable DDP, FSDP or HSDP
         if parallel_backend.data_sharding_enabled:
@@ -699,9 +698,9 @@ class SFTTrainer:
         logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
 
         # Remove all hooks that might have been added during pipeline initialization to the models
-        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "vae"]
         pipeline.remove_all_hooks()
         del pipeline
+        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "image_encoder", "image_processor", "vae"]
         if self.args.enable_precomputation:
             self._delete_components(module_names)
         torch.cuda.reset_peak_memory_stats(parallel_backend.device)
@@ -799,7 +798,14 @@ class SFTTrainer:
         if device is None:
             device = self.state.parallel_backend.device
         if components is None:
-            components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.transformer, self.vae]
+            components = [
+                self.text_encoder,
+                self.text_encoder_2,
+                self.text_encoder_3,
+                self.image_encoder,
+                self.transformer,
+                self.vae,
+            ]
         components = utils.get_non_null_items(components)
         components = list(filter(lambda x: hasattr(x, "to"), components))
         for component in components:
@@ -831,6 +837,8 @@ class SFTTrainer:
                 text_encoder=self.text_encoder,
                 text_encoder_2=self.text_encoder_2,
                 text_encoder_3=self.text_encoder_3,
+                image_encoder=self.image_encoder,
+                image_processor=self.image_processor,
                 # TODO(aryan): handle unwrapping for compiled modules
                 # transformer=utils.unwrap_model(accelerator, self.transformer),
                 transformer=self.transformer,
@@ -970,3 +978,10 @@ class SFTTrainer:
 
         info.update({"diffusion_arguments": filtered_diffusion_args})
         return info
+
+    # fmt: off
+    _all_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "image_encoder", "image_processor", "transformer", "unet", "vae", "scheduler"]
+    _condition_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3"]
+    _latent_component_names = ["image_encoder", "image_processor", "vae"]
+    _diffusion_component_names = ["transformer", "unet", "scheduler"]
+    # fmt: on

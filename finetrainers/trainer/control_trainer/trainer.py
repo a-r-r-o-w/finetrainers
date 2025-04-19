@@ -39,13 +39,6 @@ logger = logging.get_logger()
 
 
 class ControlTrainer:
-    # fmt: off
-    _all_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
-    _condition_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3"]
-    _latent_component_names = ["vae"]
-    _diffusion_component_names = ["transformer", "unet", "scheduler"]
-    # fmt: on
-
     def __init__(self, args: ArgsType, model_specification: "ControlModelSpecification") -> None:
         self.args = args
         self.state = State()
@@ -210,8 +203,10 @@ class ControlTrainer:
             # TODO(aryan): support other checkpointing types
             utils.apply_activation_checkpointing(self.transformer, checkpointing_type="full")
 
-        if "transformer" in self.args.compile_modules:
-            utils.apply_compile(self.transformer)
+        for model_name in self.args.compile_modules:
+            model = getattr(self, model_name, None)
+            if model is not None:
+                utils.apply_compile(model)
 
         # Enable DDP, FSDP or HSDP
         if parallel_backend.data_sharding_enabled:
@@ -766,9 +761,9 @@ class ControlTrainer:
         logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
 
         # Remove all hooks that might have been added during pipeline initialization to the models
-        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "vae"]
         pipeline.remove_all_hooks()
         del pipeline
+        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "vae"]
         if self.args.enable_precomputation:
             self._delete_components(module_names)
         torch.cuda.reset_peak_memory_stats(parallel_backend.device)
@@ -1053,3 +1048,10 @@ class ControlTrainer:
         if isinstance(target_modules, str):
             target_modules = f"(^{self.model_specification.control_injection_layer_name}$)|({target_modules})"
         return target_modules
+
+    # fmt: off
+    _all_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
+    _condition_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3"]
+    _latent_component_names = ["vae"]
+    _diffusion_component_names = ["transformer", "unet", "scheduler"]
+    # fmt: on

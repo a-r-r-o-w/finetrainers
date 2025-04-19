@@ -9,8 +9,6 @@ import torch.distributed.tensor
 
 from finetrainers.logging import get_logger
 
-from ._common import DIFFUSERS_TRANSFORMER_BLOCK_NAMES
-
 
 logger = get_logger()
 
@@ -43,18 +41,22 @@ def align_device_and_dtype(
     return x
 
 
-def apply_compile(model: torch.nn.Module) -> None:
+def apply_compile(model: torch.nn.Module, compile_scope: str) -> None:
     r"""Apply torch.compile on a model."""
+    if compile_scope == "full":
+        model = torch.compile(model)
+    elif compile_scope == "regional":
+        if isinstance(model, torch.nn.ModuleList):
+            for name, module in model.named_children():
+                module = torch.compile(module)
+                model.register_module(name, module)
+        else:
+            for name, module in model.named_children():
+                module = apply_compile(module, compile_scope)
+    else:
+        raise ValueError(f"Unknown compile mode: {compile_scope}. Use 'full' or 'regional'.")
 
-    def apply_torch_compile(blocks: torch.nn.ModuleList):
-        for layer_id, block in blocks.named_children():
-            block = torch.compile(block)
-            blocks.register_module(layer_id, block)
-
-    for transformer_block_name in DIFFUSERS_TRANSFORMER_BLOCK_NAMES:
-        blocks = getattr(model, transformer_block_name, None)
-        if blocks is not None:
-            apply_torch_compile(blocks)
+    return model
 
 
 def _clip_grad_norm_while_handling_failing_dtensor_cases(

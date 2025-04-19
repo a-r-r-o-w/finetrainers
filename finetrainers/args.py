@@ -89,7 +89,10 @@ class BaseArgs:
         naively (as done in layerwise upcasting), can lead to poorer training and inference quality. We skip these layers
         by default, and recommend adding more layers to the default list based on the model architecture.
     compile_modules (`List[str]`, defaults to `[]`):
-        Modules that should be regionally compiled with `torch.compile`. Choose one or more from ['transformer'].
+        Modules that should be regionally compiled with `torch.compile`.
+    compile_scopes (`str`, defaults to `None`):
+        The scope of compilation for each `--compile_modules`. Choose between ['regional', 'full']. Must have the same length as
+        `--compile_modules`. If `None`, will default to `regional` for all modules.
 
     DATASET ARGUMENTS
     -----------------
@@ -317,6 +320,7 @@ class BaseArgs:
         "norm",
     ]
     compile_modules: List[str] = []
+    compile_scopes: List[str] = None
 
     # Dataset arguments
     dataset_config: str = None
@@ -424,6 +428,7 @@ class BaseArgs:
             "layerwise_upcasting_storage_dtype": self.layerwise_upcasting_storage_dtype,
             "layerwise_upcasting_skip_modules_pattern": self.layerwise_upcasting_skip_modules_pattern,
             "compile_modules": self.compile_modules,
+            "compile_scopes": self.compile_scopes,
         }
         model_arguments = get_non_null_items(model_arguments)
 
@@ -632,7 +637,8 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
         default=["patch_embed", "pos_embed", "x_embedder", "context_embedder", "^proj_in$", "^proj_out$", "norm"],
         nargs="+",
     )
-    parser.add_argument("--compile_modules", type=str, default=[], nargs="+", choices=["transformer"])
+    parser.add_argument("--compile_modules", type=str, default=[], nargs="+")
+    parser.add_argument("--compile_scopes", type=str, default=None, nargs="+")
 
 
 def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
@@ -750,6 +756,15 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.tp_degree = args.tp_degree
 
     # Model arguments
+    compile_scopes = args.compile_scopes
+    if len(args.compile_modules) > 0:
+        if compile_scopes is None:
+            compile_scopes = "regional"
+        if isinstance(compile_scopes, list) and len(compile_scopes) == 1:
+            compile_scopes = compile_scopes[0]
+        if isinstance(compile_scopes, str):
+            compile_scopes = [compile_scopes] * len(args.compile_modules)
+
     result_args.model_name = args.model_name
     result_args.pretrained_model_name_or_path = args.pretrained_model_name_or_path
     result_args.revision = args.revision
@@ -772,6 +787,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.layerwise_upcasting_storage_dtype = _DTYPE_MAP[args.layerwise_upcasting_storage_dtype]
     result_args.layerwise_upcasting_skip_modules_pattern = args.layerwise_upcasting_skip_modules_pattern
     result_args.compile_modules = args.compile_modules
+    result_args.compile_scopes = compile_scopes
 
     # Dataset arguments
     result_args.dataset_config = args.dataset_config
@@ -851,6 +867,12 @@ def _validate_model_args(args: BaseArgs):
     if args.training_type == "full-finetune":
         assert "transformer" not in args.layerwise_upcasting_modules, (
             "Layerwise upcasting is not supported for full-finetune training"
+        )
+    if len(args.compile_modules) > 0:
+        assert len(args.compile_modules) == len(args.compile_scopes) and all(
+            x in ["regional", "full"] for x in args.compile_scopes
+        ), (
+            "Compile modules and compile scopes must be of the same length and compile scopes must be either 'regional' or 'full'"
         )
 
 

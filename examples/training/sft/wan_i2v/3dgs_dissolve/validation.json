@@ -1,0 +1,12 @@
+{
+  "data": [
+    {
+      "caption": "A vibrant green Mustang GT parked in a parking lot. The car is positioned at an angle, showcasing its sleek design and black rims. The car's hood is black, contrasting with the green body. The car gradually transforms and bursts into red sparks, creating a dramatic and dynamic visual effect against a dark backdrop.",
+      "video_path": "examples/training/sft/wan_i2v/3dgs_dissolve/validation_dataset/0.mp4",
+      "num_inference_steps": 2,
+      "num_frames": 49,
+      "height": 480,
+      "width": 832
+    }
+  ]
+}
