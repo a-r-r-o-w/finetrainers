@@ -203,10 +203,11 @@ class ControlTrainer:
             # TODO(aryan): support other checkpointing types
             utils.apply_activation_checkpointing(self.transformer, checkpointing_type="full")
 
-        for model_name in self.args.compile_modules:
+        for model_name, compile_scope in zip(self.args.compile_modules, self.args.compile_scopes):
             model = getattr(self, model_name, None)
             if model is not None:
-                utils.apply_compile(model)
+                logger.info(f"Applying torch.compile to {model_name} with scope {compile_scope}.")
+                utils.apply_compile(model, compile_scope)
 
         # Enable DDP, FSDP or HSDP
         if parallel_backend.data_sharding_enabled:

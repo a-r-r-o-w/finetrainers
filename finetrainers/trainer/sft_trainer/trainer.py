@@ -173,6 +173,7 @@ class SFTTrainer:
         for model_name, compile_scope in zip(self.args.compile_modules, self.args.compile_scopes):
             model = getattr(self, model_name, None)
             if model is not None:
+                logger.info(f"Applying torch.compile to {model_name} with scope {compile_scope}.")
                 utils.apply_compile(model, compile_scope)
 
         # Enable DDP, FSDP or HSDP
