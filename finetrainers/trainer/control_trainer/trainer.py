@@ -203,11 +203,8 @@ class ControlTrainer:
             # TODO(aryan): support other checkpointing types
             utils.apply_activation_checkpointing(self.transformer, checkpointing_type="full")
 
-        for model_name, compile_scope in zip(self.args.compile_modules, self.args.compile_scopes):
-            model = getattr(self, model_name, None)
-            if model is not None:
-                logger.info(f"Applying torch.compile to {model_name} with scope {compile_scope}.")
-                utils.apply_compile(model, compile_scope)
+        # Apply torch.compile
+        self._maybe_torch_compile()
 
         # Enable DDP, FSDP or HSDP
         if parallel_backend.data_sharding_enabled:
@@ -935,6 +932,7 @@ class ControlTrainer:
         self._set_components(components)
         if not self.args.enable_model_cpu_offload:
             self._move_components_to_device(list(components.values()))
+        self._maybe_torch_compile()
         return pipeline
 
     def _prepare_data(
@@ -953,6 +951,7 @@ class ControlTrainer:
                 self._set_components(all_components)
                 self._move_components_to_device(list(all_components.values()))
                 utils._enable_vae_memory_optimizations(self.vae, self.args.enable_slicing, self.args.enable_tiling)
+                self._maybe_torch_compile()
             else:
                 condition_components = {k: v for k in self._condition_component_names if (v := getattr(self, k, None))}
                 latent_components = {k: v for k in self._latent_component_names if (v := getattr(self, k, None))}
@@ -995,6 +994,7 @@ class ControlTrainer:
             component_modules = list(condition_components.values())
             self._set_components(condition_components)
             self._move_components_to_device(component_modules)
+            self._maybe_torch_compile()
             condition_iterator = consume_fn(
                 "condition",
                 components=condition_components,
@@ -1012,6 +1012,7 @@ class ControlTrainer:
             component_modules = list(latent_components.values())
             self._set_components(latent_components)
             self._move_components_to_device(component_modules)
+            self._maybe_torch_compile()
             latent_iterator = consume_fn(
                 "latent",
                 components=latent_components,
@@ -1027,6 +1028,14 @@ class ControlTrainer:
                 self._move_components_to_device([self.transformer])
 
         return condition_iterator, latent_iterator
+    
+    def _maybe_torch_compile(self):
+        for model_name, compile_scope in zip(self.args.compile_modules, self.args.compile_scopes):
+            model = getattr(self, model_name, None)
+            if model is not None:
+                logger.info(f"Applying torch.compile to '{model_name}' with scope '{compile_scope}'.")
+                compiled_model = utils.apply_compile(model, compile_scope)
+                setattr(self, model_name, compiled_model)
 
     def _get_training_info(self) -> Dict[str, Any]:
         info = self.args.to_dict()
