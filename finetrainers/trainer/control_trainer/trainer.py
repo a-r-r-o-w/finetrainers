@@ -1028,7 +1028,7 @@ class ControlTrainer:
                 self._move_components_to_device([self.transformer])
 
         return condition_iterator, latent_iterator
-    
+
     def _maybe_torch_compile(self):
         for model_name, compile_scope in zip(self.args.compile_modules, self.args.compile_scopes):
             model = getattr(self, model_name, None)
