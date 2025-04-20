@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING
 
+import torch
+
 from .dependencies.diffusers.peft import load_lora_weights
 
 
@@ -32,3 +34,9 @@ def perform_patches_for_training(args: "BaseArgs", parallel_backend: "ParallelBa
         from .dependencies.peft import patch
 
         patch.patch_peft_move_adapter_to_device_of_base_layer()
+
+
+def patch_scaled_dot_product_attention():
+    from finetrainers.models.attention_dispatch import attention_dispatch
+
+    torch.nn.functional.scaled_dot_product_attention = attention_dispatch

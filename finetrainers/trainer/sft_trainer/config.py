@@ -1,14 +1,14 @@
 import argparse
 from typing import TYPE_CHECKING, Any, Dict, List, Union
 
-from finetrainers.trainer.config_utils import ConfigMixin
+from finetrainers.utils import ArgsConfigMixin
 
 
 if TYPE_CHECKING:
     from finetrainers.args import BaseArgs
 
 
-class SFTLowRankConfig(ConfigMixin):
+class SFTLowRankConfig(ArgsConfigMixin):
     r"""
     Configuration class for SFT low rank training.
 
@@ -50,7 +50,7 @@ class SFTLowRankConfig(ConfigMixin):
         return {"rank": self.rank, "lora_alpha": self.lora_alpha, "target_modules": self.target_modules}
 
 
-class SFTFullRankConfig(ConfigMixin):
+class SFTFullRankConfig(ArgsConfigMixin):
     r"""
     Configuration class for SFT full rank training.
     """

@@ -9,8 +9,7 @@ import torch
 from .config import SUPPORTED_MODEL_CONFIGS, ModelType, TrainingType
 from .logging import get_logger
 from .parallel import ParallelBackendEnum
-from .trainer.config_utils import ConfigMixin
-from .utils import get_non_null_items
+from .utils import ArgsConfigMixin, get_non_null_items
 
 
 logger = get_logger()
@@ -314,16 +313,9 @@ class BaseArgs:
     vae_dtype: torch.dtype = torch.bfloat16
     layerwise_upcasting_modules: List[str] = []
     layerwise_upcasting_storage_dtype: torch.dtype = torch.float8_e4m3fn
-    layerwise_upcasting_skip_modules_pattern: List[str] = [
-        "patch_embed",
-        "pos_embed",
-        "x_embedder",
-        "context_embedder",
-        "time_embed",
-        "^proj_in$",
-        "^proj_out$",
-        "norm",
-    ]
+    # fmt: off
+    layerwise_upcasting_skip_modules_pattern: List[str] = ["patch_embed", "pos_embed", "x_embedder", "context_embedder", "time_embed", "^proj_in$", "^proj_out$", "norm"]
+    # fmt: on
 
     # Dataset arguments
     dataset_config: str = None
@@ -399,10 +391,10 @@ class BaseArgs:
     compile_modules: List[str] = []
     compile_scopes: List[str] = None
     allow_tf32: bool = False
-    float32_matmul_precision: Optional[str] = None
+    float32_matmul_precision: str = "highest"
 
     # Additional registered arguments
-    _registered_config_mixins: List[ConfigMixin] = []
+    _registered_config_mixins: List[ArgsConfigMixin] = []
 
     def to_dict(self) -> Dict[str, Any]:
         parallel_arguments = {
@@ -545,7 +537,7 @@ class BaseArgs:
             "torch_config_arguments": torch_config_arguments,
         }
 
-    def register_args(self, config: ConfigMixin) -> None:
+    def register_args(self, config: ArgsConfigMixin) -> None:
         if not hasattr(self, "_extended_add_arguments"):
             self._extended_add_arguments = []
         self._extended_add_arguments.append((config.add_args, config.validate_args, config.map_args))
@@ -749,7 +741,7 @@ def _add_torch_config_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--float32_matmul_precision",
         type=str,
-        default=None,
+        default="highest",
         choices=["highest", "high", "medium"],
         help="The precision to use for float32 matmul. Choose between ['highest', 'high', 'medium'].",
     )

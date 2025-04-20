@@ -5,7 +5,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 import datasets.distributed
 import safetensors.torch
@@ -21,7 +21,9 @@ from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
 from finetrainers import data, logging, optimizer, parallel, patches, utils
+from finetrainers.args import BaseArgs
 from finetrainers.config import TrainingType
+from finetrainers.models import ControlModelSpecification
 from finetrainers.patches import load_lora_weights
 from finetrainers.state import State, TrainState
 
@@ -29,17 +31,13 @@ from .config import ControlFullRankConfig, ControlLowRankConfig
 from .data import IterableControlDataset, ValidationControlDataset
 
 
-if TYPE_CHECKING:
-    from finetrainers.args import BaseArgs
-    from finetrainers.models import ControlModelSpecification
-
-ArgsType = Union["BaseArgs", ControlFullRankConfig, ControlLowRankConfig]
+ArgsType = Union[BaseArgs, ControlFullRankConfig, ControlLowRankConfig]
 
 logger = logging.get_logger()
 
 
 class ControlTrainer:
-    def __init__(self, args: ArgsType, model_specification: "ControlModelSpecification") -> None:
+    def __init__(self, args: ArgsType, model_specification: ControlModelSpecification) -> None:
         self.args = args
         self.state = State()
         self.state.train_state = TrainState()

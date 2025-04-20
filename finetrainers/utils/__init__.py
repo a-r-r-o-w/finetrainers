@@ -2,6 +2,7 @@ import inspect
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from .activation_checkpoint import apply_activation_checkpointing
+from .args_config import ArgsConfigMixin
 from .data import determine_batch_size, should_perform_precomputation
 from .diffusion import (
     _enable_vae_memory_optimizations,

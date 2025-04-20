@@ -2,7 +2,7 @@ import argparse
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Union
 
-from finetrainers.trainer.config_utils import ConfigMixin
+from finetrainers.utils import ArgsConfigMixin
 
 
 if TYPE_CHECKING:
@@ -31,7 +31,7 @@ class FrameConditioningType(str, Enum):
     FULL = "full"
 
 
-class ControlLowRankConfig(ConfigMixin):
+class ControlLowRankConfig(ArgsConfigMixin):
     r"""
     Configuration class for SFT channel-concatenated Control low rank training.
 
@@ -123,7 +123,7 @@ class ControlLowRankConfig(ConfigMixin):
         }
 
 
-class ControlFullRankConfig(ConfigMixin):
+class ControlFullRankConfig(ArgsConfigMixin):
     r"""
     Configuration class for SFT channel-concatenated Control full rank training.
 

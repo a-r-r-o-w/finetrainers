@@ -4,7 +4,7 @@ import math
 import os
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 import datasets.distributed
 import torch
@@ -19,23 +19,21 @@ from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
 from finetrainers import data, logging, optimizer, parallel, patches, utils
+from finetrainers.args import BaseArgs
 from finetrainers.config import TrainingType
+from finetrainers.models import ModelSpecification
 from finetrainers.state import State, TrainState
 
 from .config import SFTFullRankConfig, SFTLowRankConfig
 
 
-if TYPE_CHECKING:
-    from finetrainers.args import BaseArgs
-    from finetrainers.models import ModelSpecification
-
-ArgsType = Union["BaseArgs", SFTFullRankConfig, SFTLowRankConfig]
+ArgsType = Union[BaseArgs, SFTFullRankConfig, SFTLowRankConfig]
 
 logger = logging.get_logger()
 
 
 class SFTTrainer:
-    def __init__(self, args: ArgsType, model_specification: "ModelSpecification") -> None:
+    def __init__(self, args: ArgsType, model_specification: ModelSpecification) -> None:
         self.args = args
         self.state = State()
         self.state.train_state = TrainState()

@@ -99,6 +99,7 @@ class SFTTrainerFastTestsMixin:
         args.enable_precomputation = False
         args.precomputation_items = self.num_data_files
         args.precomputation_dir = os.path.join(self.tmpdir.name, "precomputed")
+        args.compile_scopes = "regional"  # This will only be in effect when `compile_modules` is set
         return args
 
     def get_args(self) -> BaseArgs:
