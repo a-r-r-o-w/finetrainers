@@ -788,6 +788,8 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
             compile_scopes = compile_scopes[0]
         if isinstance(compile_scopes, str):
             compile_scopes = [compile_scopes] * len(args.compile_modules)
+    else:
+        compile_scopes = []
 
     result_args.model_name = args.model_name
     result_args.pretrained_model_name_or_path = args.pretrained_model_name_or_path

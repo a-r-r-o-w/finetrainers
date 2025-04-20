@@ -825,7 +825,7 @@ class SFTTrainer:
         utils.synchronize_device()
 
     def _init_pipeline(self, final_validation: bool = False) -> DiffusionPipeline:
-        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "vae"]
+        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "image_encoder", "transformer", "vae"]
 
         if not final_validation:
             module_names.remove("transformer")

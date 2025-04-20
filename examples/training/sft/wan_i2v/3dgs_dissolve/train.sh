@@ -106,7 +106,7 @@ optimizer_cmd=(
 # Validation arguments
 validation_cmd=(
   --validation_dataset_file "$VALIDATION_DATASET_FILE"
-  --validation_steps 201
+  --validation_steps 101
 )
 
 # Miscellaneous arguments
