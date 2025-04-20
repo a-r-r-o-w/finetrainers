@@ -1,0 +1,36 @@
+{
+  "data": [
+    {
+      "caption": "3DGS_DISSOLVE A vibrant green Mustang GT parked in a parking lot. The car is positioned at an angle, showcasing its sleek design and black rims. The car's hood is black, contrasting with the green body. The car gradually transforms and bursts into red sparks, creating a dramatic and dynamic visual effect against a dark backdrop.",
+      "video_path": "examples/training/sft/wan_i2v/3dgs_dissolve/validation_dataset/0.mp4",
+      "num_inference_steps": 30,
+      "num_frames": 49,
+      "height": 480,
+      "width": 832
+    },
+    {
+      "caption": "3DGS_DISSOLVE A cooking tutorial featuring a man in a kitchen. He is wearing a white t-shirt and a black apron. As the scene progresses, light starts to emanate from the man and he burst into a fiery flame of red sparks.",
+      "video_path": "examples/training/control/wan/image_condition/validation_dataset/1.mp4",
+      "num_inference_steps": 30,
+      "num_frames": 49,
+      "height": 480,
+      "width": 832
+    },
+    {
+      "caption": "3DGS_DISSOLVE A man in a suit and tie, standing against a blue background with a digital pattern. He appears to be speaking or presenting, as suggested by his open mouth and focused expression. Suddenly, the man starts to dissolve into thin air with a bright fiery flame of red sparks.",
+      "video_path": "examples/training/control/wan/image_condition/validation_dataset/2.mp4",
+      "num_inference_steps": 30,
+      "num_frames": 49,
+      "height": 480,
+      "width": 832
+    },
+    {
+      "caption": "3DGS_DISSOLVE A man in a workshop, dressed in a black shirt and a beige hat, with a beard and glasses. He is holding a hammer and a metal object, possibly a piece of iron or a tool. The scene erupts with a bright fiery flame of red sparks.",
+      "video_path": "examples/training/control/wan/image_condition/validation_dataset/3.mp4",
+      "num_inference_steps": 30,
+      "num_frames": 49,
+      "height": 480,
+      "width": 832
+    }
+  ]
+}

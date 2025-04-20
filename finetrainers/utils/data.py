@@ -2,12 +2,12 @@ from pathlib import Path
 from typing import Any, Union
 
 import torch
-from accelerate.logging import get_logger
 
 from finetrainers.constants import PRECOMPUTED_CONDITIONS_DIR_NAME, PRECOMPUTED_LATENTS_DIR_NAME
+from finetrainers.logging import get_logger
 
 
-logger = get_logger("finetrainers")
+logger = get_logger()
 
 
 def should_perform_precomputation(precomputation_dir: Union[str, Path]) -> bool:

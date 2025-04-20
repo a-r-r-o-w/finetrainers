@@ -108,9 +108,10 @@ _logger = logging.getLogger("finetrainers")
 _logger.setLevel(FINETRAINERS_LOG_LEVEL)
 _console_handler = logging.StreamHandler()
 _console_handler.setLevel(FINETRAINERS_LOG_LEVEL)
-_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+_formatter = logging.Formatter("%(asctime)s - [%(levelname)s] - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 _console_handler.setFormatter(_formatter)
 _logger.addHandler(_console_handler)
+_logger.propagate = False
 _logger = FinetrainersLoggerAdapter(_logger)
 
 

@@ -9,8 +9,6 @@ import torch.distributed.tensor
 
 from finetrainers.logging import get_logger
 
-from ._common import DIFFUSERS_TRANSFORMER_BLOCK_NAMES
-
 
 logger = get_logger()
 
@@ -43,18 +41,28 @@ def align_device_and_dtype(
     return x
 
 
-def apply_compile(model: torch.nn.Module) -> None:
-    r"""Apply torch.compile on a model."""
+def apply_compile(model: torch.nn.Module, compile_scope: str) -> torch.nn.Module:
+    r"""Apply torch.compile to a model or its submodules if not already compiled."""
+    if getattr(model, "_torch_compiled", False):
+        return model  # Already compiled
 
-    def apply_torch_compile(blocks: torch.nn.ModuleList):
-        for layer_id, block in blocks.named_children():
-            block = torch.compile(block)
-            blocks.register_module(layer_id, block)
+    if compile_scope == "full":
+        model = torch.compile(model)
+        setattr(model, "_torch_compiled", True)
+    elif compile_scope == "regional":
+        if isinstance(model, torch.nn.ModuleList):
+            for name, module in model.named_children():
+                if not getattr(module, "_torch_compiled", False):
+                    compiled_module = torch.compile(module)
+                    setattr(compiled_module, "_torch_compiled", True)
+                    model.register_module(name, compiled_module)
+        else:
+            for name, module in model.named_children():
+                apply_compile(module, compile_scope)
+    else:
+        raise ValueError(f"Unknown compile mode: {compile_scope}. Use 'full' or 'regional'.")
 
-    for transformer_block_name in DIFFUSERS_TRANSFORMER_BLOCK_NAMES:
-        blocks = getattr(model, transformer_block_name, None)
-        if blocks is not None:
-            apply_torch_compile(blocks)
+    return model
 
 
 def _clip_grad_norm_while_handling_failing_dtensor_cases(

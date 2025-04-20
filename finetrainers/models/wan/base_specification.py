@@ -1,17 +1,19 @@
 import functools
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import PIL.Image
 import torch
 from accelerate import init_empty_weights
 from diffusers import (
     AutoencoderKLWan,
     FlowMatchEulerDiscreteScheduler,
+    WanImageToVideoPipeline,
     WanPipeline,
     WanTransformer3DModel,
 )
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
-from transformers import AutoModel, AutoTokenizer, UMT5EncoderModel
+from transformers import AutoModel, AutoTokenizer, CLIPImageProcessor, CLIPVisionModel, UMT5EncoderModel
 
 import finetrainers.functional as FF
 from finetrainers.data import VideoArtifact
@@ -33,6 +35,8 @@ class WanLatentEncodeProcessor(ProcessorMixin):
         output_names (`List[str]`):
             The names of the outputs that the processor returns. The outputs are in the following order:
             - latents: The latents of the input image/video.
+            - latents_mean: The channel-wise mean of the latent space.
+            - latents_std: The channel-wise standard deviation of the latent space.
     """
 
     def __init__(self, output_names: List[str]):
@@ -55,7 +59,7 @@ class WanLatentEncodeProcessor(ProcessorMixin):
             video = image.unsqueeze(1)
 
         assert video.ndim == 5, f"Expected 5D tensor, got {video.ndim}D tensor"
-        video = video.to(device=device, dtype=vae.dtype)
+        video = video.to(device=device, dtype=dtype)
         video = video.permute(0, 2, 1, 3, 4).contiguous()  # [B, F, C, H, W] -> [B, C, F, H, W]
 
         if compute_posterior:
@@ -75,6 +79,119 @@ class WanLatentEncodeProcessor(ProcessorMixin):
         latents_std = 1.0 / torch.tensor(vae.config.latents_std)
 
         return {self.output_names[0]: latents, self.output_names[1]: latents_mean, self.output_names[2]: latents_std}
+
+
+class WanImageConditioningLatentEncodeProcessor(ProcessorMixin):
+    r"""
+    Processor to encode image/video into latents using the Wan VAE.
+
+    Args:
+        output_names (`List[str]`):
+            The names of the outputs that the processor returns. The outputs are in the following order:
+            - latents: The latents of the input image/video.
+            - latents_mean: The channel-wise mean of the latent space.
+            - latents_std: The channel-wise standard deviation of the latent space.
+            - mask: The conditioning frame mask for the input image/video.
+    """
+
+    def __init__(self, output_names: List[str]):
+        super().__init__()
+        self.output_names = output_names
+        assert len(self.output_names) == 4
+
+    def forward(
+        self,
+        vae: AutoencoderKLWan,
+        image: Optional[torch.Tensor] = None,
+        video: Optional[torch.Tensor] = None,
+        compute_posterior: bool = True,
+    ) -> Dict[str, torch.Tensor]:
+        device = vae.device
+        dtype = vae.dtype
+
+        if image is not None:
+            video = image.unsqueeze(1)
+
+        assert video.ndim == 5, f"Expected 5D tensor, got {video.ndim}D tensor"
+        video = video.to(device=device, dtype=dtype)
+        video = video.permute(0, 2, 1, 3, 4).contiguous()  # [B, F, C, H, W] -> [B, C, F, H, W]
+
+        num_frames = video.size(2)
+        first_frame, remaining_frames = video[:, :, :1], video[:, :, 1:]
+        video = torch.cat([first_frame, torch.zeros_like(remaining_frames)], dim=2)
+
+        # Image conditioning uses argmax sampling, so we use "mode" here
+        if compute_posterior:
+            latents = vae.encode(video).latent_dist.mode()
+            latents = latents.to(dtype=dtype)
+        else:
+            # TODO(aryan): refactor in diffusers to have use_slicing attribute
+            # if vae.use_slicing and video.shape[0] > 1:
+            #     encoded_slices = [vae._encode(x_slice) for x_slice in video.split(1)]
+            #     moments = torch.cat(encoded_slices)
+            # else:
+            #     moments = vae._encode(video)
+            moments = vae._encode(video)
+            latents = moments.to(dtype=dtype)
+
+        latents_mean = torch.tensor(vae.config.latents_mean)
+        latents_std = 1.0 / torch.tensor(vae.config.latents_std)
+
+        temporal_downsample = 2 ** sum(vae.temperal_downsample) if getattr(self, "vae", None) else 4
+        mask = latents.new_ones(latents.shape[0], 1, num_frames, latents.shape[3], latents.shape[4])
+        mask[:, :, 1:] = 0
+        first_frame_mask = mask[:, :, :1]
+        first_frame_mask = torch.repeat_interleave(first_frame_mask, dim=2, repeats=temporal_downsample)
+        mask = torch.cat([first_frame_mask, mask[:, :, 1:]], dim=2)
+        mask = mask.view(latents.shape[0], -1, temporal_downsample, latents.shape[3], latents.shape[4])
+        mask = mask.transpose(1, 2)
+
+        return {
+            self.output_names[0]: latents,
+            self.output_names[1]: latents_mean,
+            self.output_names[2]: latents_std,
+            self.output_names[3]: mask,
+        }
+
+
+class WanImageEncodeProcessor(ProcessorMixin):
+    r"""
+    Processor to encoding image conditioning for Wan I2V training.
+
+    Args:
+        output_names (`List[str]`):
+            The names of the outputs that the processor returns. The outputs are in the following order:
+            - image_embeds: The CLIP vision model image embeddings of the input image.
+    """
+
+    def __init__(self, output_names: List[str]):
+        super().__init__()
+        self.output_names = output_names
+        assert len(self.output_names) == 1
+
+    def forward(
+        self,
+        image_encoder: CLIPVisionModel,
+        image_processor: CLIPImageProcessor,
+        image: Optional[torch.Tensor] = None,
+        video: Optional[torch.Tensor] = None,
+    ) -> Dict[str, torch.Tensor]:
+        device = image_encoder.device
+        dtype = image_encoder.dtype
+
+        if video is not None:
+            image = video[:, 0]  # [B, F, C, H, W] -> [B, C, H, W] (take first frame)
+
+        assert image.ndim == 4, f"Expected 4D tensor, got {image.ndim}D tensor"
+
+        # We know the image here is in the range [-1, 1] (probably a little overshot if using bilinear interpolation), but
+        # the processor expects it to be in the range [0, 1].
+        image = FF.normalize(image, min=0.0, max=1.0)
+        image = image_processor(images=image.float(), do_rescale=False, do_convert_rgb=False, return_tensors="pt")
+        image = image.to(device=device, dtype=dtype)
+        image_embeds = image_encoder(**image, output_hidden_states=True)
+        image_embeds = image_embeds.hidden_states[-2]
+        return {self.output_names[0]: image_embeds}
 
 
 class WanModelSpecification(ModelSpecification):
@@ -111,6 +228,14 @@ class WanModelSpecification(ModelSpecification):
             condition_model_processors = [T5Processor(["encoder_hidden_states", "prompt_attention_mask"])]
         if latent_model_processors is None:
             latent_model_processors = [WanLatentEncodeProcessor(["latents", "latents_mean", "latents_std"])]
+
+        if self.transformer_config.image_dim is not None:
+            latent_model_processors.append(
+                WanImageConditioningLatentEncodeProcessor(
+                    ["latent_condition", "__drop__", "__drop__", "latent_condition_mask"]
+                )
+            )
+            latent_model_processors.append(WanImageEncodeProcessor(["encoder_hidden_states_image"]))
 
         self.condition_model_processors = condition_model_processors
         self.latent_model_processors = latent_model_processors
@@ -153,7 +278,19 @@ class WanModelSpecification(ModelSpecification):
                 self.pretrained_model_name_or_path, subfolder="vae", torch_dtype=self.vae_dtype, **common_kwargs
             )
 
-        return {"vae": vae}
+        models = {"vae": vae}
+        if self.transformer_config.image_dim is not None:
+            # TODO(aryan): refactor the trainer to be able to support these extra models from CLI args more easily
+            image_encoder = CLIPVisionModel.from_pretrained(
+                self.pretrained_model_name_or_path, subfolder="image_encoder", torch_dtype=torch.bfloat16
+            )
+            image_processor = CLIPImageProcessor.from_pretrained(
+                self.pretrained_model_name_or_path, subfolder="image_processor"
+            )
+            models["image_encoder"] = image_encoder
+            models["image_processor"] = image_processor
+
+        return models
 
     def load_diffusion_models(self) -> Dict[str, torch.nn.Module]:
         common_kwargs = {"revision": self.revision, "cache_dir": self.cache_dir}
@@ -181,24 +318,33 @@ class WanModelSpecification(ModelSpecification):
         transformer: Optional[WanTransformer3DModel] = None,
         vae: Optional[AutoencoderKLWan] = None,
         scheduler: Optional[FlowMatchEulerDiscreteScheduler] = None,
+        image_encoder: Optional[CLIPVisionModel] = None,
+        image_processor: Optional[CLIPImageProcessor] = None,
         enable_slicing: bool = False,
         enable_tiling: bool = False,
         enable_model_cpu_offload: bool = False,
         training: bool = False,
         **kwargs,
-    ) -> WanPipeline:
+    ) -> Union[WanPipeline, WanImageToVideoPipeline]:
         components = {
             "tokenizer": tokenizer,
             "text_encoder": text_encoder,
             "transformer": transformer,
             "vae": vae,
             "scheduler": scheduler,
+            "image_encoder": image_encoder,
+            "image_processor": image_processor,
         }
         components = get_non_null_items(components)
 
-        pipe = WanPipeline.from_pretrained(
-            self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
-        )
+        if self.transformer_config.image_dim is None:
+            pipe = WanPipeline.from_pretrained(
+                self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
+            )
+        else:
+            pipe = WanImageToVideoPipeline.from_pretrained(
+                self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
+            )
         pipe.text_encoder.to(self.text_encoder_dtype)
         pipe.vae.to(self.vae_dtype)
 
@@ -241,6 +387,8 @@ class WanModelSpecification(ModelSpecification):
     def prepare_latents(
         self,
         vae: AutoencoderKLWan,
+        image_encoder: Optional[CLIPVisionModel] = None,
+        image_processor: Optional[CLIPImageProcessor] = None,
         image: Optional[torch.Tensor] = None,
         video: Optional[torch.Tensor] = None,
         generator: Optional[torch.Generator] = None,
@@ -249,6 +397,8 @@ class WanModelSpecification(ModelSpecification):
     ) -> Dict[str, torch.Tensor]:
         conditions = {
             "vae": vae,
+            "image_encoder": image_encoder,
+            "image_processor": image_processor,
             "image": image,
             "video": video,
             "generator": generator,
@@ -274,12 +424,18 @@ class WanModelSpecification(ModelSpecification):
         **kwargs,
     ) -> Tuple[torch.Tensor, ...]:
         compute_posterior = False  # See explanation in prepare_latents
+        latent_condition = latent_condition_mask = None
+
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
+            latent_condition = latent_model_conditions.pop("latent_condition", None)
+            latent_condition_mask = latent_model_conditions.pop("latent_condition_mask", None)
         else:
             latents = latent_model_conditions.pop("latents")
             latents_mean = latent_model_conditions.pop("latents_mean")
             latents_std = latent_model_conditions.pop("latents_std")
+            latent_condition = latent_model_conditions.pop("latent_condition", None)
+            latent_condition_mask = latent_model_conditions.pop("latent_condition_mask", None)
 
             mu, logvar = torch.chunk(latents, 2, dim=1)
             mu = self._normalize_latents(mu, latents_mean, latents_std)
@@ -288,11 +444,24 @@ class WanModelSpecification(ModelSpecification):
 
             posterior = DiagonalGaussianDistribution(latents)
             latents = posterior.sample(generator=generator)
+
+            if latent_condition is not None:
+                mu, logvar = torch.chunk(latent_condition, 2, dim=1)
+                mu = self._normalize_latents(mu, latents_mean, latents_std)
+                logvar = self._normalize_latents(logvar, latents_mean, latents_std)
+                latent_condition = torch.cat([mu, logvar], dim=1)
+
+                posterior = DiagonalGaussianDistribution(latent_condition)
+                latent_condition = posterior.mode()
+
             del posterior
 
         noise = torch.zeros_like(latents).normal_(generator=generator)
         noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
         timesteps = (sigmas.flatten() * 1000.0).long()
+
+        if self.transformer_config.image_dim is not None:
+            noisy_latents = torch.cat([noisy_latents, latent_condition_mask, latent_condition], dim=1)
 
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
 
@@ -308,8 +477,10 @@ class WanModelSpecification(ModelSpecification):
 
     def validation(
         self,
-        pipeline: WanPipeline,
+        pipeline: Union[WanPipeline, WanImageToVideoPipeline],
         prompt: str,
+        image: Optional[PIL.Image.Image] = None,
+        video: Optional[List[PIL.Image.Image]] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
         num_frames: Optional[int] = None,
@@ -327,6 +498,12 @@ class WanModelSpecification(ModelSpecification):
             "return_dict": True,
             "output_type": "pil",
         }
+        if self.transformer_config.image_dim is not None:
+            if image is None and video is None:
+                raise ValueError("Either image or video must be provided for Wan I2V validation.")
+            if image is None:
+                image = video[0]
+            generation_kwargs["image"] = image
         generation_kwargs = get_non_null_items(generation_kwargs)
         video = pipeline(**generation_kwargs).frames[0]
         return [VideoArtifact(value=video)]
@@ -340,9 +517,10 @@ class WanModelSpecification(ModelSpecification):
         *args,
         **kwargs,
     ) -> None:
+        pipeline_cls = WanImageToVideoPipeline if self.transformer_config.image_dim is not None else WanPipeline
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
-            WanPipeline.save_lora_weights(
+            pipeline_cls.save_lora_weights(
                 directory,
                 transformer_state_dict,
                 save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
