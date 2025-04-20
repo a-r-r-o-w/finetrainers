@@ -251,8 +251,6 @@ logging_dir (`str`, defaults to `logs`):
     The directory where the logs will be stored.
 logging_steps (`int`, defaults to `1`):
     Training logs will be tracked every `logging_steps` steps.
-allow_tf32 (`bool`, defaults to `False`):
-    Whether or not to allow the use of TF32 matmul on compatible hardware.
 nccl_timeout (`int`, defaults to `1800`):
     Timeout for the NCCL communication.
 report_to (`str`, defaults to `wandb`):
@@ -263,6 +261,13 @@ verbose (`int`, defaults to `1`):
         - 1: Diffusers/Transformers info logging on local main process only
         - 2: Diffusers/Transformers debug logging on local main process only
         - 3: Diffusers/Transformers debug logging on all processes
+
+TORCH CONFIG ARGUMENTS
+----------------------
+allow_tf32 (`bool`, defaults to `False`):
+    Whether or not to allow the use of TF32 matmul on compatible hardware.
+float32_matmul_precision (`str`, defaults to `highest`):
+    The precision to use for float32 matmul. Choose between ['highest', 'high', 'medium'].
 ```
 
 ## SFT training

@@ -118,6 +118,12 @@ miscellaneous_cmd=(
   --report_to "wandb"
 )
 
+# Torch config arguments
+torch_config_cmd=(
+  --allow_tf32
+  --float32_matmul_precision high
+)
+
 # Execute the training script
 if [ "$BACKEND" == "accelerate" ]; then
 
@@ -141,7 +147,8 @@ if [ "$BACKEND" == "accelerate" ]; then
     "${training_cmd[@]}" \
     "${optimizer_cmd[@]}" \
     "${validation_cmd[@]}" \
-    "${miscellaneous_cmd[@]}"
+    "${miscellaneous_cmd[@]}" \
+    "${torch_config_cmd[@]}"
 
 elif [ "$BACKEND" == "ptd" ]; then
 
@@ -162,7 +169,8 @@ elif [ "$BACKEND" == "ptd" ]; then
       "${training_cmd[@]}" \
       "${optimizer_cmd[@]}" \
       "${validation_cmd[@]}" \
-      "${miscellaneous_cmd[@]}"
+      "${miscellaneous_cmd[@]}" \
+      "${torch_config_cmd[@]}"
 fi
 
 echo -ne "-------------------- Finished executing script --------------------\n\n"

@@ -855,6 +855,7 @@ class ControlTrainer:
         # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
         if self.args.allow_tf32 and torch.cuda.is_available():
             torch.backends.cuda.matmul.allow_tf32 = True
+        torch.set_float32_matmul_precision(self.args.float32_matmul_precision)
 
     def _move_components_to_device(
         self, components: Optional[List[torch.nn.Module]] = None, device: Optional[Union[str, torch.device]] = None

@@ -41,18 +41,24 @@ def align_device_and_dtype(
     return x
 
 
-def apply_compile(model: torch.nn.Module, compile_scope: str) -> None:
-    r"""Apply torch.compile on a model."""
+def apply_compile(model: torch.nn.Module, compile_scope: str) -> torch.nn.Module:
+    r"""Apply torch.compile to a model or its submodules if not already compiled."""
+    if getattr(model, "_torch_compiled", False):
+        return model  # Already compiled
+
     if compile_scope == "full":
         model = torch.compile(model)
+        setattr(model, "_torch_compiled", True)
     elif compile_scope == "regional":
         if isinstance(model, torch.nn.ModuleList):
             for name, module in model.named_children():
-                module = torch.compile(module)
-                model.register_module(name, module)
+                if not getattr(module, "_torch_compiled", False):
+                    compiled_module = torch.compile(module)
+                    setattr(compiled_module, "_torch_compiled", True)
+                    model.register_module(name, compiled_module)
         else:
             for name, module in model.named_children():
-                module = apply_compile(module, compile_scope)
+                apply_compile(module, compile_scope)
     else:
         raise ValueError(f"Unknown compile mode: {compile_scope}. Use 'full' or 'regional'.")
 

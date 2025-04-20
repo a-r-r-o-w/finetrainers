@@ -170,11 +170,8 @@ class SFTTrainer:
             # TODO(aryan): support other checkpointing types
             utils.apply_activation_checkpointing(self.transformer, checkpointing_type="full")
 
-        for model_name, compile_scope in zip(self.args.compile_modules, self.args.compile_scopes):
-            model = getattr(self, model_name, None)
-            if model is not None:
-                logger.info(f"Applying torch.compile to {model_name} with scope {compile_scope}.")
-                utils.apply_compile(model, compile_scope)
+        # Apply torch.compile
+        self._maybe_torch_compile()
 
         # Enable DDP, FSDP or HSDP
         if parallel_backend.data_sharding_enabled:
@@ -792,6 +789,7 @@ class SFTTrainer:
         # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
         if self.args.allow_tf32 and torch.cuda.is_available():
             torch.backends.cuda.matmul.allow_tf32 = True
+        torch.set_float32_matmul_precision(self.args.float32_matmul_precision)
 
     def _move_components_to_device(
         self, components: Optional[List[torch.nn.Module]] = None, device: Optional[Union[str, torch.device]] = None
@@ -873,6 +871,7 @@ class SFTTrainer:
         self._set_components(components)
         if not self.args.enable_model_cpu_offload:
             self._move_components_to_device(list(components.values()))
+        self._maybe_torch_compile()
         return pipeline
 
     def _prepare_data(
@@ -891,6 +890,7 @@ class SFTTrainer:
                 self._set_components(all_components)
                 self._move_components_to_device(list(all_components.values()))
                 utils._enable_vae_memory_optimizations(self.vae, self.args.enable_slicing, self.args.enable_tiling)
+                self._maybe_torch_compile()
             else:
                 condition_components = {k: v for k in self._condition_component_names if (v := getattr(self, k, None))}
                 latent_components = {k: v for k in self._latent_component_names if (v := getattr(self, k, None))}
@@ -933,6 +933,7 @@ class SFTTrainer:
             component_modules = list(condition_components.values())
             self._set_components(condition_components)
             self._move_components_to_device(component_modules)
+            self._maybe_torch_compile()
             condition_iterator = consume_fn(
                 "condition",
                 components=condition_components,
@@ -950,6 +951,7 @@ class SFTTrainer:
             component_modules = list(latent_components.values())
             self._set_components(latent_components)
             self._move_components_to_device(component_modules)
+            self._maybe_torch_compile()
             latent_iterator = consume_fn(
                 "latent",
                 components=latent_components,
@@ -965,6 +967,14 @@ class SFTTrainer:
                 self._move_components_to_device([self.transformer])
 
         return condition_iterator, latent_iterator
+
+    def _maybe_torch_compile(self):
+        for model_name, compile_scope in zip(self.args.compile_modules, self.args.compile_scopes):
+            model = getattr(self, model_name, None)
+            if model is not None:
+                logger.info(f"Applying torch.compile to '{model_name}' with scope '{compile_scope}'.")
+                compiled_model = utils.apply_compile(model, compile_scope)
+                setattr(self, model_name, compiled_model)
 
     def _get_training_info(self) -> Dict[str, Any]:
         info = self.args.to_dict()
