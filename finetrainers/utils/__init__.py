@@ -26,9 +26,12 @@ from .torch import (
     enable_determinism,
     expand_tensor_dims,
     get_device_info,
+    get_submodule_by_name,
     get_unwrapped_model_state_dict,
+    is_compiled_module,
     set_requires_grad,
     synchronize_device,
+    unwrap_module,
 )
 
 

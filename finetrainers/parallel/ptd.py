@@ -8,8 +8,10 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 import datasets.distributed
 import torch
+import torch.distributed._functional_collectives
 import torch.distributed.checkpoint
 import torch.distributed.checkpoint.stateful
+from diffusers.hooks import HookRegistry, ModelHook
 from torch.distributed._composable.fsdp import CPUOffloadPolicy, MixedPrecisionPolicy, fully_shard
 from torch.distributed._composable.replicate import replicate
 from torch.distributed.checkpoint.state_dict import (
@@ -18,9 +20,15 @@ from torch.distributed.checkpoint.state_dict import (
     set_model_state_dict,
 )
 
+from finetrainers._metadata import (
+    ContextParallelInputMetadata,
+    ContextParallelModelPlan,
+    ContextParallelOutputMetadata,
+    TransformerRegistry,
+)
 from finetrainers.data import DPDataLoader
 from finetrainers.logging import get_logger
-from finetrainers.utils import enable_determinism, get_device_info
+from finetrainers.utils import enable_determinism, get_device_info, get_submodule_by_name, unwrap_module
 from finetrainers.utils._common import DIFFUSERS_TRANSFORMER_BLOCK_NAMES
 
 from .base import BaseCheckpointer, BaseParallelBackend
@@ -115,6 +123,15 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
             device_mesh = self.get_mesh()
         apply_fsdp2(model, device_mesh, param_dtype, reduce_dtype, output_dtype, pp_enabled, cpu_offload)
         logger.debug("Applied PytorchDTensorParallel::apply_fsdp2 to model.")
+        return model
+
+    def apply_cp(
+        self, model: torch.nn.Module, device_mesh: Optional[torch.distributed.DeviceMesh] = None
+    ) -> torch.nn.Module:
+        if device_mesh is None:
+            device_mesh = self.get_mesh()
+        apply_cp(model, device_mesh)
+        logger.debug("Applied PytorchDTensorParallel::apply_cp to model.")
         return model
 
     def prepare_model(self, model: torch.nn.Module) -> torch.nn.Module:
@@ -464,7 +481,7 @@ def apply_fsdp2(
     pp_enabled: bool = False,
     cpu_offload: bool = False,
 ) -> None:
-    r"""Apply FSDP2 on a model."""
+    """Apply FSDP2 on a model."""
     mp_policy = MixedPrecisionPolicy(param_dtype, reduce_dtype, output_dtype, cast_forward_inputs=True)
     fsdp_config = {"mesh": dp_mesh, "mp_policy": mp_policy}
 
@@ -489,3 +506,147 @@ def apply_fsdp2(
             apply_fully_shard(blocks)
 
     fully_shard(model, **fsdp_config, reshard_after_forward=not pp_enabled)
+
+
+def apply_cp(model: torch.nn.Module, cp_mesh: torch.distributed.device_mesh.DeviceMesh) -> None:
+    """Apply context parallel on a model."""
+    model_cls = unwrap_module(model).__class__
+    metadata = TransformerRegistry.get(model_cls)
+
+    for module_id in metadata.cp_plan.keys():
+        logger.debug(f"Applying context parallel to {module_id}. CP mesh: {cp_mesh}")
+        module = get_submodule_by_name(model, module_id)
+        registry = HookRegistry.check_if_exists_or_initialize(module)
+        hook = ContextParallelHook(metadata.cp_plan[module_id], cp_mesh)
+        registry.register_hook(hook, f"context_parallel---{module_id}")
+
+
+class ContextParallelHook(ModelHook):
+    def __init__(self, metadata: ContextParallelModelPlan, mesh: torch.distributed.device_mesh.DeviceMesh) -> None:
+        super().__init__()
+        self.metadata = metadata
+        self.mesh = mesh
+
+    def pre_forward(self, module, *args, **kwargs):
+        for param_identifier, cpm in self.metadata.items():
+            is_cpm_input = isinstance(cpm, ContextParallelInputMetadata)
+            is_cpm_input_list = isinstance(cpm, list) and all(isinstance(x, ContextParallelInputMetadata) for x in cpm)
+            if not (is_cpm_input or is_cpm_input_list):
+                continue
+
+            name = param_identifier.name
+            index = param_identifier.index
+
+            # Maybe the parameter was passed as a keyword argument
+            is_kwarg = True
+            input_val = kwargs.get(name, None)
+
+            # If not, maybe it was passed as a positional argument
+            if input_val is None and index is not None:
+                input_val = args[index]
+                is_kwarg = False
+
+            # Either the input_val is truly None, or argument is passed as normal argument
+            # but user forgot to specify the index when registering metadata
+            if input_val is None:
+                continue
+
+            # The input_val may be a tensor or list/tuple of tensors
+            if torch.is_tensor(input_val):
+                input_val = self._prepare_cp_input(input_val, cpm)
+
+            elif isinstance(input_val, (list, tuple)):
+                input_val = [
+                    self._prepare_cp_input(x, cpm[i]) if isinstance(x, torch.Tensor) else x
+                    for i, x in enumerate(input_val)
+                ]
+            else:
+                raise ValueError(f"Unsupported input type: {type(input_val)}")
+
+            if is_kwarg:
+                kwargs[name] = input_val
+            else:
+                args[index] = input_val
+
+        return args, kwargs
+
+    def post_forward(self, module, output):
+        is_cpm_output = isinstance(self.metadata, list) and all(
+            isinstance(x, ContextParallelOutputMetadata) for x in self.metadata
+        )
+
+        if not is_cpm_output:
+            return output
+
+        is_tensor = torch.is_tensor(output)
+        if is_tensor:
+            output = [output]
+        for i, cpm in enumerate(self.metadata):
+            if cpm is None:
+                continue
+            output[i] = gather_tensor(output[i], cpm.gather_dim, group=self.mesh.get_group())
+        if is_tensor:
+            output = output[0]
+        return output
+
+    def _prepare_cp_input(self, x: torch.Tensor, metadata: ContextParallelInputMetadata) -> torch.Tensor:
+        if metadata.expected_dims is not None and x.dim() != metadata.expected_dims:
+            raise ValueError(
+                f"Expected input tensor to have {metadata.expected_dims} dimensions, but got {x.dim()} dimensions."
+            )
+        x = split_tensor(x, metadata.split_dim, group=self.mesh.get_group())
+        return x
+
+
+def get_group(group: Optional[torch.distributed.ProcessGroup] = None) -> torch.distributed.ProcessGroup:
+    if group is None:
+        group = torch.distributed.distributed_c10d._get_default_group()
+    return group
+
+
+def get_world_size(group: Optional[torch.distributed.ProcessGroup] = None) -> int:
+    group = get_group(group)
+    return torch.distributed.get_world_size(group)
+
+
+def get_rank(group: Optional[torch.distributed.ProcessGroup] = None) -> int:
+    group = get_group(group)
+    return torch.distributed.get_rank(group)
+
+
+def allgather_sync(
+    x: torch.Tensor, dim: int = 0, group: Optional[torch.distributed.ProcessGroup] = None
+) -> torch.Tensor:
+    group = get_group(group)
+    x_shape = x.shape
+    x = x.flatten()
+    x_numel = x.numel()
+    x = torch.distributed._functional_collectives.all_gather_tensor(x, dim, group)
+    x_shape = list(x_shape)
+    x_shape[0] *= x.numel() // x_numel
+    x = x.reshape(x_shape)
+    return x
+
+
+def split_tensor(
+    tensor: torch.Tensor,
+    dim: int = 0,
+    rank: Optional[int] = None,
+    group: Optional[torch.distributed.ProcessGroup] = None,
+) -> torch.Tensor:
+    if rank is None:
+        rank = get_rank(group)
+    world_size = get_world_size(group)
+    dim_size = tensor.shape[dim]
+    if dim_size % world_size != 0:
+        raise ValueError(f"Tensor size {dim_size} must be divisible by world size {world_size}.")
+    return torch.chunk(tensor, world_size, dim=dim)[rank]
+
+
+def gather_tensor(
+    tensor: torch.Tensor, dim: int = 0, group: Optional[torch.distributed.ProcessGroup] = None
+) -> torch.Tensor:
+    tensor = tensor.transpose(0, dim).contiguous()
+    output = allgather_sync(tensor, 0, group)
+    output = output.transpose(0, dim).contiguous()
+    return output

@@ -239,9 +239,20 @@ def get_string_from_dtype(dtype: torch.dtype):
     return _DTYPE_TO_STRING[dtype]
 
 
+def get_submodule_by_name(model: torch.nn.Module, name: str) -> Optional[torch.nn.Module]:
+    for submodule_name, submodule in model.named_modules():
+        if submodule_name == name:
+            return submodule
+    return None
+
+
 def get_unwrapped_model_state_dict(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     # Remove _orig_mod occurrences from the state dict keys
     return {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
+
+
+def is_compiled_module(module) -> bool:
+    return isinstance(module, torch._dynamo.eval_frame.OptimizedModule)
 
 
 def set_requires_grad(models: Union[torch.nn.Module, List[torch.nn.Module]], value: bool) -> None:
@@ -257,6 +268,11 @@ def synchronize_device() -> None:
         torch.cuda.synchronize()
     elif torch.backends.mps.is_available():
         torch.mps.synchronize()
+
+
+def unwrap_module(module):
+    """Unwraps a module if it was compiled with torch.compile()"""
+    return module._orig_mod if is_compiled_module(module) else module
 
 
 # TODO(aryan): remove everything below this after next torch release
