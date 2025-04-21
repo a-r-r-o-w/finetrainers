@@ -19,15 +19,15 @@ from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
 from finetrainers import data, logging, optimizer, parallel, patches, utils
-from finetrainers.args import BaseArgs
+from finetrainers.args import BaseArgsType
 from finetrainers.config import TrainingType
-from finetrainers.models import ModelSpecification
+from finetrainers.models import ModelSpecification, attention_provider
 from finetrainers.state import State, TrainState
 
 from .config import SFTFullRankConfig, SFTLowRankConfig
 
 
-ArgsType = Union[BaseArgs, SFTFullRankConfig, SFTLowRankConfig]
+ArgsType = Union[BaseArgsType, SFTFullRankConfig, SFTLowRankConfig]
 
 logger = logging.get_logger()
 
@@ -470,14 +470,15 @@ class SFTTrainer:
             )
             sigmas = utils.expand_tensor_dims(sigmas, latent_model_conditions["latents"].ndim)
 
-            pred, target, sigmas = self.model_specification.forward(
-                transformer=self.transformer,
-                scheduler=self.scheduler,
-                condition_model_conditions=condition_model_conditions,
-                latent_model_conditions=latent_model_conditions,
-                sigmas=sigmas,
-                compute_posterior=not self.args.precomputation_once,
-            )
+            with attention_provider(self.args.attn_provider_training):
+                pred, target, sigmas = self.model_specification.forward(
+                    transformer=self.transformer,
+                    scheduler=self.scheduler,
+                    condition_model_conditions=condition_model_conditions,
+                    latent_model_conditions=latent_model_conditions,
+                    sigmas=sigmas,
+                    compute_posterior=not self.args.precomputation_once,
+                )
 
             timesteps = (sigmas * 1000.0).long()
             weights = utils.prepare_loss_weights(
@@ -642,9 +643,10 @@ class SFTTrainer:
                 break
 
             validation_data = validation_data[0]
-            validation_artifacts = self.model_specification.validation(
-                pipeline=pipeline, generator=generator, **validation_data
-            )
+            with attention_provider(self.args.attn_provider_validation):
+                validation_artifacts = self.model_specification.validation(
+                    pipeline=pipeline, generator=generator, **validation_data
+                )
 
             PROMPT = validation_data["prompt"]
             IMAGE = validation_data.get("image", None)

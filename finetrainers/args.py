@@ -2,7 +2,7 @@ import argparse
 import os
 import pathlib
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import torch
 
@@ -14,9 +14,53 @@ from .utils import ArgsConfigMixin, get_non_null_items
 
 logger = get_logger()
 
+# fmt: off
+# Must match src/finetrainers/models/attention_dispatch.py
+AttentionProviderTraining = Literal["flash", "flash_varlen", "flex", "native", "_native_cudnn", "_native_efficient", "_native_flash", "_native_math", "xformers"]
+AttentionProviderValidation = Literal["flash", "flash_varlen", "flex", "native", "_native_cudnn", "_native_efficient", "_native_flash", "_native_math", "sage", "sage_varlen", "_sage_qk_int8_pv_fp8_cuda", "_sage_qk_int8_pv_fp8_cuda_sm90", "_sage_qk_int8_pv_fp16_cuda", "_sage_qk_int8_pv_fp16_triton", "xformers"]
+
+# We do a union because every ArgsConfigMixin registered to BaseArgs can be looked up using the `__getattribute__` override
+BaseArgsType = Union["BaseArgs", "AttentionProviderArgs"]
+# fmt: on
+
+
+class AttentionProviderArgs(ArgsConfigMixin):
+    """
+    Arguments for the attention provider.
+
+    Args:
+        attn_provider_training (`str`, defaults to "native"):
+            The attention provider to use for training. Choose between ['flash', 'flash_varlen', 'flex', 'native', '_native_cudnn', '_native_efficient', '_native_flash', '_native_math'].
+        attn_provider_validation (`str`, defaults to "native"):
+            The attention provider to use for validation. Choose between ['flash', 'flash_varlen', 'flex', 'native', '_native_cudnn', '_native_efficient', '_native_flash', '_native_math', 'sage', 'sage_varlen', '_sage_qk_int8_pv_fp8_cuda', '_sage_qk_int8_pv_fp8_cuda_sm90', '_sage_qk_int8_pv_fp16_cuda', '_sage_qk_int8_pv_fp16_triton', 'xformers'].
+    """
+
+    attn_provider_training: AttentionProviderTraining = "native"
+    attn_provider_validation: AttentionProviderValidation = "native"
+    # attn_provider_specialized_modules: List[str] = []
+
+    def add_args(self, parser: argparse.ArgumentParser) -> None:
+        # fmt: off
+        parser.add_argument("--attn_provider_training", type=str, default="native", choices=["flash", "flash_varlen", "flex", "native", "_native_cudnn", "_native_efficient", "_native_flash", "_native_math"])
+        parser.add_argument("--attn_provider_validation", type=str, default="native", choices=["flash", "flash_varlen", "flex", "native", "_native_cudnn", "_native_efficient", "_native_flash", "_native_math", "sage", "sage_varlen", "_sage_qk_int8_pv_fp8_cuda", "_sage_qk_int8_pv_fp8_cuda_sm90", "_sage_qk_int8_pv_fp16_cuda", "_sage_qk_int8_pv_fp16_triton", "xformers"])
+        # fmt: on
+
+    def map_args(self, argparse_args: argparse.Namespace, mapped_args: "BaseArgs"):
+        mapped_args.attn_provider_training = argparse_args.attn_provider_training
+        mapped_args.attn_provider_validation = argparse_args.attn_provider_validation
+
+    def validate_args(self, args: "BaseArgs"):
+        pass
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "attn_provider_training": self.attn_provider_training,
+            "attn_provider_validation": self.attn_provider_validation,
+        }
+
 
 class BaseArgs:
-    r"""
+    """
     The arguments for the finetrainers training script.
 
     For helpful information about arguments, run `python train.py --help`.
@@ -393,8 +437,19 @@ class BaseArgs:
     allow_tf32: bool = False
     float32_matmul_precision: str = "highest"
 
-    # Additional registered arguments
+    # Attention provider arguments
+    attention_provider_args: AttentionProviderArgs = AttentionProviderArgs()
+
     _registered_config_mixins: List[ArgsConfigMixin] = []
+    _arg_group_map: Dict[str, ArgsConfigMixin] = {}
+
+    def __init__(self):
+        self._arg_group_map: Dict[str, ArgsConfigMixin] = {
+            "attention_provider_args": self.attention_provider_args,
+        }
+
+        for arg_config_mixin in self._arg_group_map.values():
+            self.register_args(arg_config_mixin)
 
     def to_dict(self) -> Dict[str, Any]:
         parallel_arguments = {
@@ -574,6 +629,25 @@ class BaseArgs:
                 validate_fn(mapped_args)
 
             return mapped_args
+
+    def __getattribute__(self, name: str):
+        try:
+            return object.__getattribute__(self, name)
+        except AttributeError:
+            for arg_group in self._arg_group_map.values():
+                if hasattr(arg_group, name):
+                    return getattr(arg_group, name)
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def __setattr__(self, name: str, value: Any):
+        if name in self.__dict__:
+            object.__setattr__(self, name, value)
+            return
+        for arg_group in self._arg_group_map.values():
+            if hasattr(arg_group, name):
+                setattr(arg_group, name, value)
+                return
+        object.__setattr__(self, name, value)
 
 
 def _add_args(parser: argparse.ArgumentParser) -> None:
