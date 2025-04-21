@@ -7,6 +7,11 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 import torch
 from diffusers.utils.import_utils import OptionalDependencyNotAvailable
 
+# Since we will be patching the `scaled_dot_product_attention` function with `attention_dispatch` to take
+# control for dispatching to different attention providers, we need to import the original function
+# to be able to use it and not go into infinite recursion when the dispatcher calls `scaled_dot_product_attention`.
+from torch.nn.functional import scaled_dot_product_attention as native_sdpa
+
 from finetrainers.constants import FINETRAINERS_ATTN_CHECKS, FINETRAINERS_ATTN_PROVIDER
 from finetrainers.logging import get_logger
 from finetrainers.utils.import_utils import (
@@ -267,11 +272,15 @@ def _check_shape(
 
 
 def _prepare_for_flash_attn_or_sage_varlen(
-    batch_size: int, seq_len_q: int, attn_mask: Optional[torch.Tensor] = None, device: Optional[torch.device] = None
+    batch_size: int,
+    seq_len_q: int,
+    seq_len_kv: int,
+    attn_mask: Optional[torch.Tensor] = None,
+    device: Optional[torch.device] = None,
 ) -> None:
     seqlens_q = torch.full((batch_size,), seq_len_q, dtype=torch.int32, device=device)
     if attn_mask is None:
-        seqlens_k = torch.full((batch_size,), seq_len_q, dtype=torch.int32, device=device)
+        seqlens_k = torch.full((batch_size,), seq_len_kv, dtype=torch.int32, device=device)
     else:
         seqlens_k = attn_mask.sum(dim=1, dtype=torch.int32)
     cu_seqlens_q = torch.zeros(batch_size + 1, dtype=torch.int32, device=device)
@@ -431,7 +440,9 @@ def _flash_varlen_attention(
 
     if any(x is None for x in (cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k)):
         (_, seqlens_k), (cu_seqlens_q, cu_seqlens_k), (max_seqlen_q, max_seqlen_k) = (
-            _prepare_for_flash_attn_or_sage_varlen(batch_size, seq_len_q, attn_mask=attn_mask, device=query.device)
+            _prepare_for_flash_attn_or_sage_varlen(
+                batch_size, seq_len_q, seq_len_kv, attn_mask=attn_mask, device=query.device
+            )
         )
     else:
         seqlens_k = torch.full((batch_size,), max_seqlen_k, dtype=torch.int32, device=query.device)
@@ -548,7 +559,7 @@ def _native_attention(
     scale: Optional[float] = None,
     enable_gqa: bool = False,
 ) -> torch.Tensor:
-    return torch.nn.functional.scaled_dot_product_attention(
+    return native_sdpa(
         query=query,
         key=key,
         value=value,
@@ -575,7 +586,7 @@ def _native_cudnn_attention(
     enable_gqa: bool = False,
 ) -> torch.Tensor:
     with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.CUDNN_ATTENTION):
-        return torch.nn.functional.scaled_dot_product_attention(
+        return native_sdpa(
             query=query,
             key=key,
             value=value,
@@ -602,7 +613,7 @@ def _native_efficient_attention(
     enable_gqa: bool = False,
 ) -> torch.Tensor:
     with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.EFFICIENT_ATTENTION):
-        return torch.nn.functional.scaled_dot_product_attention(
+        return native_sdpa(
             query=query,
             key=key,
             value=value,
@@ -629,7 +640,7 @@ def _native_flash_attention(
     enable_gqa: bool = False,
 ) -> torch.Tensor:
     with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
-        return torch.nn.functional.scaled_dot_product_attention(
+        return native_sdpa(
             query=query,
             key=key,
             value=value,
@@ -656,7 +667,7 @@ def _native_math_attention(
     enable_gqa: bool = False,
 ) -> torch.Tensor:
     with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
-        return torch.nn.functional.scaled_dot_product_attention(
+        return native_sdpa(
             query=query,
             key=key,
             value=value,
@@ -721,7 +732,9 @@ def _sage_varlen_attention(
 
     if any(x is None for x in (cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k)):
         (_, seqlens_k), (cu_seqlens_q, cu_seqlens_k), (max_seqlen_q, max_seqlen_k) = (
-            _prepare_for_flash_attn_or_sage_varlen(batch_size, seq_len_q, attn_mask=attn_mask, device=query.device)
+            _prepare_for_flash_attn_or_sage_varlen(
+                batch_size, seq_len_q, seq_len_kv, attn_mask=attn_mask, device=query.device
+            )
         )
     else:
         seqlens_k = torch.full((batch_size,), max_seqlen_k, dtype=torch.int32, device=query.device)

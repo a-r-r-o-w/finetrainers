@@ -519,6 +519,8 @@ class ControlTrainer:
             )
             sigmas = utils.expand_tensor_dims(sigmas, latent_model_conditions["latents"].ndim)
 
+            # NOTE: for planned refactor, make sure that forward and backward pass run under the context.
+            # If only forward runs under context, backward will most likely fail when using activation checkpointing
             with attention_provider(self.args.attn_provider_training):
                 pred, target, sigmas = self.model_specification.forward(
                     transformer=self.transformer,
@@ -529,26 +531,26 @@ class ControlTrainer:
                     compute_posterior=not self.args.precomputation_once,
                 )
 
-            timesteps = (sigmas * 1000.0).long()
-            weights = utils.prepare_loss_weights(
-                scheduler=self.scheduler,
-                alphas=scheduler_alphas[timesteps] if scheduler_alphas is not None else None,
-                sigmas=sigmas,
-                flow_weighting_scheme=self.args.flow_weighting_scheme,
-            )
-            weights = utils.expand_tensor_dims(weights, pred.ndim)
+                timesteps = (sigmas * 1000.0).long()
+                weights = utils.prepare_loss_weights(
+                    scheduler=self.scheduler,
+                    alphas=scheduler_alphas[timesteps] if scheduler_alphas is not None else None,
+                    sigmas=sigmas,
+                    flow_weighting_scheme=self.args.flow_weighting_scheme,
+                )
+                weights = utils.expand_tensor_dims(weights, pred.ndim)
 
-            # 4. Compute loss & backward pass
-            loss = weights.float() * (pred.float() - target.float()).pow(2)
-            # Average loss across all but batch dimension
-            loss = loss.mean(list(range(1, loss.ndim)))
-            # Average loss across batch dimension
-            loss = loss.mean()
-            if self.args.gradient_accumulation_steps > 1:
-                loss = loss / self.args.gradient_accumulation_steps
-            loss.backward()
-            accumulated_loss += loss.detach().item()
-            requires_gradient_step = True
+                # 4. Compute loss & backward pass
+                loss = weights.float() * (pred.float() - target.float()).pow(2)
+                # Average loss across all but batch dimension
+                loss = loss.mean(list(range(1, loss.ndim)))
+                # Average loss across batch dimension
+                loss = loss.mean()
+                if self.args.gradient_accumulation_steps > 1:
+                    loss = loss / self.args.gradient_accumulation_steps
+                loss.backward()
+                accumulated_loss += loss.detach().item()
+                requires_gradient_step = True
 
             # 5. Clip gradients
             model_parts = [self.transformer]

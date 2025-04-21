@@ -41,7 +41,7 @@ class AttentionProviderArgs(ArgsConfigMixin):
 
     def add_args(self, parser: argparse.ArgumentParser) -> None:
         # fmt: off
-        parser.add_argument("--attn_provider_training", type=str, default="native", choices=["flash", "flash_varlen", "flex", "native", "_native_cudnn", "_native_efficient", "_native_flash", "_native_math"])
+        parser.add_argument("--attn_provider_training", type=str, default="native", choices=["flash", "flash_varlen", "flex", "native", "_native_cudnn", "_native_efficient", "_native_flash", "_native_math", "xformers"])
         parser.add_argument("--attn_provider_validation", type=str, default="native", choices=["flash", "flash_varlen", "flex", "native", "_native_cudnn", "_native_efficient", "_native_flash", "_native_math", "sage", "sage_varlen", "_sage_qk_int8_pv_fp8_cuda", "_sage_qk_int8_pv_fp8_cuda_sm90", "_sage_qk_int8_pv_fp16_cuda", "_sage_qk_int8_pv_fp16_triton", "xformers"])
         # fmt: on
 
