@@ -6,6 +6,7 @@ This document lists all the arguments that can be passed to the `train.py` scrip
 
 - [General arguments](#general)
 - [SFT training arguments](#sft-training)
+- [Control training arguments](#control-training)
 
 ## General
 
@@ -73,6 +74,11 @@ layerwise_upcasting_skip_modules_pattern (`List[str]`, defaults to `["patch_embe
     Modules to skip for layerwise upcasting. Layers such as normalization and modulation, when casted to fp8 precision
     naively (as done in layerwise upcasting), can lead to poorer training and inference quality. We skip these layers
     by default, and recommend adding more layers to the default list based on the model architecture.
+compile_modules (`List[str]`, defaults to `[]`):
+    Modules that should be regionally compiled with `torch.compile`.
+compile_scopes (`str`, defaults to `None`):
+    The scope of compilation for each `--compile_modules`. Choose between ['regional', 'full']. Must have the same length as
+    `--compile_modules`. If `None`, will default to `regional` for all modules.
 
 DATASET ARGUMENTS
 -----------------
@@ -245,8 +251,6 @@ logging_dir (`str`, defaults to `logs`):
     The directory where the logs will be stored.
 logging_steps (`int`, defaults to `1`):
     Training logs will be tracked every `logging_steps` steps.
-allow_tf32 (`bool`, defaults to `False`):
-    Whether or not to allow the use of TF32 matmul on compatible hardware.
 nccl_timeout (`int`, defaults to `1800`):
     Timeout for the NCCL communication.
 report_to (`str`, defaults to `wandb`):
@@ -257,6 +261,13 @@ verbose (`int`, defaults to `1`):
         - 1: Diffusers/Transformers info logging on local main process only
         - 2: Diffusers/Transformers debug logging on local main process only
         - 3: Diffusers/Transformers debug logging on all processes
+
+TORCH CONFIG ARGUMENTS
+----------------------
+allow_tf32 (`bool`, defaults to `False`):
+    Whether or not to allow the use of TF32 matmul on compatible hardware.
+float32_matmul_precision (`str`, defaults to `highest`):
+    The precision to use for float32 matmul. Choose between ['highest', 'high', 'medium'].
 ```
 
 ## SFT training
@@ -273,3 +284,41 @@ target_modules (`str` or `List[str]`):
 ```
 
 No additional arguments are required for `--training_type full-finetune`.
+
+## Control training
+
+If using `--training_type control-lora`, these arguments can be specified.
+
+```
+control_type (`str`, defaults to `"canny"`):
+    Control type for the low rank approximation matrices. Can be "canny", "custom".
+rank (int, defaults to `64`):
+    Rank of the low rank approximation matrix.
+lora_alpha (int, defaults to `64`):
+    The lora_alpha parameter to compute scaling factor (lora_alpha / rank) for low-rank matrices.
+target_modules (`str` or `List[str]`, defaults to `"(transformer_blocks|single_transformer_blocks).*(to_q|to_k|to_v|to_out.0|ff.net.0.proj|ff.net.2)"`):
+    Target modules for the low rank approximation matrices. Can be a regex string or a list of regex strings.
+train_qk_norm (`bool`, defaults to `False`):
+    Whether to train the QK normalization layers.
+frame_conditioning_type (`str`, defaults to `"full"`):
+    Type of frame conditioning. Can be "index", "prefix", "random", "first_and_last", or "full".
+frame_conditioning_index (int, defaults to `0`):
+    Index of the frame conditioning. Only used if `frame_conditioning_type` is "index".
+frame_conditioning_concatenate_mask (`bool`, defaults to `False`):
+    Whether to concatenate the frame mask with the latents across channel dim.
+```
+
+If using `--training_type control-full-finetune`, these arguments can be specified.
+
+```
+control_type (`str`, defaults to `"canny"`):
+    Control type for the low rank approximation matrices. Can be "canny", "custom".
+train_qk_norm (`bool`, defaults to `False`):
+    Whether to train the QK normalization layers.
+frame_conditioning_type (`str`, defaults to `"index"`):
+    Type of frame conditioning. Can be "index", "prefix", "random", "first_and_last", or "full".
+frame_conditioning_index (int, defaults to `0`):
+    Index of the frame conditioning. Only used if `frame_conditioning_type` is "index".
+frame_conditioning_concatenate_mask (`bool`, defaults to `False`):
+    Whether to concatenate the frame mask with the latents across channel dim.
+```

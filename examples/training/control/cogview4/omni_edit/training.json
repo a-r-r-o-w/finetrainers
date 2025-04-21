@@ -1,0 +1,50 @@
+{
+  "datasets": [
+    {
+      "data_root": "sayakpaul/OmniEdit-mini",
+      "dataset_type": "image",
+      "image_resolution_buckets": [
+        [384, 384],
+        [480, 480],
+        [512, 512],
+        [640, 640],
+        [704, 704],
+        [768, 768],
+        [832, 832],
+        [896, 896],
+        [960, 960],
+        [1024, 1024],
+        [1152, 1152],
+        [1280, 1280],
+        [1344, 1344],
+        [480, 720],
+        [480, 768],
+        [512, 768],
+        [640, 768],
+        [768, 960],
+        [768, 1152],
+        [768, 1360],
+        [864, 1152],
+        [864, 1360],
+        [720, 480],
+        [768, 480],
+        [768, 512],
+        [768, 640],
+        [960, 768],
+        [1152, 768],
+        [1360, 768],
+        [1152, 864],
+        [1360, 864]
+      ],
+      "caption_options": {
+        "column_names": "edited_prompt_list"
+      },
+      "rename_columns": {
+        "src_img": "control_image",
+        "edited_img": "image"
+      },
+      "reshape_mode": "bicubic",
+      "remove_common_llm_caption_prefixes": true
+    }
+  ]
+}

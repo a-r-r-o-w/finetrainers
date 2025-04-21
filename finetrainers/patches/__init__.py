@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING
 
+from .dependencies.diffusers.peft import load_lora_weights
+
 
 if TYPE_CHECKING:
     from finetrainers.args import BaseArgs
@@ -9,6 +11,10 @@ if TYPE_CHECKING:
 def perform_patches_for_training(args: "BaseArgs", parallel_backend: "ParallelBackendType") -> None:
     # To avoid circular imports
     from finetrainers.config import ModelType, TrainingType
+
+    from .dependencies.diffusers import patch
+
+    patch.patch_diffusers_rms_norm_forward()
 
     if args.model_name == ModelType.LTX_VIDEO:
         from .models.ltx_video import patch

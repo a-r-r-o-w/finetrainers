@@ -2,10 +2,11 @@ import gc
 from typing import Any, Dict, Union
 
 import torch
-from accelerate.logging import get_logger
+
+from finetrainers.logging import get_logger
 
 
-logger = get_logger("finetrainers")
+logger = get_logger()
 
 
 def get_memory_statistics(precision: int = 3) -> Dict[str, Any]:

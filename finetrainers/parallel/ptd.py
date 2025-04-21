@@ -242,7 +242,7 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
     #         yield
 
     def destroy(self):
-        if self.is_main_process:
+        if self.is_main_process and self.tracker is not None:
             self.tracker.finish()
         return torch.distributed.destroy_process_group()
 

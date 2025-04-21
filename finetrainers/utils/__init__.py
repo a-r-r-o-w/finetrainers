@@ -17,6 +17,7 @@ from .file import delete_files, find_files, string_to_filename
 from .hub import save_model_card
 from .memory import bytes_to_gigabytes, free_memory, get_memory_statistics, make_contiguous
 from .model import resolve_component_cls
+from .serialization import safetensors_torch_save_function
 from .torch import (
     align_device_and_dtype,
     apply_compile,
@@ -37,7 +38,7 @@ def get_parameter_names(obj: Any, method_name: Optional[str] = None) -> Set[str]
 
 
 def get_non_null_items(
-    x: Union[List[Any], Tuple[Any], Dict[str, Any]]
+    x: Union[List[Any], Tuple[Any], Dict[str, Any]],
 ) -> Union[List[Any], Tuple[Any], Dict[str, Any]]:
     if isinstance(x, dict):
         return {k: v for k, v in x.items() if v is not None}

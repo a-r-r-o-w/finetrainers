@@ -24,8 +24,6 @@ class CLIPPooledProcessor(ProcessorMixin):
         self.input_names = input_names
 
         assert len(output_names) == 1
-        if input_names is not None:
-            assert len(input_names) <= 3
 
     def forward(
         self,

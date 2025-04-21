@@ -1,3 +1,4 @@
+import functools
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -18,7 +19,7 @@ from finetrainers.logging import get_logger
 from finetrainers.models.modeling_utils import ModelSpecification
 from finetrainers.processors import CogView4GLMProcessor, ProcessorMixin
 from finetrainers.typing import ArtifactType, SchedulerType
-from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items
+from finetrainers.utils import _enable_vae_memory_optimizations, get_non_null_items, safetensors_torch_save_function
 
 
 logger = get_logger()
@@ -284,6 +285,10 @@ class CogView4ModelSpecification(ModelSpecification):
         compute_posterior: bool = True,
         **kwargs,
     ) -> Tuple[torch.Tensor, ...]:
+        base_image_sequence_length = 256
+        base_shift = 0.25
+        max_shift = 0.75
+
         if compute_posterior:
             latents = latent_model_conditions.pop("latents")
         else:
@@ -298,10 +303,6 @@ class CogView4ModelSpecification(ModelSpecification):
 
         noise = torch.zeros_like(latents).normal_(generator=generator)
         timesteps = (sigmas.flatten() * 1000.0).long()
-
-        base_image_sequence_length = 256
-        base_shift = 0.25
-        max_shift = 0.75
 
         image_sequence_length = latents.size(2) * latents.size(3) // self.transformer_config.patch_size**2
         mu = (image_sequence_length / base_image_sequence_length) ** 0.5
@@ -352,12 +353,18 @@ class CogView4ModelSpecification(ModelSpecification):
         directory: str,
         transformer_state_dict: Optional[Dict[str, torch.Tensor]] = None,
         scheduler: Optional[SchedulerType] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *args,
         **kwargs,
     ) -> None:
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
-            CogView4Pipeline.save_lora_weights(directory, transformer_state_dict, safe_serialization=True)
+            CogView4Pipeline.save_lora_weights(
+                directory,
+                transformer_state_dict,
+                save_function=functools.partial(safetensors_torch_save_function, metadata=metadata),
+                safe_serialization=True,
+            )
         if scheduler is not None:
             scheduler.save_pretrained(os.path.join(directory, "scheduler"))
 

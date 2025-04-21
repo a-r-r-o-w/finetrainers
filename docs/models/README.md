@@ -21,15 +21,19 @@ The following table shows the algorithms supported for training and the models t
 | Model                                     | SFT | Control | ControlNet | Distillation |
 |:-----------------------------------------:|:---:|:-------:|:----------:|:------------:|
 | [CogVideoX](./cogvideox.md)               | 🤗 | 😡 | 😡 | 😡 |
-| [CogView4](./cogview4.md)                 | 🤗 | 😡 | 😡 | 😡 |
+| [CogView4](./cogview4.md)                 | 🤗 | 🤗 | 😡 | 😡 |
 | [Flux](./flux.md)                         | 🤗 | 😡 | 😡 | 😡 |
 | [HunyuanVideo](./hunyuan_video.md)        | 🤗 | 😡 | 😡 | 😡 |
 | [LTX-Video](./ltx_video.md)               | 🤗 | 😡 | 😡 | 😡 |
-| [Wan](./wan.md)                           | 🤗 | 😡 | 😡 | 😡 |
+| [Wan](./wan.md)                           | 🤗 | 🤗 | 😡 | 😡 |
 
 For launching SFT Training:
 - `--training_type lora`: Trains a new set of low-rank weights of the model, yielding a smaller adapter model. Currently, only LoRA is supported from [🤗 PEFT](https://github.com/huggingface/peft)
 - `--training_type full-finetune`: Trains the full-rank weights of the model, yielding a full-parameter trained model.
+
+For launching Control Training:
+- `--training_type control-lora`: Trains lora-rank weights for additional channel-wise concatenated control condition.
+- `--training_type control-full-finetune`: Trains the full-rank control conditioned model.
 
 Any model architecture loadable in diffusers/transformers for above models can be used for training. For example, [SkyReels-T2V](https://huggingface.co/Skywork/SkyReels-V1-Hunyuan-T2V) is a finetune of HunyuanVideo, which is compatible for continual training out-of-the-box. Custom models can be loaded either by writing your own [ModelSpecification](TODO(aryan): add link) or by using the following set of arguments:
 - `--tokenizer_id`, `--tokenizer_2_id`, `--tokenizer_3_id`: The tokenizers to use for training in conjunction with text encoder conditioning models.

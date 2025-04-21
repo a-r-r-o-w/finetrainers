@@ -11,6 +11,9 @@ class BaseParallelBackend:
     Base class that contains properties and methods that should be implemented by different parallel backends.
     """
 
+    def __init__(self):
+        self.tracker = None
+
     def enable_determinism(self, seed: int) -> None:
         raise NotImplementedError("Method `enable_determinism` must be implemented by subclass.")
 
@@ -41,7 +44,6 @@ class BaseParallelBackend:
     def initialize_trackers(
         self, trackers: List[str], experiment_name: str, config: Dict[str, Any], log_dir: str
     ) -> TrackerType:
-        self.tracker = None
         if self.is_main_process:
             self.tracker = initialize_trackers(trackers, experiment_name, config, log_dir)
 

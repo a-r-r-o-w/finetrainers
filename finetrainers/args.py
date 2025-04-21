@@ -2,13 +2,14 @@ import argparse
 import os
 import pathlib
 import sys
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 
 from .config import SUPPORTED_MODEL_CONFIGS, ModelType, TrainingType
 from .logging import get_logger
 from .parallel import ParallelBackendEnum
+from .trainer.config_utils import ConfigMixin
 from .utils import get_non_null_items
 
 
@@ -260,8 +261,6 @@ class BaseArgs:
         The directory where the logs will be stored.
     logging_steps (`int`, defaults to `1`):
         Training logs will be tracked every `logging_steps` steps.
-    allow_tf32 (`bool`, defaults to `False`):
-        Whether or not to allow the use of TF32 matmul on compatible hardware.
     nccl_timeout (`int`, defaults to `1800`):
         Timeout for the NCCL communication.
     report_to (`str`, defaults to `wandb`):
@@ -272,6 +271,18 @@ class BaseArgs:
             - 1: Diffusers/Transformers info logging on local main process only
             - 2: Diffusers/Transformers debug logging on local main process only
             - 3: Diffusers/Transformers debug logging on all processes
+
+    TORCH CONFIG ARGUMENTS
+    ----------------------
+    compile_modules (`List[str]`, defaults to `[]`):
+        Modules that should be regionally compiled with `torch.compile`.
+    compile_scopes (`str`, defaults to `None`):
+        The scope of compilation for each `--compile_modules`. Choose between ['regional', 'full']. Must have the same length as
+        `--compile_modules`. If `None`, will default to `regional` for all modules.
+    allow_tf32 (`bool`, defaults to `False`):
+        Whether or not to allow the use of TF32 matmul on compatible hardware.
+    float32_matmul_precision (`str`, defaults to `highest`):
+        The precision to use for float32 matmul. Choose between ['highest', 'high', 'medium'].
     """
 
     # Parallel arguments
@@ -313,7 +324,6 @@ class BaseArgs:
         "^proj_out$",
         "norm",
     ]
-    compile_modules: List[str] = []
 
     # Dataset arguments
     dataset_config: str = None
@@ -380,11 +390,19 @@ class BaseArgs:
     output_dir: str = None
     logging_dir: Optional[str] = "logs"
     logging_steps: int = 1
-    allow_tf32: bool = False
     init_timeout: int = 300  # 5 minutes
     nccl_timeout: int = 600  # 10 minutes, considering that validation may be performed
     report_to: str = "wandb"
     verbose: int = 1
+
+    # Torch config arguments
+    compile_modules: List[str] = []
+    compile_scopes: List[str] = None
+    allow_tf32: bool = False
+    float32_matmul_precision: Optional[str] = None
+
+    # Additional registered arguments
+    _registered_config_mixins: List[ConfigMixin] = []
 
     def to_dict(self) -> Dict[str, Any]:
         parallel_arguments = {
@@ -417,7 +435,6 @@ class BaseArgs:
             "layerwise_upcasting_modules": self.layerwise_upcasting_modules,
             "layerwise_upcasting_storage_dtype": self.layerwise_upcasting_storage_dtype,
             "layerwise_upcasting_skip_modules_pattern": self.layerwise_upcasting_skip_modules_pattern,
-            "compile_modules": self.compile_modules,
         }
         model_arguments = get_non_null_items(model_arguments)
 
@@ -496,13 +513,23 @@ class BaseArgs:
             "output_dir": self.output_dir,
             "logging_dir": self.logging_dir,
             "logging_steps": self.logging_steps,
-            "allow_tf32": self.allow_tf32,
             "init_timeout": self.init_timeout,
             "nccl_timeout": self.nccl_timeout,
             "report_to": self.report_to,
             "verbose": self.verbose,
         }
         miscellaneous_arguments = get_non_null_items(miscellaneous_arguments)
+
+        torch_config_arguments = {
+            "compile_modules": self.compile_modules,
+            "compile_scopes": self.compile_scopes,
+            "allow_tf32": self.allow_tf32,
+            "float32_matmul_precision": self.float32_matmul_precision,
+        }
+
+        additional_arguments = {}
+        for config_mixin in self._registered_config_mixins:
+            additional_arguments[config_mixin.__class__.__name__] = config_mixin.to_dict()
 
         return {
             "parallel_arguments": parallel_arguments,
@@ -514,17 +541,15 @@ class BaseArgs:
             "optimizer_arguments": optimizer_arguments,
             "validation_arguments": validation_arguments,
             "miscellaneous_arguments": miscellaneous_arguments,
+            "additional_arguments": additional_arguments,
+            "torch_config_arguments": torch_config_arguments,
         }
 
-    def extend_args(
-        self,
-        add_fn: Callable[[argparse.ArgumentParser], None],
-        map_fn: Callable[["BaseArgs"], None],
-        validate_fn: Callable[["BaseArgs"], None],
-    ) -> None:
+    def register_args(self, config: ConfigMixin) -> None:
         if not hasattr(self, "_extended_add_arguments"):
             self._extended_add_arguments = []
-        self._extended_add_arguments.append((add_fn, validate_fn, map_fn))
+        self._extended_add_arguments.append((config.add_args, config.validate_args, config.map_args))
+        self._registered_config_mixins.append(config)
 
     def parse_args(self):
         _LIST_MODELS = "--list_models"
@@ -569,6 +594,7 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     _add_optimizer_arguments(parser)
     _add_validation_arguments(parser)
     _add_miscellaneous_arguments(parser)
+    _add_torch_config_arguments(parser)
 
 
 def _validate_args(args: BaseArgs):
@@ -625,7 +651,6 @@ def _add_model_arguments(parser: argparse.ArgumentParser) -> None:
         default=["patch_embed", "pos_embed", "x_embedder", "context_embedder", "^proj_in$", "^proj_out$", "norm"],
         nargs="+",
     )
-    parser.add_argument("--compile_modules", type=str, default=[], nargs="+", choices=["transformer"])
 
 
 def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
@@ -711,11 +736,23 @@ def _add_miscellaneous_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output_dir", type=str, default="finetrainers-training")
     parser.add_argument("--logging_dir", type=str, default="logs")
     parser.add_argument("--logging_steps", type=int, default=1)
-    parser.add_argument("--allow_tf32", action="store_true")
     parser.add_argument("--init_timeout", type=int, default=300)
     parser.add_argument("--nccl_timeout", type=int, default=600)
     parser.add_argument("--report_to", type=str, default="none", choices=["none", "wandb"])
     parser.add_argument("--verbose", type=int, default=0, choices=[0, 1, 2, 3])
+
+
+def _add_torch_config_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--compile_modules", type=str, default=[], nargs="+")
+    parser.add_argument("--compile_scopes", type=str, default=None, nargs="+")
+    parser.add_argument("--allow_tf32", action="store_true")
+    parser.add_argument(
+        "--float32_matmul_precision",
+        type=str,
+        default=None,
+        choices=["highest", "high", "medium"],
+        help="The precision to use for float32 matmul. Choose between ['highest', 'high', 'medium'].",
+    )
 
 
 def _add_helper_arguments(parser: argparse.ArgumentParser) -> None:
@@ -743,6 +780,17 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.tp_degree = args.tp_degree
 
     # Model arguments
+    compile_scopes = args.compile_scopes
+    if len(args.compile_modules) > 0:
+        if compile_scopes is None:
+            compile_scopes = "regional"
+        if isinstance(compile_scopes, list) and len(compile_scopes) == 1:
+            compile_scopes = compile_scopes[0]
+        if isinstance(compile_scopes, str):
+            compile_scopes = [compile_scopes] * len(args.compile_modules)
+    else:
+        compile_scopes = []
+
     result_args.model_name = args.model_name
     result_args.pretrained_model_name_or_path = args.pretrained_model_name_or_path
     result_args.revision = args.revision
@@ -764,7 +812,6 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.layerwise_upcasting_modules = args.layerwise_upcasting_modules
     result_args.layerwise_upcasting_storage_dtype = _DTYPE_MAP[args.layerwise_upcasting_storage_dtype]
     result_args.layerwise_upcasting_skip_modules_pattern = args.layerwise_upcasting_skip_modules_pattern
-    result_args.compile_modules = args.compile_modules
 
     # Dataset arguments
     result_args.dataset_config = args.dataset_config
@@ -831,20 +878,31 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.output_dir = args.output_dir
     result_args.logging_dir = args.logging_dir
     result_args.logging_steps = args.logging_steps
-    result_args.allow_tf32 = args.allow_tf32
     result_args.init_timeout = args.init_timeout
     result_args.nccl_timeout = args.nccl_timeout
     result_args.report_to = args.report_to
     result_args.verbose = args.verbose
+
+    # Torch config arguments
+    result_args.compile_modules = args.compile_modules
+    result_args.compile_scopes = compile_scopes
+    result_args.allow_tf32 = args.allow_tf32
+    result_args.float32_matmul_precision = args.float32_matmul_precision
 
     return result_args
 
 
 def _validate_model_args(args: BaseArgs):
     if args.training_type == "full-finetune":
-        assert (
-            "transformer" not in args.layerwise_upcasting_modules
-        ), "Layerwise upcasting is not supported for full-finetune training"
+        assert "transformer" not in args.layerwise_upcasting_modules, (
+            "Layerwise upcasting is not supported for full-finetune training"
+        )
+    if len(args.compile_modules) > 0:
+        assert len(args.compile_modules) == len(args.compile_scopes) and all(
+            x in ["regional", "full"] for x in args.compile_scopes
+        ), (
+            "Compile modules and compile scopes must be of the same length and compile scopes must be either 'regional' or 'full'"
+        )
 
 
 def _validate_dataset_args(args: BaseArgs):

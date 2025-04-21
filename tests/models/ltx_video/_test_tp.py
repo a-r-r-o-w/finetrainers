@@ -151,7 +151,7 @@ def main(world_size: int, rank: int):
         torch.allclose(output, output_tp, atol=1e-5, rtol=1e-5),
         (output - output_tp).abs().max(),
     )
-    print(f"Max memory reserved ({rank=}): {torch.cuda.max_memory_reserved(rank) / 1024 ** 3:.2f} GB")
+    print(f"Max memory reserved ({rank=}): {torch.cuda.max_memory_reserved(rank) / 1024**3:.2f} GB")
 
     if rank == 0:
         print()

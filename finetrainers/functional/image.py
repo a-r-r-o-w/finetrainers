@@ -7,6 +7,8 @@ import torch.nn.functional as F
 def center_crop_image(image: torch.Tensor, size: Tuple[int, int]) -> torch.Tensor:
     num_channels, height, width = image.shape
     crop_h, crop_w = size
+    if height < crop_h or width < crop_w:
+        raise ValueError(f"Image size {(height, width)} is smaller than the target size {size}.")
     top = (height - crop_h) // 2
     left = (width - crop_w) // 2
     return image[:, top : top + crop_h, left : left + crop_w]
@@ -30,7 +32,7 @@ def find_nearest_resolution_image(image: torch.Tensor, resolution_buckets: List[
     aspect_ratio = width / height
 
     def aspect_ratio_diff(bucket):
-        return abs((bucket[1] / bucket[0]) - aspect_ratio)
+        return abs((bucket[1] / bucket[0]) - aspect_ratio), (-bucket[0], -bucket[1])
 
     return min(resolution_buckets, key=aspect_ratio_diff)
 

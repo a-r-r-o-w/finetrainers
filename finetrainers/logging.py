@@ -2,6 +2,9 @@ import logging
 import os
 from typing import TYPE_CHECKING, Union
 
+import diffusers
+import transformers
+
 from .constants import FINETRAINERS_LOG_LEVEL
 
 
@@ -105,7 +108,32 @@ _logger = logging.getLogger("finetrainers")
 _logger.setLevel(FINETRAINERS_LOG_LEVEL)
 _console_handler = logging.StreamHandler()
 _console_handler.setLevel(FINETRAINERS_LOG_LEVEL)
-_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+_formatter = logging.Formatter("%(asctime)s - [%(levelname)s] - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 _console_handler.setFormatter(_formatter)
 _logger.addHandler(_console_handler)
+_logger.propagate = False
 _logger = FinetrainersLoggerAdapter(_logger)
+
+
+def set_dependency_log_level(verbose: int = 0, is_local_main_process: bool = False) -> None:
+    transformers_log_level = transformers.utils.logging.set_verbosity_error
+    diffusers_log_level = diffusers.utils.logging.set_verbosity_error
+
+    if verbose == 0:
+        if is_local_main_process:
+            transformers_log_level = transformers.utils.logging.set_verbosity_warning
+            diffusers_log_level = diffusers.utils.logging.set_verbosity_warning
+    elif verbose == 1:
+        if is_local_main_process:
+            transformers_log_level = transformers.utils.logging.set_verbosity_info
+            diffusers_log_level = diffusers.utils.logging.set_verbosity_info
+    elif verbose == 2:
+        if is_local_main_process:
+            transformers_log_level = transformers.utils.logging.set_verbosity_debug
+            diffusers_log_level = diffusers.utils.logging.set_verbosity_debug
+    else:
+        transformers_log_level = transformers.utils.logging.set_verbosity_debug
+        diffusers_log_level = diffusers.utils.logging.set_verbosity_debug
+
+    transformers_log_level()
+    diffusers_log_level()

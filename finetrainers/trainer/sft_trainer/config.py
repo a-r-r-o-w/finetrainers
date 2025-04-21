@@ -1,5 +1,5 @@
 import argparse
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
 from finetrainers.trainer.config_utils import ConfigMixin
 
@@ -14,11 +14,11 @@ class SFTLowRankConfig(ConfigMixin):
 
     Args:
         rank (int):
-            Rank of the low rank approximation.
+            Rank of the low rank approximation matrix.
         lora_alpha (int):
             The lora_alpha parameter to compute scaling factor (lora_alpha / rank) for low-rank matrices.
         target_modules (`str` or `List[str]`):
-            Target modules for the low rank approximation. Can be a regex string or a list of regex strings.
+            Target modules for the low rank approximation matrices. Can be a regex string or a list of regex strings.
     """
 
     rank: int = 64
@@ -46,8 +46,15 @@ class SFTLowRankConfig(ConfigMixin):
             argparse_args.target_modules[0] if len(argparse_args.target_modules) == 1 else argparse_args.target_modules
         )
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {"rank": self.rank, "lora_alpha": self.lora_alpha, "target_modules": self.target_modules}
+
 
 class SFTFullRankConfig(ConfigMixin):
+    r"""
+    Configuration class for SFT full rank training.
+    """
+
     def add_args(self, parser: argparse.ArgumentParser):
         pass
 

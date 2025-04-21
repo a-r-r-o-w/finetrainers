@@ -7,10 +7,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
 
 import datasets.distributed
-import diffusers
 import torch
 import torch.backends
-import transformers
 import wandb
 from diffusers import DiffusionPipeline
 from diffusers.hooks import apply_layerwise_casting
@@ -24,24 +22,20 @@ from finetrainers import data, logging, optimizer, parallel, patches, utils
 from finetrainers.config import TrainingType
 from finetrainers.state import State, TrainState
 
+from .config import SFTFullRankConfig, SFTLowRankConfig
+
 
 if TYPE_CHECKING:
     from finetrainers.args import BaseArgs
     from finetrainers.models import ModelSpecification
 
+ArgsType = Union["BaseArgs", SFTFullRankConfig, SFTLowRankConfig]
 
 logger = logging.get_logger()
 
 
 class SFTTrainer:
-    # fmt: off
-    _all_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "unet", "vae", "scheduler"]
-    _condition_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3"]
-    _latent_component_names = ["vae"]
-    _diffusion_component_names = ["transformer", "unet", "scheduler"]
-    # fmt: on
-
-    def __init__(self, args: "BaseArgs", model_specification: "ModelSpecification") -> None:
+    def __init__(self, args: ArgsType, model_specification: "ModelSpecification") -> None:
         self.args = args
         self.state = State()
         self.state.train_state = TrainState()
@@ -55,6 +49,10 @@ class SFTTrainer:
         self.text_encoder = None
         self.text_encoder_2 = None
         self.text_encoder_3 = None
+
+        # Image encoders
+        self.image_encoder = None
+        self.image_processor = None
 
         # Denoisers
         self.transformer = None
@@ -122,7 +120,7 @@ class SFTTrainer:
         # Layerwise upcasting must be applied before adding the LoRA adapter.
         # If we don't perform this before moving to device, we might OOM on the GPU. So, best to do it on
         # CPU for now, before support is added in Diffusers for loading and enabling layerwise upcasting directly.
-        if self.args.training_type == "lora" and "transformer" in self.args.layerwise_upcasting_modules:
+        if self.args.training_type == TrainingType.LORA and "transformer" in self.args.layerwise_upcasting_modules:
             apply_layerwise_casting(
                 self.transformer,
                 storage_dtype=self.args.layerwise_upcasting_storage_dtype,
@@ -140,10 +138,6 @@ class SFTTrainer:
                 target_modules=self.args.target_modules,
             )
             self.transformer.add_adapter(transformer_lora_config)
-
-        # # TODO(aryan): it might be nice to add some assertions here to make sure that lora parameters are still in fp32
-        # # even if layerwise upcasting. Would be nice to have a test as well
-        # self.register_saving_loading_hooks(transformer_lora_config)
 
         # Make sure the trainable params are in float32 if data sharding is not enabled. For FSDP, we need all
         # parameters to be of the same dtype.
@@ -167,7 +161,7 @@ class SFTTrainer:
             # TODO(aryan): handle fp8 from TorchAO here
             model_specification.apply_tensor_parallel(
                 backend=parallel.ParallelBackendEnum.PTD,
-                device_mesh=parallel_backend.get_mesh()["tp"],
+                device_mesh=parallel_backend.get_mesh("tp"),
                 transformer=self.transformer,
             )
 
@@ -176,8 +170,8 @@ class SFTTrainer:
             # TODO(aryan): support other checkpointing types
             utils.apply_activation_checkpointing(self.transformer, checkpointing_type="full")
 
-        if "transformer" in self.args.compile_modules:
-            utils.apply_compile(self.transformer)
+        # Apply torch.compile
+        self._maybe_torch_compile()
 
         # Enable DDP, FSDP or HSDP
         if parallel_backend.data_sharding_enabled:
@@ -198,12 +192,12 @@ class SFTTrainer:
 
             parallel_backend.apply_fsdp2(
                 model=self.transformer,
-                dp_mesh=parallel_backend.get_mesh()[dp_mesh_names],
                 param_dtype=self.args.transformer_dtype,
                 reduce_dtype=torch.float32,
                 output_dtype=None,
                 pp_enabled=parallel_backend.pipeline_parallel_enabled,
                 cpu_offload=False,  # TODO(aryan): needs to be tested and allowed for enabling later
+                device_mesh=parallel_backend.get_mesh()[dp_mesh_names],
             )
         elif parallel_backend.data_replication_enabled:
             logger.info("Applying DDP to the model")
@@ -306,7 +300,18 @@ class SFTTrainer:
             if parallel_backend.is_main_process:
                 if self.args.training_type == TrainingType.LORA:
                     state_dict = get_peft_model_state_dict(self.transformer, state_dict)
-                    self.model_specification._save_lora_weights(self.args.output_dir, state_dict, self.scheduler)
+                    # fmt: off
+                    metadata = {
+                        "r": self.args.rank,
+                        "lora_alpha": self.args.lora_alpha,
+                        "init_lora_weights": True,
+                        "target_modules": self.args.target_modules,
+                    }
+                    metadata = {"lora_config": json.dumps(metadata, indent=4)}
+                    # fmt: on
+                    self.model_specification._save_lora_weights(
+                        self.args.output_dir, state_dict, self.scheduler, metadata
+                    )
                 elif self.args.training_type == TrainingType.FULL_FINETUNE:
                     self.model_specification._save_model(
                         self.args.output_dir, self.transformer, state_dict, self.scheduler
@@ -390,20 +395,21 @@ class SFTTrainer:
         self.transformer.train()
         data_iterator = iter(self.dataloader)
 
+        compute_posterior = True if self.args.enable_precomputation else (not self.args.precomputation_once)
         preprocessor = data.initialize_preprocessor(
             rank=parallel_backend.rank,
             num_items=self.args.precomputation_items if self.args.enable_precomputation else 1,
             processor_fn={
                 "condition": self.model_specification.prepare_conditions,
                 "latent": functools.partial(
-                    self.model_specification.prepare_latents, compute_posterior=not self.args.precomputation_once
+                    self.model_specification.prepare_latents, compute_posterior=compute_posterior
                 ),
             },
             save_dir=self.args.precomputation_dir,
             enable_precomputation=self.args.enable_precomputation,
         )
-        precomputed_condition_iterator: Iterable[Dict[str, Any]] = None
-        precomputed_latent_iterator: Iterable[Dict[str, Any]] = None
+        condition_iterator: Iterable[Dict[str, Any]] = None
+        latent_iterator: Iterable[Dict[str, Any]] = None
         sampler = data.ResolutionSampler(
             batch_size=self.args.batch_size, dim_keys=self.model_specification._resolution_dim_keys
         )
@@ -415,20 +421,12 @@ class SFTTrainer:
         ):
             # 1. Load & preprocess data if required
             if preprocessor.requires_data:
-                # TODO(aryan): We should do the following here:
-                # - Force checkpoint the trainable models, optimizers, schedulers and train state
-                # - Do the precomputation
-                # - Load the checkpointed models, optimizers, schedulers and train state back, and continue training
-                # This way we can be more memory efficient again, since the latest rewrite of precomputation removed
-                # this logic.
-                precomputed_condition_iterator, precomputed_latent_iterator = self._prepare_data(
-                    preprocessor, data_iterator
-                )
+                condition_iterator, latent_iterator = self._prepare_data(preprocessor, data_iterator)
 
             # 2. Prepare batch
             try:
-                condition_item = next(precomputed_condition_iterator)
-                latent_item = next(precomputed_latent_iterator)
+                condition_item = next(condition_iterator)
+                latent_item = next(latent_iterator)
                 sampler.consume(condition_item, latent_item)
             except StopIteration:
                 if requires_gradient_step:
@@ -645,10 +643,6 @@ class SFTTrainer:
             if validation_data is None:
                 break
 
-            logger.debug(
-                f"Validating {validation_data=} on rank={parallel_backend.rank}.", local_main_process_only=False
-            )
-
             validation_data = validation_data[0]
             validation_artifacts = self.model_specification.validation(
                 pipeline=pipeline, generator=generator, **validation_data
@@ -677,27 +671,21 @@ class SFTTrainer:
             # TODO(aryan): Currently, we only support WandB so we've hardcoded it here. Needs to be revisited.
             for index, (key, artifact) in enumerate(list(artifacts.items())):
                 assert isinstance(artifact, (data.ImageArtifact, data.VideoArtifact))
+                if artifact.value is None:
+                    continue
 
                 time_, rank, ext = int(time.time()), parallel_backend.rank, artifact.file_extension
                 filename = "validation-" if not final_validation else "final-"
                 filename += f"{step}-{rank}-{index}-{prompt_filename}-{time_}.{ext}"
                 output_filename = os.path.join(self.args.output_dir, filename)
 
-                if parallel_backend.is_main_process and artifact.file_extension == "mp4":
+                if parallel_backend.is_main_process and ext in ["mp4", "jpg", "jpeg", "png"]:
                     main_process_prompts_to_filenames[PROMPT] = filename
 
-                if artifact.type == "image" and artifact.value is not None:
-                    logger.debug(
-                        f"Saving image from rank={parallel_backend.rank} to {output_filename}",
-                        local_main_process_only=False,
-                    )
+                if isinstance(artifact, data.ImageArtifact):
                     artifact.value.save(output_filename)
                     all_processes_artifacts.append(wandb.Image(output_filename, caption=PROMPT))
-                elif artifact.type == "video" and artifact.value is not None:
-                    logger.debug(
-                        f"Saving video from rank={parallel_backend.rank} to {output_filename}",
-                        local_main_process_only=False,
-                    )
+                elif isinstance(artifact, data.VideoArtifact):
                     export_to_video(artifact.value, output_filename, fps=EXPORT_FPS)
                     all_processes_artifacts.append(wandb.Video(output_filename, caption=PROMPT))
 
@@ -708,9 +696,9 @@ class SFTTrainer:
         logger.info(f"Memory after validation end: {json.dumps(memory_statistics, indent=4)}")
 
         # Remove all hooks that might have been added during pipeline initialization to the models
-        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "vae"]
         pipeline.remove_all_hooks()
         del pipeline
+        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "image_encoder", "image_processor", "vae"]
         if self.args.enable_precomputation:
             self._delete_components(module_names)
         torch.cuda.reset_peak_memory_stats(parallel_backend.device)
@@ -775,29 +763,8 @@ class SFTTrainer:
             self.state.parallel_backend.enable_determinism(self.args.seed)
 
     def _init_logging(self) -> None:
-        transformers_log_level = transformers.utils.logging.set_verbosity_error
-        diffusers_log_level = diffusers.utils.logging.set_verbosity_error
-
-        if self.args.verbose == 0:
-            if self.state.parallel_backend.is_local_main_process:
-                transformers_log_level = transformers.utils.logging.set_verbosity_warning
-                diffusers_log_level = diffusers.utils.logging.set_verbosity_warning
-        elif self.args.verbose == 1:
-            if self.state.parallel_backend.is_local_main_process:
-                transformers_log_level = transformers.utils.logging.set_verbosity_info
-                diffusers_log_level = diffusers.utils.logging.set_verbosity_info
-        elif self.args.verbose == 2:
-            if self.state.parallel_backend.is_local_main_process:
-                transformers_log_level = transformers.utils.logging.set_verbosity_debug
-                diffusers_log_level = diffusers.utils.logging.set_verbosity_debug
-        else:
-            transformers_log_level = transformers.utils.logging.set_verbosity_debug
-            diffusers_log_level = diffusers.utils.logging.set_verbosity_debug
-
-        transformers_log_level()
-        diffusers_log_level()
-
         logging._set_parallel_backend(self.state.parallel_backend)
+        logging.set_dependency_log_level(self.args.verbose, self.state.parallel_backend.is_local_main_process)
         logger.info("Initialized FineTrainers")
 
     def _init_trackers(self) -> None:
@@ -822,6 +789,7 @@ class SFTTrainer:
         # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
         if self.args.allow_tf32 and torch.cuda.is_available():
             torch.backends.cuda.matmul.allow_tf32 = True
+        torch.set_float32_matmul_precision(self.args.float32_matmul_precision)
 
     def _move_components_to_device(
         self, components: Optional[List[torch.nn.Module]] = None, device: Optional[Union[str, torch.device]] = None
@@ -829,7 +797,14 @@ class SFTTrainer:
         if device is None:
             device = self.state.parallel_backend.device
         if components is None:
-            components = [self.text_encoder, self.text_encoder_2, self.text_encoder_3, self.transformer, self.vae]
+            components = [
+                self.text_encoder,
+                self.text_encoder_2,
+                self.text_encoder_3,
+                self.image_encoder,
+                self.transformer,
+                self.vae,
+            ]
         components = utils.get_non_null_items(components)
         components = list(filter(lambda x: hasattr(x, "to"), components))
         for component in components:
@@ -850,7 +825,7 @@ class SFTTrainer:
         utils.synchronize_device()
 
     def _init_pipeline(self, final_validation: bool = False) -> DiffusionPipeline:
-        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "vae"]
+        module_names = ["text_encoder", "text_encoder_2", "text_encoder_3", "image_encoder", "transformer", "vae"]
 
         if not final_validation:
             module_names.remove("transformer")
@@ -861,6 +836,8 @@ class SFTTrainer:
                 text_encoder=self.text_encoder,
                 text_encoder_2=self.text_encoder_2,
                 text_encoder_3=self.text_encoder_3,
+                image_encoder=self.image_encoder,
+                image_processor=self.image_processor,
                 # TODO(aryan): handle unwrapping for compiled modules
                 # transformer=utils.unwrap_model(accelerator, self.transformer),
                 transformer=self.transformer,
@@ -894,6 +871,7 @@ class SFTTrainer:
         self._set_components(components)
         if not self.args.enable_model_cpu_offload:
             self._move_components_to_device(list(components.values()))
+        self._maybe_torch_compile()
         return pipeline
 
     def _prepare_data(
@@ -912,6 +890,7 @@ class SFTTrainer:
                 self._set_components(all_components)
                 self._move_components_to_device(list(all_components.values()))
                 utils._enable_vae_memory_optimizations(self.vae, self.args.enable_slicing, self.args.enable_tiling)
+                self._maybe_torch_compile()
             else:
                 condition_components = {k: v for k in self._condition_component_names if (v := getattr(self, k, None))}
                 latent_components = {k: v for k in self._latent_component_names if (v := getattr(self, k, None))}
@@ -954,6 +933,7 @@ class SFTTrainer:
             component_modules = list(condition_components.values())
             self._set_components(condition_components)
             self._move_components_to_device(component_modules)
+            self._maybe_torch_compile()
             condition_iterator = consume_fn(
                 "condition",
                 components=condition_components,
@@ -971,6 +951,7 @@ class SFTTrainer:
             component_modules = list(latent_components.values())
             self._set_components(latent_components)
             self._move_components_to_device(component_modules)
+            self._maybe_torch_compile()
             latent_iterator = consume_fn(
                 "latent",
                 components=latent_components,
@@ -987,6 +968,14 @@ class SFTTrainer:
 
         return condition_iterator, latent_iterator
 
+    def _maybe_torch_compile(self):
+        for model_name, compile_scope in zip(self.args.compile_modules, self.args.compile_scopes):
+            model = getattr(self, model_name, None)
+            if model is not None:
+                logger.info(f"Applying torch.compile to '{model_name}' with scope '{compile_scope}'.")
+                compiled_model = utils.apply_compile(model, compile_scope)
+                setattr(self, model_name, compiled_model)
+
     def _get_training_info(self) -> Dict[str, Any]:
         info = self.args.to_dict()
 
@@ -1000,3 +989,10 @@ class SFTTrainer:
 
         info.update({"diffusion_arguments": filtered_diffusion_args})
         return info
+
+    # fmt: off
+    _all_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3", "image_encoder", "image_processor", "transformer", "unet", "vae", "scheduler"]
+    _condition_component_names = ["tokenizer", "tokenizer_2", "tokenizer_3", "text_encoder", "text_encoder_2", "text_encoder_3"]
+    _latent_component_names = ["image_encoder", "image_processor", "vae"]
+    _diffusion_component_names = ["transformer", "unet", "scheduler"]
+    # fmt: on

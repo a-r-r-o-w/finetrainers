@@ -60,3 +60,50 @@ class DiagonalGaussianDistribution(object):
 
     def mode(self) -> torch.Tensor:
         return self.mean
+
+
+@torch.no_grad()
+def _expand_linear_with_zeroed_weights(
+    module: torch.nn.Linear, new_in_features: Optional[int] = None, new_out_features: Optional[int] = None
+) -> torch.nn.Linear:
+    if new_in_features is None:
+        new_in_features = module.in_features
+    if new_out_features is None:
+        new_out_features = module.out_features
+    bias = getattr(module, "bias", None)
+    new_module = torch.nn.Linear(new_in_features, new_out_features, bias=bias is not None)
+    new_module.to(device=module.weight.device, dtype=module.weight.dtype)
+    new_module.weight.zero_()
+    new_module.weight.data[: module.weight.data.shape[0], : module.weight.data.shape[1]].copy_(module.weight.data)
+    if bias is not None:
+        new_module.bias.zero_()
+        new_module.bias.data[: bias.data.shape[0]].copy_(bias.data)
+    return new_module
+
+
+@torch.no_grad()
+def _expand_conv3d_with_zeroed_weights(
+    module: torch.nn.Linear, new_in_channels: Optional[int] = None, new_out_channels: Optional[int] = None
+) -> torch.nn.Conv3d:
+    if new_in_channels is None:
+        new_in_channels = module.in_channels
+    if new_out_channels is None:
+        new_out_channels = module.out_channels
+    bias = getattr(module, "bias", None)
+    new_module = torch.nn.Conv3d(
+        new_in_channels,
+        new_out_channels,
+        kernel_size=module.kernel_size,
+        stride=module.stride,
+        padding=module.padding,
+        dilation=module.dilation,
+        groups=module.groups,
+        bias=bias is not None,
+    )
+    new_module.to(device=module.weight.device, dtype=module.weight.dtype)
+    new_module.weight.zero_()
+    new_module.weight.data[: module.weight.data.shape[0], : module.weight.data.shape[1]].copy_(module.weight.data)
+    if bias is not None:
+        new_module.bias.zero_()
+        new_module.bias.data[: bias.data.shape[0]].copy_(bias.data)
+    return new_module

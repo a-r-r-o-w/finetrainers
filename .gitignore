@@ -172,5 +172,7 @@ outputs*
 *.slurm
 .vscode/
 *dummy*
+*curated*
+validation_dataset/
 
 !requirements.txt
