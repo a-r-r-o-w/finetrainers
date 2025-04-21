@@ -1,5 +1,4 @@
 import contextlib
-import functools
 import inspect
 from enum import Enum
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
@@ -343,27 +342,6 @@ def _normalize_attn_mask(attn_mask: torch.Tensor, batch_size: int, seq_len_k: in
     return attn_mask
 
 
-# LRU cache for block mask creation since we don't want to recompile the same block mask multiple times
-@functools.lru_cache
-def _flex_attention_create_block_mask(
-    mask_mod,
-    batch_size: Optional[int] = None,
-    num_heads: Optional[int] = None,
-    seq_len_q: Optional[int] = None,
-    seq_len_kv: Optional[int] = None,
-    device: Optional[torch.device] = None,
-) -> BlockMask:
-    global _IS_CREATE_BLOCK_MASK_COMPILED, create_block_mask
-    if is_torch_version(">=", "2.6.0"):
-        if not _IS_CREATE_BLOCK_MASK_COMPILED:
-            create_block_mask = torch.compile(create_block_mask)
-            _IS_CREATE_BLOCK_MASK_COMPILED = True
-        block_mask = create_block_mask(mask_mod, batch_size, num_heads, seq_len_q, seq_len_kv, device)
-    else:
-        block_mask = create_block_mask(mask_mod, batch_size, num_heads, seq_len_q, seq_len_kv, device, _compile=True)
-    return block_mask
-
-
 def _flex_attention_causal_mask_mod(batch_idx, head_idx, q_idx, kv_idx):
     return q_idx >= kv_idx
 
@@ -390,7 +368,10 @@ def _flash_attention(
     if enable_gqa:
         # TODO
         pass
-    return flash_attn_func(
+
+    query, key, value = (x.permute(0, 2, 1, 3) for x in (query, key, value))
+
+    out = flash_attn_func(
         q=query,
         k=key,
         v=value,
@@ -403,6 +384,8 @@ def _flash_attention(
         deterministic=deterministic,
         return_attn_probs=return_attn_probs,
     )
+    out = out.permute(0, 2, 1, 3)
+    return out
 
 
 @_AttentionProviderRegistry.register(
@@ -478,7 +461,7 @@ def _flash_varlen_attention(
         deterministic=deterministic,
         return_attn_probs=return_attn_probs,
     )
-    out = out.unflatten(0, (batch_size, -1)).permute(0, 2, 1, 3).contiguous()
+    out = out.unflatten(0, (batch_size, -1)).permute(0, 2, 1, 3)  # .contiguous()
 
     return out
 
@@ -508,8 +491,8 @@ def _native_flex_attention(
     if attn_mask is None or isinstance(attn_mask, BlockMask):
         block_mask = attn_mask
     elif is_causal:
-        block_mask = _flex_attention_create_block_mask(
-            _flex_attention_causal_mask_mod, batch_size, None, seq_len_q, seq_len_kv, query.device
+        block_mask = create_block_mask(
+            _flex_attention_causal_mask_mod, None, None, seq_len_q, seq_len_kv, query.device
         )
     elif torch.is_tensor(attn_mask):
         if attn_mask.ndim == 2:
@@ -522,9 +505,7 @@ def _native_flex_attention(
             def mask_mod(batch_idx, head_idx, q_idx, kv_idx):
                 return attn_mask[batch_idx, head_idx, q_idx, kv_idx]
 
-            block_mask = _flex_attention_create_block_mask(
-                mask_mod, batch_size, None, seq_len_q, seq_len_kv, query.device
-            )
+            block_mask = create_block_mask(mask_mod, batch_size, None, seq_len_q, seq_len_kv, query.device)
         else:
 
             def score_mod(score, batch_idx, head_idx, q_idx, kv_idx):
@@ -765,7 +746,7 @@ def _sage_varlen_attention(
         sm_scale=scale,
         smooth_k=smooth_k,
     )
-    out = out.unflatten(0, (batch_size, -1)).permute(0, 2, 1, 3).contiguous()
+    out = out.unflatten(0, (batch_size, -1)).permute(0, 2, 1, 3)  # .contiguous()
 
     return out
 
@@ -916,7 +897,8 @@ def _xformers_attention(
         attn_mask = attn_mask.expand(batch_size, num_heads_q, seq_len_q, seq_len_kv).type_as(query)
 
     # QKV need to be in [batch, seq_len, num_heads, head_dim] format for xformers
-    query, key, value = (x.permute(0, 2, 1, 3).contiguous() for x in (query, key, value))
+    # query, key, value = (x.permute(0, 2, 1, 3).contiguous() for x in (query, key, value))
+    query, key, value = (x.permute(0, 2, 1, 3) for x in (query, key, value))
 
     if enable_gqa:
         if num_heads_q % num_heads_kv != 0:
@@ -930,5 +912,5 @@ def _xformers_attention(
     if enable_gqa:
         out = out.flatten(2, 3)
 
-    out = out.permute(0, 2, 1, 3).contiguous()
+    out = out.permute(0, 2, 1, 3)  # .contiguous()
     return out
