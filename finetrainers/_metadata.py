@@ -1,15 +1,16 @@
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Type, Union
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Type, Union, ForwardRef
 
+ParamIdentifierType = ForwardRef("ParamIdentifier")
+ContextParallelInputMetadataType = ForwardRef("ContextParallelInputMetadata")
+ContextParallelOutputMetadataType = ForwardRef("ContextParallelOutputMetadata")
 
-_ContextParallelInputType = Dict[
-    "ParamIdentifier", Union["ContextParallelInputMetadata", List["ContextParallelInputMetadata"]]
-]
-_ContextParallelOutputType = List["ContextParallelOutputMetadata"]
+_ContextParallelInputType = Dict[ParamIdentifierType, Union[ContextParallelInputMetadataType, List[ContextParallelInputMetadataType]]]
+_ContextParallelOutputType = List[ContextParallelOutputMetadataType]
 ContextParallelModelPlan = Union[_ContextParallelInputType, _ContextParallelOutputType]
 
 
-@dataclass
+@dataclass(frozen=True)
 class ParamIdentifier:
     """
     A class to identify a parameter of a method.
@@ -32,13 +33,13 @@ class ParamIdentifier:
             raise ValueError("At least one of `name` or `index` must be provided.")
 
 
-@dataclass
+@dataclass(frozen=True)
 class ContextParallelInputMetadata:
     split_dim: int
     expected_dims: Optional[int] = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class ContextParallelOutputMetadata:
     gather_dim: int
     expected_dims: Optional[int] = None
@@ -46,8 +47,9 @@ class ContextParallelOutputMetadata:
 
 @dataclass
 class TransformerMetadata:
-    # Mapping of FQN to mapping of input name to ContextParallelInputMetadata
-    cp_plan: Dict[str, ContextParallelModelPlan] = {}
+    # Mapping of FQN to mapping of input name to ContextParallelModelPlan
+    cp_plan: Dict[str, ContextParallelModelPlan] = field(default_factory=dict)
+
     # tp_plan  # TODO(aryan)
 
 

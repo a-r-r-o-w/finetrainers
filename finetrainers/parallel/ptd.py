@@ -528,6 +528,8 @@ class ContextParallelHook(ModelHook):
         self.mesh = mesh
 
     def pre_forward(self, module, *args, **kwargs):
+        args_list = list(args)
+        
         for param_identifier, cpm in self.metadata.items():
             is_cpm_input = isinstance(cpm, ContextParallelInputMetadata)
             is_cpm_input_list = isinstance(cpm, list) and all(isinstance(x, ContextParallelInputMetadata) for x in cpm)
@@ -543,8 +545,12 @@ class ContextParallelHook(ModelHook):
 
             # If not, maybe it was passed as a positional argument
             if input_val is None and index is not None:
-                input_val = args[index]
-                is_kwarg = False
+                if index < len(args_list):  # Ensure index is within bounds
+                    input_val = args_list[index]
+                    is_kwarg = False
+                else:
+                    logger.warning(f"Index {index} out of bounds for args of length {len(args_list)}.")
+                    continue  # Skip if index is invalid
 
             # Either the input_val is truly None, or argument is passed as normal argument
             # but user forgot to specify the index when registering metadata
@@ -565,10 +571,10 @@ class ContextParallelHook(ModelHook):
 
             if is_kwarg:
                 kwargs[name] = input_val
-            else:
-                args[index] = input_val
+            elif index is not None and index < len(args_list):
+                args_list[index] = input_val
 
-        return args, kwargs
+        return tuple(args_list), kwargs
 
     def post_forward(self, module, output):
         is_cpm_output = isinstance(self.metadata, list) and all(
@@ -584,69 +590,88 @@ class ContextParallelHook(ModelHook):
         for i, cpm in enumerate(self.metadata):
             if cpm is None:
                 continue
-            output[i] = gather_tensor(output[i], cpm.gather_dim, group=self.mesh.get_group())
-        if is_tensor:
-            output = output[0]
-        return output
+            output[i] = _EquipartitionSharder.unshard(output[i], cpm.gather_dim, self.mesh)
+
+        return output[0] if is_tensor else output
 
     def _prepare_cp_input(self, x: torch.Tensor, metadata: ContextParallelInputMetadata) -> torch.Tensor:
         if metadata.expected_dims is not None and x.dim() != metadata.expected_dims:
             raise ValueError(
                 f"Expected input tensor to have {metadata.expected_dims} dimensions, but got {x.dim()} dimensions."
             )
-        x = split_tensor(x, metadata.split_dim, group=self.mesh.get_group())
-        return x
+        return _EquipartitionSharder.shard(x, metadata.split_dim, self.mesh)
 
 
-def get_group(group: Optional[torch.distributed.ProcessGroup] = None) -> torch.distributed.ProcessGroup:
-    if group is None:
-        group = torch.distributed.distributed_c10d._get_default_group()
-    return group
+class _ContextParallelSharder:
+    @classmethod
+    def shard(cls, tensor: torch.Tensor, dim: int, mesh: torch.distributed.device_mesh.DeviceMesh) -> torch.Tensor:
+        raise NotImplementedError("_ContextParallelSharder::shard should be implemented in subclasses")
+
+    @classmethod
+    def unshard(cls, tensor: torch.Tensor, dim: int, mesh: torch.distributed.device_mesh.DeviceMesh) -> torch.Tensor:
+        raise NotImplementedError("_ContextParallelSharder::unshard should be implemented in subclasses")
 
 
-def get_world_size(group: Optional[torch.distributed.ProcessGroup] = None) -> int:
-    group = get_group(group)
-    return torch.distributed.get_world_size(group)
+class _EquipartitionSharder(_ContextParallelSharder):
+    """
+    Shards the input tensor along the specified dimension into cp_mesh's world size chunks.
+    Essentially, rank_i gets the i-th chunk.
+
+    This sharding strategy should only be used when performing full attention. Otherwise, it will
+    have performance penalty. If using causal attention, please use _CausalSharder instead.
+    """
+
+    @classmethod
+    def shard(cls, tensor: torch.Tensor, dim: int, mesh: torch.distributed.device_mesh.DeviceMesh) -> torch.Tensor:
+        assert tensor.size()[dim] % mesh.size() == 0
+        return tensor.chunk(mesh.size(), dim=dim)[mesh.get_local_rank()]
+
+    @classmethod
+    def unshard(cls, tensor: torch.Tensor, dim: int, mesh: torch.distributed.device_mesh.DeviceMesh) -> torch.Tensor:
+        tensor = tensor.contiguous()
+        all_tensors = [torch.empty_like(tensor) for _ in range(mesh.size())]
+        torch.distributed._functional_collectives.all_gather_inplace(all_tensors, tensor, mesh)
+        return torch.cat(all_tensors, dim=dim)
 
 
-def get_rank(group: Optional[torch.distributed.ProcessGroup] = None) -> int:
-    group = get_group(group)
-    return torch.distributed.get_rank(group)
+class _CausalSharder(_ContextParallelSharder):
+    """
+    Shards the input tensor along the specified dimension into 2x cp_mesh's world size chunks.
+    Essentially, rank_i gets the i-th chunk and (2 * cp_world_size - 1 - i)-th chunk.
 
+    This sharding strategy improves the performance for causal attention, as it allows
+    equal distribution of computation across all ranks.
 
-def allgather_sync(
-    x: torch.Tensor, dim: int = 0, group: Optional[torch.distributed.ProcessGroup] = None
-) -> torch.Tensor:
-    group = get_group(group)
-    x_shape = x.shape
-    x = x.flatten()
-    x_numel = x.numel()
-    x = torch.distributed._functional_collectives.all_gather_tensor(x, dim, group)
-    x_shape = list(x_shape)
-    x_shape[0] *= x.numel() // x_numel
-    x = x.reshape(x_shape)
-    return x
+    Causal attention mask:
+    ```
+    1 0 0 0    <--- Group 0
+    1 1 0 0    <--- Group 1
+    1 1 1 0    <--- Group 1
+    1 1 1 1    <--- Group 0
+    ```
+    """
 
+    @classmethod
+    def shard(cls, tensor: torch.Tensor, dim: int, mesh: torch.distributed.device_mesh.DeviceMesh) -> torch.Tensor:
+        world_size = mesh.size()
+        rank = mesh.get_local_rank()
+        assert tensor.size()[dim] % (2 * world_size) == 0
+        chunks = tensor.chunk(2 * world_size, dim=dim)
+        i = rank
+        j = 2 * world_size - 1 - rank
+        return torch.cat((chunks[i], chunks[j]), dim=dim)
 
-def split_tensor(
-    tensor: torch.Tensor,
-    dim: int = 0,
-    rank: Optional[int] = None,
-    group: Optional[torch.distributed.ProcessGroup] = None,
-) -> torch.Tensor:
-    if rank is None:
-        rank = get_rank(group)
-    world_size = get_world_size(group)
-    dim_size = tensor.shape[dim]
-    if dim_size % world_size != 0:
-        raise ValueError(f"Tensor size {dim_size} must be divisible by world size {world_size}.")
-    return torch.chunk(tensor, world_size, dim=dim)[rank]
-
-
-def gather_tensor(
-    tensor: torch.Tensor, dim: int = 0, group: Optional[torch.distributed.ProcessGroup] = None
-) -> torch.Tensor:
-    tensor = tensor.transpose(0, dim).contiguous()
-    output = allgather_sync(tensor, 0, group)
-    output = output.transpose(0, dim).contiguous()
-    return output
+    @classmethod
+    def unshard(cls, tensor: torch.Tensor, dim: int, mesh: torch.distributed.device_mesh.DeviceMesh) -> torch.Tensor:
+        tensor = tensor.contiguous()
+        world_size = mesh.size()
+        all_tensors = [torch.empty_like(tensor) for _ in range(world_size)]
+        torch.distributed._functional_collectives.all_gather_inplace(all_tensors, tensor, mesh)
+        sliced_tensors = [st for t in all_tensors for st in t.chunk(2, dim=dim)]
+        ordered_tensors = list(sliced_tensors)
+        for i, t in enumerate(sliced_tensors):
+            if i % 2 == 0:
+                ordered_tensors[i // 2] = t
+            else:
+                ordered_tensors[world_size * 2 - (i // 2) - 1] = t
+        return torch.cat(ordered_tensors, dim=dim)
