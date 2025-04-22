@@ -23,7 +23,6 @@ from torch.distributed.checkpoint.state_dict import (
 from finetrainers._metadata import (
     ContextParallelInputMetadata,
     ContextParallelModelPlan,
-    ContextParallelOutputMetadata,
     TransformerRegistry,
 )
 from finetrainers.data import DPDataLoader
@@ -510,15 +509,19 @@ def apply_fsdp2(
 
 def apply_cp(model: torch.nn.Module, cp_mesh: torch.distributed.device_mesh.DeviceMesh) -> None:
     """Apply context parallel on a model."""
+    logger.debug(f"Applying context parallel with CP mesh: {cp_mesh}")
     model_cls = unwrap_module(model).__class__
     metadata = TransformerRegistry.get(model_cls)
 
-    for module_id in metadata.cp_plan.keys():
-        logger.debug(f"Applying context parallel to {module_id}. CP mesh: {cp_mesh}")
+    for module_id, cp_model_plan in metadata.cp_plan.items():
         module = get_submodule_by_name(model, module_id)
-        registry = HookRegistry.check_if_exists_or_initialize(module)
-        hook = ContextParallelHook(metadata.cp_plan[module_id], cp_mesh)
-        registry.register_hook(hook, f"context_parallel---{module_id}")
+        if not isinstance(module, list):
+            module = [module]
+        logger.debug(f"Applying ContextParallelHook to {module_id=} identifying a total of {len(module)} modules")
+        for m in module:
+            registry = HookRegistry.check_if_exists_or_initialize(m)
+            hook = ContextParallelHook(cp_model_plan, cp_mesh)
+            registry.register_hook(hook, f"context_parallel---{module_id}")
 
 
 class ContextParallelHook(ModelHook):
@@ -528,14 +531,13 @@ class ContextParallelHook(ModelHook):
         self.mesh = mesh
 
     def pre_forward(self, module, *args, **kwargs):
-        args_list = list(args)
-        
-        for param_identifier, cpm in self.metadata.items():
-            is_cpm_input = isinstance(cpm, ContextParallelInputMetadata)
-            is_cpm_input_list = isinstance(cpm, list) and all(isinstance(x, ContextParallelInputMetadata) for x in cpm)
-            if not (is_cpm_input or is_cpm_input_list):
-                continue
+        if isinstance(self.metadata, list):
+            # Metadata can only be a list when it is a list of ContextParallelOutputMetadata (which is handled in post_forward)
+            return args, kwargs
 
+        args_list = list(args)
+
+        for param_identifier, cpm in self.metadata.items():
             name = param_identifier.name
             index = param_identifier.index
 
@@ -577,11 +579,8 @@ class ContextParallelHook(ModelHook):
         return tuple(args_list), kwargs
 
     def post_forward(self, module, output):
-        is_cpm_output = isinstance(self.metadata, list) and all(
-            isinstance(x, ContextParallelOutputMetadata) for x in self.metadata
-        )
-
-        if not is_cpm_output:
+        if not isinstance(self.metadata, list):
+            # Metadata can only be a list when it is a list of ContextParallelOutputMetadata
             return output
 
         is_tensor = torch.is_tensor(output)

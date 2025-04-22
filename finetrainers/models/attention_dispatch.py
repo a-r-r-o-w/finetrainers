@@ -131,7 +131,7 @@ class _AttentionProviderRegistry:
 
     @classmethod
     def register(cls, provider: AttentionProvider, constraints: Optional[List[Callable]] = None):
-        logger.debug(f"Registering attention provider: {provider} with constraints: {constraints}")
+        logger.debug(f"Registering attention provider: {provider}")
 
         def decorator(func):
             cls._providers[provider] = func

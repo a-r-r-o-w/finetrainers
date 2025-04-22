@@ -22,10 +22,14 @@ def register_transformer_metadata():
         model_class=WanTransformer3DModel,
         metadata=TransformerMetadata(
             cp_plan={
-                "blocks.0": {
-                    ParamIdentifier("hidden_states", 0): ContextParallelInputMetadata(1, 3),
+                # NOTE: this is probably suboptimal since we shard at every layer. The overhead should be minimal
+                # but might be slower and worth investigating.
+                "blocks.*": {
                     ParamIdentifier("encoder_hidden_states", 1): ContextParallelInputMetadata(1, 3),
                     ParamIdentifier("rotary_emb", 3): ContextParallelInputMetadata(2, 4),
+                },
+                "blocks.0": {
+                    ParamIdentifier("hidden_states", 0): ContextParallelInputMetadata(1, 3),
                 },
                 "proj_out": [ContextParallelOutputMetadata(1, 3)],
             }

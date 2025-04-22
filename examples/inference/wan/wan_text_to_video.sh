@@ -9,7 +9,7 @@ export WANDB_MODE="disabled"
 export NCCL_P2P_DISABLE=1
 export NCCL_IB_DISABLE=1
 export TORCH_NCCL_ENABLE_MONITORING=0
-export FINETRAINERS_LOG_LEVEL="INFO"
+export FINETRAINERS_LOG_LEVEL="DEBUG"
 
 # Download the validation dataset
 if [ ! -d "examples/inference/datasets/openvid-1k-split-validation" ]; then
@@ -21,8 +21,8 @@ fi
 
 BACKEND="ptd"
 
-NUM_GPUS=2
-CUDA_VISIBLE_DEVICES="2,3"
+NUM_GPUS=4
+CUDA_VISIBLE_DEVICES="0,1,2,3"
 
 # Check the JSON files for the expected JSON format
 DATASET_FILE="examples/inference/datasets/dummy_text_to_video.json"
@@ -32,7 +32,7 @@ DDP_1="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --c
 DDP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 1 --cp_degree 1 --tp_degree 1"
 DDP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 4 --dp_shards 1 --cp_degree 1 --tp_degree 1"
 DDP_8="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 8 --dp_shards 1 --cp_degree 1 --tp_degree 1"
-CP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 2 --tp_degree 1"
+CP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 4 --tp_degree 1"
 # FSDP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 2 --cp_degree 1 --tp_degree 1"
 # FSDP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 4 --cp_degree 1 --tp_degree 1"
 # HSDP_2_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 2 --cp_degree 1 --tp_degree 1"

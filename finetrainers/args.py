@@ -17,7 +17,7 @@ logger = get_logger()
 # fmt: off
 # Must match src/finetrainers/models/attention_dispatch.py
 AttentionProviderTraining = Literal["flash", "flash_varlen", "flex", "native", "_native_cudnn", "_native_efficient", "_native_flash", "_native_math", "xformers"]
-AttentionProviderValidation = Literal["flash", "flash_varlen", "flex", "native", "_native_cudnn", "_native_efficient", "_native_flash", "_native_math", "sage", "sage_varlen", "_sage_qk_int8_pv_fp8_cuda", "_sage_qk_int8_pv_fp8_cuda_sm90", "_sage_qk_int8_pv_fp16_cuda", "_sage_qk_int8_pv_fp16_triton", "xformers"]
+AttentionProviderInference = Literal["flash", "flash_varlen", "flex", "native", "_native_cudnn", "_native_efficient", "_native_flash", "_native_math", "sage", "sage_varlen", "_sage_qk_int8_pv_fp8_cuda", "_sage_qk_int8_pv_fp8_cuda_sm90", "_sage_qk_int8_pv_fp16_cuda", "_sage_qk_int8_pv_fp16_triton", "xformers"]
 
 # We do a union because every ArgsConfigMixin registered to BaseArgs can be looked up using the `__getattribute__` override
 BaseArgsType = Union["BaseArgs", "AttentionProviderArgs"]
@@ -36,7 +36,7 @@ class AttentionProviderArgs(ArgsConfigMixin):
     """
 
     attn_provider_training: AttentionProviderTraining = "native"
-    attn_provider_validation: AttentionProviderValidation = "native"
+    attn_provider_validation: AttentionProviderInference = "native"
     # attn_provider_specialized_modules: List[str] = []
 
     def add_args(self, parser: argparse.ArgumentParser) -> None:

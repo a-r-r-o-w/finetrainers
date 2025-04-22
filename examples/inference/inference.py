@@ -5,6 +5,7 @@ import time
 import traceback
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import datasets.distributed
@@ -13,7 +14,7 @@ import wandb
 from diffusers.utils import export_to_video
 
 from finetrainers import data, get_logger, logging, parallel, patches, utils
-from finetrainers.args import AttentionProviderValidation
+from finetrainers.args import AttentionProviderInference
 from finetrainers.config import ModelType
 from finetrainers.models import ModelSpecification, attention_provider
 from finetrainers.models.wan import WanModelSpecification
@@ -168,6 +169,7 @@ class Inference:
 
         self._init_logging()
         self._init_trackers()
+        self._init_directories()
 
     def _prepare_dataset(self) -> None:
         logger.info("Preparing dataset for inference")
@@ -175,7 +177,7 @@ class Inference:
         parallel_backend = self.state.parallel_backend
 
         dp_mesh = None
-        if parallel_backend.world_size > 1:
+        if parallel_backend.data_replication_enabled:
             dp_mesh = parallel_backend.get_mesh("dp_replicate")
 
         if dp_mesh is not None:
@@ -200,6 +202,7 @@ class Inference:
         parallel_backend = self.state.parallel_backend
         seed = self.args.seed if self.args.seed is not None else 0
         generator = torch.Generator(device=parallel_backend.device).manual_seed(seed)
+        dp_mesh = parallel_backend.get_mesh("dp_replicate")
 
         self.pipeline.to(parallel_backend.device)
 
@@ -211,21 +214,24 @@ class Inference:
         all_processes_artifacts = []  # Used to gather artifacts from all processes
 
         while True:
-            validation_data = next(data_iterator, None)
-            if validation_data is None:
+            inference_data = next(data_iterator, None)
+            if inference_data is None:
                 break
 
-            validation_data = validation_data[0]
+            inference_data = inference_data[0]
 
             with attention_provider(self.args.attn_provider):
-                validation_artifacts = self.model_specification.validation(
-                    pipeline=self.pipeline, generator=generator, **validation_data
+                inference_artifacts = self.model_specification.validation(
+                    pipeline=self.pipeline, generator=generator, **inference_data
                 )
 
-            PROMPT = validation_data["prompt"]
-            IMAGE = validation_data.get("image", None)
-            VIDEO = validation_data.get("video", None)
-            EXPORT_FPS = validation_data.get("export_fps", 30)
+            if dp_mesh.get_local_rank() != 0:
+                continue
+
+            PROMPT = inference_data["prompt"]
+            IMAGE = inference_data.get("image", None)
+            VIDEO = inference_data.get("video", None)
+            EXPORT_FPS = inference_data.get("export_fps", 30)
 
             # 2.1. If there are any initial images or videos, they will be logged to keep track of them as
             # conditioning for generation.
@@ -235,11 +241,11 @@ class Inference:
                 "input_video": data.VideoArtifact(value=VIDEO),
             }
 
-            # 2.2. Track the artifacts generated from validation
-            for i, validation_artifact in enumerate(validation_artifacts):
-                if validation_artifact.value is None:
+            # 2.2. Track the artifacts generated from inference
+            for i, inference_artifact in enumerate(inference_artifacts):
+                if inference_artifact.value is None:
                     continue
-                artifacts.update({f"artifact_{i}": validation_artifact})
+                artifacts.update({f"artifact_{i}": inference_artifact})
 
             # 2.3. Save the artifacts to the output directory and create appropriate logging objects
             # TODO(aryan): Currently, we only support WandB so we've hardcoded it here. Needs to be revisited.
@@ -269,12 +275,10 @@ class Inference:
         logger.info(f"Memory after inference end: {json.dumps(memory_statistics, indent=4)}")
 
         # Gather artifacts from all processes. We also need to flatten them since each process returns a list of artifacts.
-        # TODO(aryan): probably should only all gather from dp mesh process group
-        all_artifacts = [None] * parallel_backend.world_size
-        if parallel_backend.world_size > 1:
+        all_artifacts = [None] * dp_mesh.size()
+        if dp_mesh.size() > 1:
             torch.distributed.all_gather_object(all_artifacts, all_processes_artifacts)
         else:
-            # TODO(aryan): workaround for accelerate for now, but refactor
             all_artifacts = [all_processes_artifacts]
         all_artifacts = [artifact for artifacts in all_artifacts for artifact in artifacts]
 
@@ -288,14 +292,7 @@ class Inference:
             video_artifacts = [artifact for artifact in all_artifacts if isinstance(artifact, wandb.Video)]
             if len(video_artifacts) > 0:
                 artifact_log_dict["videos"] = video_artifacts
-            parallel_backend.log({tracker_key: artifact_log_dict})
-
-            # if self.args.push_to_hub and final_validation:
-            #     video_filenames = list(main_process_prompts_to_filenames.values())
-            #     prompts = list(main_process_prompts_to_filenames.keys())
-            #     utils.save_model_card(
-            #         args=self.args, repo_id=self.state.repo_id, videos=video_filenames, validation_prompts=prompts
-            #     )
+            parallel_backend.log({tracker_key: artifact_log_dict}, step=0)
 
         parallel_backend.wait_for_everyone()
 
@@ -332,6 +329,11 @@ class Inference:
         self.state.parallel_backend.initialize_trackers(
             trackers, experiment_name=experiment_name, config=self.args.to_dict(), log_dir=self.args.logging_dir
         )
+
+    def _init_directories(self) -> None:
+        if self.state.parallel_backend.is_main_process:
+            self.args.output_dir = Path(self.args.output_dir)
+            self.args.output_dir.mkdir(parents=True, exist_ok=True)
 
     def _init_config_options(self) -> None:
         # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
@@ -546,11 +548,11 @@ class InferenceArgs(ArgsConfigMixin):
         inference_type (`str`):
             The type of inference to run. Choose between ['text_to_video'].
         dataset_file (`str`, defaults to `None`):
-            Path to a CSV/JSON/PARQUET/ARROW file containing information for validation. The file must contain atleast the
+            Path to a CSV/JSON/PARQUET/ARROW file containing information for inference. The file must contain atleast the
             "caption" column. Other columns such as "image_path" and "video_path" can be provided too. If provided, "image_path"
             will be used to load a PIL.Image.Image and set the "image" key in the sample dictionary. Similarly, "video_path"
             will be used to load a List[PIL.Image.Image] and set the "video" key in the sample dictionary.
-            The validation dataset file may contain other attributes specific to inference/validation such as:
+            The dataset file may contain other attributes such as:
                 - "height" and "width" and "num_frames": Resolution
                 - "num_inference_steps": Number of inference steps
                 - "guidance_scale": Classifier-free Guidance Scale
@@ -582,10 +584,10 @@ class AttentionProviderArgs(ArgsConfigMixin):
     """
     Args:
         attn_provider (`str`, defaults to "native"):
-            The attention provider to use for validation. Choose between ['flash', 'flash_varlen', 'flex', 'native', '_native_cudnn', '_native_efficient', '_native_flash', '_native_math', 'sage', 'sage_varlen', '_sage_qk_int8_pv_fp8_cuda', '_sage_qk_int8_pv_fp8_cuda_sm90', '_sage_qk_int8_pv_fp16_cuda', '_sage_qk_int8_pv_fp16_triton', 'xformers'].
+            The attention provider to use for inference. Choose between ['flash', 'flash_varlen', 'flex', 'native', '_native_cudnn', '_native_efficient', '_native_flash', '_native_math', 'sage', 'sage_varlen', '_sage_qk_int8_pv_fp8_cuda', '_sage_qk_int8_pv_fp8_cuda_sm90', '_sage_qk_int8_pv_fp16_cuda', '_sage_qk_int8_pv_fp16_triton', 'xformers'].
     """
 
-    attn_provider: AttentionProviderValidation = "native"
+    attn_provider: AttentionProviderInference = "native"
     # attn_provider_specialized_modules: List[str] = []
 
     def add_args(self, parser: argparse.ArgumentParser) -> None:
@@ -687,7 +689,7 @@ class MiscellaneousArgs(ArgsConfigMixin):
     output_dir: str = None
     logging_dir: Optional[str] = "logs"
     init_timeout: int = 300  # 5 minutes
-    nccl_timeout: int = 600  # 10 minutes, considering that validation may be performed
+    nccl_timeout: int = 600  # 10 minutes
     report_to: str = "wandb"
     verbose: int = 1
 

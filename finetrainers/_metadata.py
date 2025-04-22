@@ -1,11 +1,14 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Type, Union, ForwardRef
+from typing import Dict, ForwardRef, List, Optional, Type, Union
+
 
 ParamIdentifierType = ForwardRef("ParamIdentifier")
 ContextParallelInputMetadataType = ForwardRef("ContextParallelInputMetadata")
 ContextParallelOutputMetadataType = ForwardRef("ContextParallelOutputMetadata")
 
-_ContextParallelInputType = Dict[ParamIdentifierType, Union[ContextParallelInputMetadataType, List[ContextParallelInputMetadataType]]]
+_ContextParallelInputType = Dict[
+    ParamIdentifierType, Union[ContextParallelInputMetadataType, List[ContextParallelInputMetadataType]]
+]
 _ContextParallelOutputType = List[ContextParallelOutputMetadataType]
 ContextParallelModelPlan = Union[_ContextParallelInputType, _ContextParallelOutputType]
 
