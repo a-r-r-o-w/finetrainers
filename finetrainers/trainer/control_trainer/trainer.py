@@ -357,11 +357,18 @@ class ControlTrainer:
                     metadata = {"lora_config": json.dumps(metadata, indent=4)}
                     # fmt: on
                     self.model_specification._save_lora_weights(
-                        self.args.output_dir, state_dict, qk_norm_state_dict, self.scheduler, metadata
+                        os.path.join(self.args.output_dir, "lora_weights", f"{self.state.train_state.step:06d}"),
+                        state_dict,
+                        qk_norm_state_dict,
+                        self.scheduler,
+                        metadata,
                     )
                 elif self.args.training_type == TrainingType.CONTROL_FULL_FINETUNE:
                     self.model_specification._save_model(
-                        self.args.output_dir, self.transformer, state_dict, self.scheduler
+                        os.path.join(self.args.output_dir, "model_weights", f"{self.state.train_state.step:06d}"),
+                        self.transformer,
+                        state_dict,
+                        self.scheduler,
                     )
             parallel_backend.wait_for_everyone()
 
@@ -924,8 +931,15 @@ class ControlTrainer:
 
             # Load the LoRA weights if performing LoRA finetuning
             if self.args.training_type == TrainingType.CONTROL_LORA:
-                load_lora_weights(pipeline, self.args.output_dir)
-                norm_state_dict_path = Path(self.args.output_dir) / "norm_state_dict.safetensors"
+                load_lora_weights(
+                    pipeline, os.path.join(self.args.output_dir, "lora_weights", f"{self.state.train_state.step:06d}")
+                )
+                norm_state_dict_path = os.path.join(
+                    self.args.output_dir,
+                    "lora_weights",
+                    f"{self.state.train_state.step:06d}",
+                    "norm_state_dict.safetensors",
+                )
                 if self.args.train_qk_norm and norm_state_dict_path.exists():
                     norm_state_dict = safetensors.torch.load_file(norm_state_dict_path, parallel_backend.device)
                     self.transformer.load_state_dict(norm_state_dict)

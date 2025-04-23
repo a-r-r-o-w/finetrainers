@@ -308,11 +308,17 @@ class SFTTrainer:
                     metadata = {"lora_config": json.dumps(metadata, indent=4)}
                     # fmt: on
                     self.model_specification._save_lora_weights(
-                        self.args.output_dir, state_dict, self.scheduler, metadata
+                        os.path.join(self.args.output_dir, "lora_weights", f"{self.state.train_state.step:06d}"),
+                        state_dict,
+                        self.scheduler,
+                        metadata,
                     )
                 elif self.args.training_type == TrainingType.FULL_FINETUNE:
                     self.model_specification._save_model(
-                        self.args.output_dir, self.transformer, state_dict, self.scheduler
+                        os.path.join(self.args.output_dir, "model_weights", f"{self.state.train_state.step:06d}"),
+                        self.transformer,
+                        state_dict,
+                        self.scheduler,
                     )
             parallel_backend.wait_for_everyone()
 
@@ -867,7 +873,9 @@ class SFTTrainer:
 
             # Load the LoRA weights if performing LoRA finetuning
             if self.args.training_type == TrainingType.LORA:
-                pipeline.load_lora_weights(self.args.output_dir)
+                pipeline.load_lora_weights(
+                    os.path.join(self.args.output_dir, "lora_weights", f"{self.state.train_state.step:06d}")
+                )
 
         components = {module_name: getattr(pipeline, module_name, None) for module_name in module_names}
         self._set_components(components)
