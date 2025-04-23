@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Union
 import datasets.distributed
 import torch
 import wandb
+from diffusers.hooks import HookRegistry, ModelHook
 from diffusers.utils import export_to_video
 
 from finetrainers import data, get_logger, logging, parallel, patches, utils
@@ -78,7 +79,9 @@ class InferenceType(str, Enum):
 
 
 # We do a union because every ArgsConfigMixin registered to BaseArgs can be looked up using the `__getattribute__` override
-BaseArgsType = Union["BaseArgs", "ParallelArgs", "AttentionProviderArgs"]
+BaseArgsType = Union[
+    "BaseArgs", "ParallelArgs", "ModelArgs", "InferenceArgs", "AttentionProviderArgs", "TorchConfigArgs"
+]
 
 _DTYPE_MAP = {
     "bf16": torch.bfloat16,
@@ -161,9 +164,17 @@ class Inference:
 
     def _prepare_distributed(self) -> None:
         parallel_backend = self.state.parallel_backend
+        cp_mesh = parallel_backend.get_mesh("cp") if parallel_backend.context_parallel_enabled else None
 
         if parallel_backend.context_parallel_enabled:
-            parallel_backend.apply_cp(self.pipeline.transformer, parallel_backend.get_mesh("cp"))
+            cp_mesh = parallel_backend.get_mesh()["cp"]
+            parallel_backend.apply_cp(self.pipeline.transformer, cp_mesh)
+
+        registry = HookRegistry.check_if_exists_or_initialize(self.pipeline.transformer)
+        hook = AttentionProviderHook(
+            self.args.attn_provider, cp_mesh, self.args.cp_rotate_method, self.args.cp_reduce_precision
+        )
+        registry.register_hook(hook, "attn_provider")
 
         self._maybe_torch_compile()
 
@@ -173,13 +184,11 @@ class Inference:
 
     def _prepare_dataset(self) -> None:
         logger.info("Preparing dataset for inference")
-
         parallel_backend = self.state.parallel_backend
 
         dp_mesh = None
         if parallel_backend.data_replication_enabled:
             dp_mesh = parallel_backend.get_mesh("dp_replicate")
-
         if dp_mesh is not None:
             local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
         else:
@@ -202,7 +211,13 @@ class Inference:
         parallel_backend = self.state.parallel_backend
         seed = self.args.seed if self.args.seed is not None else 0
         generator = torch.Generator(device=parallel_backend.device).manual_seed(seed)
-        dp_mesh = parallel_backend.get_mesh("dp_replicate")
+
+        if parallel_backend._dp_degree > 1:
+            dp_mesh = parallel_backend.get_mesh("dp")
+            dp_local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
+        else:
+            dp_mesh = None
+            dp_local_rank, dp_world_size = parallel_backend.local_rank, 1
 
         self.pipeline.to(parallel_backend.device)
 
@@ -219,13 +234,11 @@ class Inference:
                 break
 
             inference_data = inference_data[0]
+            inference_artifacts = self.model_specification.validation(
+                pipeline=self.pipeline, generator=generator, **inference_data
+            )
 
-            with attention_provider(self.args.attn_provider):
-                inference_artifacts = self.model_specification.validation(
-                    pipeline=self.pipeline, generator=generator, **inference_data
-                )
-
-            if dp_mesh.get_local_rank() != 0:
+            if dp_local_rank != 0:
                 continue
 
             PROMPT = inference_data["prompt"]
@@ -275,8 +288,8 @@ class Inference:
         logger.info(f"Memory after inference end: {json.dumps(memory_statistics, indent=4)}")
 
         # Gather artifacts from all processes. We also need to flatten them since each process returns a list of artifacts.
-        all_artifacts = [None] * dp_mesh.size()
-        if dp_mesh.size() > 1:
+        all_artifacts = [None] * dp_world_size
+        if dp_world_size > 1:
             torch.distributed.all_gather_object(all_artifacts, all_processes_artifacts)
         else:
             all_artifacts = [all_processes_artifacts]
@@ -320,7 +333,7 @@ class Inference:
     def _init_logging(self) -> None:
         logging._set_parallel_backend(self.state.parallel_backend)
         logging.set_dependency_log_level(self.args.verbose, self.state.parallel_backend.is_local_main_process)
-        logger.info("Initialized FineTrainers")
+        logger.info("Initialized Finetrainers")
 
     def _init_trackers(self) -> None:
         # TODO(aryan): handle multiple trackers
@@ -350,6 +363,27 @@ class Inference:
                 setattr(self.pipeline, model_name, compiled_model)
 
 
+class AttentionProviderHook(ModelHook):
+    def __init__(
+        self,
+        provider: str,
+        mesh: Optional[torch.distributed.device_mesh.DeviceMesh] = None,
+        rotate_method: str = "allgather",
+        reduce_precision: bool = False,
+    ):
+        super().__init__()
+        self.provider = provider
+        self.mesh = mesh
+        self.rotate_method = rotate_method
+        self.convert_to_fp32 = not reduce_precision
+
+    def new_forward(self, module: torch.nn.Module, *args, **kwargs) -> Any:
+        with attention_provider(
+            self.provider, mesh=self.mesh, convert_to_fp32=self.convert_to_fp32, rotate_method=self.rotate_method
+        ):
+            return self.fn_ref.original_forward(*args, **kwargs)
+
+
 class ParallelArgs(ArgsConfigMixin):
     """
     Args:
@@ -371,6 +405,8 @@ class ParallelArgs(ArgsConfigMixin):
     dp_shards: int = 1
     cp_degree: int = 1
     tp_degree: int = 1
+    cp_rotate_method: str = "allgather"
+    cp_reduce_precision: bool = False
 
     def add_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--parallel_backend", type=str, default="accelerate", choices=["accelerate", "ptd"])
@@ -379,6 +415,8 @@ class ParallelArgs(ArgsConfigMixin):
         parser.add_argument("--dp_shards", type=int, default=1)
         parser.add_argument("--cp_degree", type=int, default=1)
         parser.add_argument("--tp_degree", type=int, default=1)
+        parser.add_argument("--cp_rotate_method", type=str, default="allgather", choices=["allgather", "alltoall"])
+        parser.add_argument("--cp_reduce_precision", action="store_true")
 
     def map_args(self, argparse_args: argparse.Namespace, mapped_args: "BaseArgs"):
         mapped_args.parallel_backend = argparse_args.parallel_backend
@@ -387,6 +425,8 @@ class ParallelArgs(ArgsConfigMixin):
         mapped_args.dp_shards = argparse_args.dp_shards
         mapped_args.cp_degree = argparse_args.cp_degree
         mapped_args.tp_degree = argparse_args.tp_degree
+        mapped_args.cp_rotate_method = argparse_args.cp_rotate_method
+        mapped_args.cp_reduce_precision = argparse_args.cp_reduce_precision
 
     def validate_args(self, args: "BaseArgs"):
         if args.parallel_backend != "ptd":

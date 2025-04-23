@@ -60,16 +60,25 @@ else:
 
 
 if is_torch_version(">=", "2.5.0"):
-    from torch.nn.attention.flex_attention import BlockMask, create_block_mask
-    from torch.nn.attention.flex_attention import flex_attention as torch_flex_attention
-else:
-    create_block_mask = None
-    torch_flex_attention = None
+    import torch.nn.attention.flex_attention as flex_attention
 
-    class BlockMask:
+
+if is_torch_version(">=", "2.6.0"):
+    from torch.distributed.tensor.experimental._attention import (
+        _AttentionOp,
+        _cp_options,
+        _templated_ring_attention,
+        set_rotate_method,
+    )
+else:
+    set_rotate_method = None
+    _templated_ring_attention = None
+    _cp_options = None
+
+    class _AttentionOp:
         def __init__(self, *args, **kwargs):
             raise OptionalDependencyNotAvailable(
-                "The `torch` library version is too old. Please update it to at least 2.5.0."
+                "The `torch.distributed.tensor.experimental._attention` module is not available. Please update PyTorch to at least 2.6.0."
             )
 
 
@@ -83,10 +92,11 @@ if is_xformers_available():
 else:
     xops = None
 
+aten = torch.ops.aten
+
 
 logger = get_logger()
 
-_IS_CREATE_BLOCK_MASK_COMPILED = False
 _SAGE_ATTENTION_PV_ACCUM_DTYPE = Literal["fp32", "fp32+fp32"]
 _SAGE_ATTENTION_QK_QUANT_GRAN = Literal["per_thread", "per_warp"]
 _SAGE_ATTENTION_QUANTIZATION_BACKEND = Literal["cuda", "triton"]
@@ -125,17 +135,27 @@ class AttentionProvider(str, Enum):
 class _AttentionProviderRegistry:
     _providers = {}
     _constraints = {}
+    _supports_cp = {}
     _supported_arg_names = {}
+
     _active_provider = AttentionProvider(FINETRAINERS_ATTN_PROVIDER)
     _checks_enabled = FINETRAINERS_ATTN_CHECKS
 
+    # Context parallel attributes
+    _mesh: torch.distributed.device_mesh.DeviceMesh = None
+    _convert_to_fp32: bool = None
+    _rotate_method: str = None
+
     @classmethod
-    def register(cls, provider: AttentionProvider, constraints: Optional[List[Callable]] = None):
+    def register(
+        cls, provider: AttentionProvider, constraints: Optional[List[Callable]] = None, supports_cp: bool = False
+    ):
         logger.debug(f"Registering attention provider: {provider}")
 
         def decorator(func):
             cls._providers[provider] = func
             cls._constraints[provider] = constraints or []
+            cls._supports_cp[provider] = supports_cp
             cls._supported_arg_names[provider] = set(inspect.signature(func).parameters.keys())
             return func
 
@@ -149,22 +169,55 @@ class _AttentionProviderRegistry:
     def list_providers(cls):
         return list(cls._providers.keys())
 
+    @classmethod
+    def supports_context_parallel(cls, provider: AttentionProvider):
+        if provider not in cls._providers:
+            raise ValueError(f"Provider {provider} is not registered.")
+        return cls._supports_cp.get(provider, False)
+
+    @classmethod
+    def context_parallel_enabled(cls):
+        return cls._mesh is not None
+
 
 @contextlib.contextmanager
-def attention_provider(provider: AttentionProvider = AttentionProvider.NATIVE):
-    """
-    Context manager to set the active attention provider.
-    """
+def attention_provider(
+    provider: AttentionProvider = AttentionProvider.NATIVE,
+    *,
+    mesh: Optional[torch.distributed.device_mesh.DeviceMesh] = None,
+    convert_to_fp32: bool = True,
+    rotate_method: str = "allgather",
+):
+    """Context manager to set the active attention provider and possibly enable context parallelism."""
+
     if provider not in _AttentionProviderRegistry._providers:
         raise ValueError(f"Provider {provider} is not registered.")
+    if mesh is not None and not _AttentionProviderRegistry.supports_context_parallel(provider):
+        raise ValueError(f"Provider {provider} does not support context parallelism.")
 
     old_provider = _AttentionProviderRegistry._active_provider
     _AttentionProviderRegistry._active_provider = provider
+
+    _AttentionProviderRegistry._mesh = mesh
+    _AttentionProviderRegistry._convert_to_fp32 = convert_to_fp32
+    _AttentionProviderRegistry._rotate_method = rotate_method
+    if mesh is not None:
+        _convert_to_f32 = _cp_options.convert_to_f32
+        _enable_load_balance = _cp_options.enable_load_balance
+        _rotate_method = _cp_options.rotate_method
 
     try:
         yield
     finally:
         _AttentionProviderRegistry._active_provider = old_provider
+
+        _AttentionProviderRegistry._mesh = None
+        _AttentionProviderRegistry._convert_to_fp32 = None
+        _AttentionProviderRegistry._rotate_method = None
+        if mesh is not None:
+            _cp_options.convert_to_f32 = _convert_to_f32
+            _cp_options.enable_load_balance = _enable_load_balance
+            _cp_options.rotate_method = _rotate_method
 
 
 def attention_dispatch(
@@ -205,7 +258,19 @@ def attention_dispatch(
             check(**kwargs)
 
     kwargs = {k: v for k, v in kwargs.items() if k in _AttentionProviderRegistry._supported_arg_names[provider_name]}
-    return provider_fn(**kwargs)
+
+    if _AttentionProviderRegistry.context_parallel_enabled():
+        _set_context_parallel_options(**kwargs)
+        return _ring_attention(2, provider_fn, **kwargs)
+    else:
+        return provider_fn(**kwargs)
+
+
+# @torch.compiler.assume_constant_result
+def _set_context_parallel_options(is_causal: bool, **kwargs):
+    _cp_options.enable_load_balance = is_causal
+    _cp_options.convert_to_f32 = _AttentionProviderRegistry._convert_to_fp32
+    set_rotate_method(_AttentionProviderRegistry._rotate_method)
 
 
 def _check_attn_mask_is_none(attn_mask: Optional[torch.Tensor], **kwargs) -> None:
@@ -391,6 +456,7 @@ def _flash_attention(
 @_AttentionProviderRegistry.register(
     AttentionProvider.FLASH_VARLEN,
     constraints=[_check_device, _check_qkv_dtype_bf16_or_fp16, _check_shape],
+    supports_cp=True,
 )
 def _flash_varlen_attention(
     query: torch.Tensor,
@@ -444,7 +510,10 @@ def _flash_varlen_attention(
     key_packed = torch.cat(key_valid, dim=0)
     value_packed = torch.cat(value_valid, dim=0)
 
-    out = flash_attn_varlen_func(
+    if _AttentionProviderRegistry.context_parallel_enabled():
+        return_attn_probs = True
+
+    out, *rest = flash_attn_varlen_func(
         q=query_packed,
         k=key_packed,
         v=value_packed,
@@ -463,6 +532,8 @@ def _flash_varlen_attention(
     )
     out = out.unflatten(0, (batch_size, -1)).permute(0, 2, 1, 3)  # .contiguous()
 
+    if _AttentionProviderRegistry.context_parallel_enabled():
+        return out, *rest
     return out
 
 
@@ -474,7 +545,7 @@ def _native_flex_attention(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
-    attn_mask: Optional[Union[torch.Tensor, BlockMask]] = None,
+    attn_mask: Optional[Union[torch.Tensor, "flex_attention.BlockMask"]] = None,
     dropout_p: float = 0.0,
     is_causal: bool = False,
     scale: Optional[float] = None,
@@ -488,10 +559,10 @@ def _native_flex_attention(
     batch_size, num_heads, seq_len_q, _ = query.shape
     _, _, seq_len_kv, _ = key.shape
 
-    if attn_mask is None or isinstance(attn_mask, BlockMask):
+    if attn_mask is None or isinstance(attn_mask, flex_attention.BlockMask):
         block_mask = attn_mask
     elif is_causal:
-        block_mask = create_block_mask(
+        block_mask = flex_attention.create_block_mask(
             _flex_attention_causal_mask_mod, None, None, seq_len_q, seq_len_kv, query.device
         )
     elif torch.is_tensor(attn_mask):
@@ -505,7 +576,9 @@ def _native_flex_attention(
             def mask_mod(batch_idx, head_idx, q_idx, kv_idx):
                 return attn_mask[batch_idx, head_idx, q_idx, kv_idx]
 
-            block_mask = create_block_mask(mask_mod, batch_size, None, seq_len_q, seq_len_kv, query.device)
+            block_mask = flex_attention.create_block_mask(
+                mask_mod, batch_size, None, seq_len_q, seq_len_kv, query.device
+            )
         else:
 
             def score_mod(score, batch_idx, head_idx, q_idx, kv_idx):
@@ -513,7 +586,7 @@ def _native_flex_attention(
     else:
         raise ValueError("Attention mask must be either None, a BlockMask, or a 2D/4D tensor.")
 
-    return torch_flex_attention(
+    return flex_attention.flex_attention(
         query=query,
         key=key,
         value=value,
@@ -609,6 +682,7 @@ def _native_efficient_attention(
 @_AttentionProviderRegistry.register(
     AttentionProvider._NATIVE_FLASH,
     constraints=[_check_attn_mask_is_none, _check_device, _check_qkv_dtype_bf16_or_fp16, _check_shape],
+    supports_cp=True,
 )
 def _native_flash_attention(
     query: torch.Tensor,
@@ -621,16 +695,23 @@ def _native_flash_attention(
     enable_gqa: bool = False,
 ) -> torch.Tensor:
     with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
-        return native_sdpa(
-            query=query,
-            key=key,
-            value=value,
-            attn_mask=attn_mask,
-            dropout_p=dropout_p,
-            is_causal=is_causal,
-            scale=scale,
-            enable_gqa=enable_gqa,
-        )
+        op = native_sdpa
+        kwargs = {
+            "query": query,
+            "key": key,
+            "value": value,
+            "attn_mask": attn_mask,
+            "dropout_p": dropout_p,
+            "is_causal": is_causal,
+            "scale": scale,
+            "enable_gqa": enable_gqa,
+        }
+        if _AttentionProviderRegistry.context_parallel_enabled():
+            op = aten._scaled_dot_product_flash_attention
+            kwargs.pop("attn_mask", None)
+            kwargs.pop("enable_gqa", None)
+        out = op(**kwargs)
+        return out
 
 
 @_AttentionProviderRegistry.register(
@@ -914,3 +995,9 @@ def _xformers_attention(
 
     out = out.permute(0, 2, 1, 3)  # .contiguous()
     return out
+
+
+def _ring_attention(dim: int, op: _AttentionOp, **kwargs):
+    if _AttentionProviderRegistry._mesh is None:
+        raise ValueError("Ring attention requires a mesh to be set in the attention provider registry")
+    return _templated_ring_attention(_AttentionProviderRegistry._mesh, dim, op, **kwargs)[0]

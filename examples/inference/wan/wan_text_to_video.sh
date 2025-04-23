@@ -25,21 +25,22 @@ NUM_GPUS=4
 CUDA_VISIBLE_DEVICES="0,1,2,3"
 
 # Check the JSON files for the expected JSON format
-DATASET_FILE="examples/inference/datasets/dummy_text_to_video.json"
+DATASET_FILE="examples/inference/datasets/wan/dummy_text_to_video.json"
 
 # Depending on how many GPUs you have available, choose your degree of parallelism and technique!
 DDP_1="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 1 --tp_degree 1"
 DDP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 1 --cp_degree 1 --tp_degree 1"
 DDP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 4 --dp_shards 1 --cp_degree 1 --tp_degree 1"
 DDP_8="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 8 --dp_shards 1 --cp_degree 1 --tp_degree 1"
-CP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 4 --tp_degree 1"
+CP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 2 --tp_degree 1"
+CP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 4 --tp_degree 1"
 # FSDP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 2 --cp_degree 1 --tp_degree 1"
 # FSDP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 4 --cp_degree 1 --tp_degree 1"
 # HSDP_2_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 2 --cp_degree 1 --tp_degree 1"
 
 # Parallel arguments
 parallel_cmd=(
-  $CP_2
+  $CP_4
 )
 
 # Model arguments
@@ -58,7 +59,7 @@ inference_cmd=(
 
 # Attention provider arguments
 attn_provider_cmd=(
-  --attn_provider flash_varlen
+  --attn_provider _native_flash
 )
 
 # Torch config arguments
@@ -90,6 +91,7 @@ torchrun \
     "${parallel_cmd[@]}" \
     "${model_cmd[@]}" \
     "${inference_cmd[@]}" \
+    "${attn_provider_cmd[@]}" \
     "${torch_config_cmd[@]}" \
     "${miscellaneous_cmd[@]}"
 
