@@ -645,7 +645,7 @@ class SFTTrainer:
                 break
 
             validation_data = validation_data[0]
-            with attention_provider(self.args.attn_provider_validation):
+            with attention_provider(self.args.attn_provider_inference):
                 validation_artifacts = self.model_specification.validation(
                     pipeline=pipeline, generator=generator, **validation_data
                 )
