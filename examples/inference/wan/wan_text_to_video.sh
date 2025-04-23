@@ -25,7 +25,7 @@ NUM_GPUS=4
 CUDA_VISIBLE_DEVICES="0,1,2,3"
 
 # Check the JSON files for the expected JSON format
-DATASET_FILE="examples/inference/datasets/wan/dummy_text_to_video.json"
+DATASET_FILE="examples/inference/wan/dummy_text_to_video.json"
 
 # Depending on how many GPUs you have available, choose your degree of parallelism and technique!
 DDP_1="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 1 --tp_degree 1"
@@ -59,7 +59,7 @@ inference_cmd=(
 
 # Attention provider arguments
 attn_provider_cmd=(
-  --attn_provider _native_flash
+  --attn_provider sage
 )
 
 # Torch config arguments

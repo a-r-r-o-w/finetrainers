@@ -533,7 +533,7 @@ def _flash_varlen_attention(
     out = out.unflatten(0, (batch_size, -1)).permute(0, 2, 1, 3)  # .contiguous()
 
     if _AttentionProviderRegistry.context_parallel_enabled():
-        return out, *rest
+        return out, *rest[:1]
     return out
 
 
@@ -695,7 +695,6 @@ def _native_flash_attention(
     enable_gqa: bool = False,
 ) -> torch.Tensor:
     with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
-        op = native_sdpa
         kwargs = {
             "query": query,
             "key": key,
@@ -706,6 +705,7 @@ def _native_flash_attention(
             "scale": scale,
             "enable_gqa": enable_gqa,
         }
+        op = native_sdpa
         if _AttentionProviderRegistry.context_parallel_enabled():
             op = aten._scaled_dot_product_flash_attention
             kwargs.pop("attn_mask", None)
@@ -744,6 +744,7 @@ def _native_math_attention(
 @_AttentionProviderRegistry.register(
     AttentionProvider.SAGE,
     constraints=[_check_device_cuda, _check_qkv_dtype_bf16_or_fp16, _check_shape],
+    supports_cp=True,
 )
 def _sage_attention(
     query: torch.Tensor,
@@ -753,15 +754,23 @@ def _sage_attention(
     scale: Optional[float] = None,
     return_lse: bool = False,
 ) -> torch.Tensor:
-    return sageattn(
-        q=query,
-        k=key,
-        v=value,
-        tensor_layout="HND",
-        is_causal=is_causal,
-        sm_scale=scale,
-        return_lse=return_lse,
-    )
+    kwargs = {
+        "q": query,
+        "k": key,
+        "v": value,
+        "tensor_layout": "HND",
+        "is_causal": is_causal,
+        "sm_scale": scale,
+        "return_lse": return_lse,
+    }
+    if _AttentionProviderRegistry.context_parallel_enabled():
+        kwargs["return_lse"] = True
+
+    out, *rest = sageattn(**kwargs)
+
+    if _AttentionProviderRegistry.context_parallel_enabled() or return_lse:
+        return out, *rest[:1]
+    return out
 
 
 @_AttentionProviderRegistry.register(
