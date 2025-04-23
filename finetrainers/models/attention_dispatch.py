@@ -76,7 +76,6 @@ else:
 
 logger = get_logger()
 
-_IS_CREATE_BLOCK_MASK_COMPILED = False
 _SAGE_ATTENTION_PV_ACCUM_DTYPE = Literal["fp32", "fp32+fp32"]
 _SAGE_ATTENTION_QK_QUANT_GRAN = Literal["per_thread", "per_warp"]
 _SAGE_ATTENTION_QUANTIZATION_BACKEND = Literal["cuda", "triton"]

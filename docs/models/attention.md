@@ -1,4 +1,4 @@
-## Attention backends
+# Attention backends
 
 Finetrainers supports multiple attention backends to support different hardware and tradeoff between speed and memory usage. The following attention implementations are supported:
 - Training:
@@ -51,6 +51,37 @@ Providers covered: `xformers`
 - Check your CUDA version: look at the output of `nvidia-smi` or run `nvcc --version`.
 - Linux/WSL: Run: `pip install -U xformers --index-url https://download.pytorch.org/whl/cu126` (assuming CUDA 12.6). Verify the version with `pip show xformers`.
 - Make sure to look at the official installation guide in [xformers](https://github.com/facebookresearch/xformers) too!
+
 ----------
 
 All other providers are either native PyTorch implementations or require a specific PyTorch version (for example, Flex Attention requires torch version of atleast 2.5.0).
+
+----------
+
+## Usage
+
+There are two ways to use the attention dispatcher mechanism:
+- Replace `scaled_dot_product_attention` globally:
+  ```python
+  import torch.nn.functional as F
+  from finetrainers.models.attention_dispatch import attention_dispatch
+
+  F.scaled_dot_product_attention = attention_dispatch
+  ```
+- Replace all occurrences of `scaled_dot_product_attention` in your code with `attention_dispatch`.
+
+```python
+# Use dispatcher directly
+from finetrainers.models.attention_dispatch import attention_provider, AttentionProvider
+
+with attention_provider(AttentionProvider.FLASH_VARLEN):
+    model(...)
+
+# or,
+with attention_provider("sage_varlen"):
+    model(...)
+```
+
+## Context Parallel
+
+TODO
