@@ -60,17 +60,7 @@ else:
 
 
 if is_torch_version(">=", "2.5.0"):
-    from torch.nn.attention.flex_attention import BlockMask, create_block_mask
-    from torch.nn.attention.flex_attention import flex_attention as torch_flex_attention
-else:
-    create_block_mask = None
-    torch_flex_attention = None
-
-    class BlockMask:
-        def __init__(self, *args, **kwargs):
-            raise OptionalDependencyNotAvailable(
-                "The `torch` library version is too old. Please update it to at least 2.5.0."
-            )
+    import torch.nn.attention.flex_attention as flex_attention
 
 
 if is_xformers_available():
@@ -152,9 +142,7 @@ class _AttentionProviderRegistry:
 
 @contextlib.contextmanager
 def attention_provider(provider: AttentionProvider = AttentionProvider.NATIVE):
-    """
-    Context manager to set the active attention provider.
-    """
+    """Context manager to set the active attention provider."""
     if provider not in _AttentionProviderRegistry._providers:
         raise ValueError(f"Provider {provider} is not registered.")
 
@@ -474,7 +462,7 @@ def _native_flex_attention(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
-    attn_mask: Optional[Union[torch.Tensor, BlockMask]] = None,
+    attn_mask: Optional[Union[torch.Tensor, "flex_attention.BlockMask"]] = None,
     dropout_p: float = 0.0,
     is_causal: bool = False,
     scale: Optional[float] = None,
@@ -488,10 +476,10 @@ def _native_flex_attention(
     batch_size, num_heads, seq_len_q, _ = query.shape
     _, _, seq_len_kv, _ = key.shape
 
-    if attn_mask is None or isinstance(attn_mask, BlockMask):
+    if attn_mask is None or isinstance(attn_mask, flex_attention.BlockMask):
         block_mask = attn_mask
     elif is_causal:
-        block_mask = create_block_mask(
+        block_mask = flex_attention.create_block_mask(
             _flex_attention_causal_mask_mod, None, None, seq_len_q, seq_len_kv, query.device
         )
     elif torch.is_tensor(attn_mask):
@@ -505,7 +493,9 @@ def _native_flex_attention(
             def mask_mod(batch_idx, head_idx, q_idx, kv_idx):
                 return attn_mask[batch_idx, head_idx, q_idx, kv_idx]
 
-            block_mask = create_block_mask(mask_mod, batch_size, None, seq_len_q, seq_len_kv, query.device)
+            block_mask = flex_attention.create_block_mask(
+                mask_mod, batch_size, None, seq_len_q, seq_len_kv, query.device
+            )
         else:
 
             def score_mod(score, batch_idx, head_idx, q_idx, kv_idx):
@@ -513,7 +503,7 @@ def _native_flex_attention(
     else:
         raise ValueError("Attention mask must be either None, a BlockMask, or a 2D/4D tensor.")
 
-    return torch_flex_attention(
+    return flex_attention.flex_attention(
         query=query,
         key=key,
         value=value,
