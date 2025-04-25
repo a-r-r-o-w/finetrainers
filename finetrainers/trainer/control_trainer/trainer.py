@@ -20,10 +20,9 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
-from finetrainers import data, logging, optimizer, parallel, patches, utils
+from finetrainers import data, logging, models, optimizer, parallel, patches, utils
 from finetrainers.args import BaseArgsType
 from finetrainers.config import TrainingType
-from finetrainers.models import ControlModelSpecification
 from finetrainers.patches import load_lora_weights
 from finetrainers.state import State, TrainState
 
@@ -38,7 +37,7 @@ logger = logging.get_logger()
 
 
 class ControlTrainer(Trainer):
-    def __init__(self, args: ArgsType, model_specification: ControlModelSpecification) -> None:
+    def __init__(self, args: ArgsType, model_specification: models.ControlModelSpecification) -> None:
         super().__init__(args)
 
         self.state = State()

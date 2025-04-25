@@ -21,7 +21,6 @@ from tqdm import tqdm
 from finetrainers import data, logging, models, optimizer, parallel, patches, utils
 from finetrainers.args import BaseArgsType
 from finetrainers.config import TrainingType
-from finetrainers.models import ModelSpecification, attention_provider
 from finetrainers.state import State, TrainState
 
 from ..base import Trainer

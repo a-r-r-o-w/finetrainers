@@ -15,7 +15,7 @@ from diffusers.hooks import HookRegistry, ModelHook
 from diffusers.utils import export_to_video
 
 from finetrainers import data, get_logger, logging, parallel, patches, utils
-from finetrainers.args import AttentionProviderValidation
+from finetrainers.args import AttentionProviderInference
 from finetrainers.config import ModelType
 from finetrainers.models import ModelSpecification, attention_provider
 from finetrainers.models.wan import WanModelSpecification
@@ -627,7 +627,7 @@ class AttentionProviderArgs(ArgsConfigMixin):
             The attention provider to use for inference. Choose between ['flash', 'flash_varlen', 'flex', 'native', '_native_cudnn', '_native_efficient', '_native_flash', '_native_math', 'sage', 'sage_varlen', '_sage_qk_int8_pv_fp8_cuda', '_sage_qk_int8_pv_fp8_cuda_sm90', '_sage_qk_int8_pv_fp16_cuda', '_sage_qk_int8_pv_fp16_triton', 'xformers'].
     """
 
-    attn_provider: AttentionProviderValidation = "native"
+    attn_provider: AttentionProviderInference = "native"
     # attn_provider_specialized_modules: List[str] = []
 
     def add_args(self, parser: argparse.ArgumentParser) -> None:
