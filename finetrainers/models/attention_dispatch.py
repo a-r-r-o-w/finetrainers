@@ -1,4 +1,3 @@
-import contextlib
 import inspect
 from enum import Enum
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
@@ -120,7 +119,7 @@ class _AttentionProviderRegistry:
 
     @classmethod
     def register(cls, provider: AttentionProvider, constraints: Optional[List[Callable]] = None):
-        logger.debug(f"Registering attention provider: {provider} with constraints: {constraints}")
+        logger.debug(f"Registering attention provider: {provider}")
 
         def decorator(func):
             cls._providers[provider] = func
@@ -137,21 +136,6 @@ class _AttentionProviderRegistry:
     @classmethod
     def list_providers(cls):
         return list(cls._providers.keys())
-
-
-@contextlib.contextmanager
-def attention_provider(provider: AttentionProvider = AttentionProvider.NATIVE):
-    """Context manager to set the active attention provider."""
-    if provider not in _AttentionProviderRegistry._providers:
-        raise ValueError(f"Provider {provider} is not registered.")
-
-    old_provider = _AttentionProviderRegistry._active_provider
-    _AttentionProviderRegistry._active_provider = provider
-
-    try:
-        yield
-    finally:
-        _AttentionProviderRegistry._active_provider = old_provider
 
 
 def attention_dispatch(

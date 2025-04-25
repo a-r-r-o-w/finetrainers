@@ -21,24 +21,26 @@ from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
 from finetrainers import data, logging, optimizer, parallel, patches, utils
-from finetrainers.args import BaseArgs
+from finetrainers.args import BaseArgsType
 from finetrainers.config import TrainingType
-from finetrainers.models import ControlModelSpecification, attention_provider
+from finetrainers.models import ControlModelSpecification
 from finetrainers.patches import load_lora_weights
 from finetrainers.state import State, TrainState
 
+from ..base import Trainer
 from .config import ControlFullRankConfig, ControlLowRankConfig
 from .data import IterableControlDataset, ValidationControlDataset
 
 
-ArgsType = Union[BaseArgs, ControlFullRankConfig, ControlLowRankConfig]
+ArgsType = Union[BaseArgsType, ControlFullRankConfig, ControlLowRankConfig]
 
 logger = logging.get_logger()
 
 
-class ControlTrainer:
+class ControlTrainer(Trainer):
     def __init__(self, args: ArgsType, model_specification: ControlModelSpecification) -> None:
-        self.args = args
+        super().__init__(args)
+        
         self.state = State()
         self.state.train_state = TrainState()
 
@@ -223,12 +225,12 @@ class ControlTrainer:
 
             parallel_backend.apply_fsdp2(
                 model=self.transformer,
-                dp_mesh=parallel_backend.get_mesh()[dp_mesh_names],
                 param_dtype=self.args.transformer_dtype,
                 reduce_dtype=torch.float32,
                 output_dtype=None,
                 pp_enabled=parallel_backend.pipeline_parallel_enabled,
                 cpu_offload=False,  # TODO(aryan): needs to be tested and allowed for enabling later
+                device_mesh=parallel_backend.get_mesh()[dp_mesh_names],
             )
         elif parallel_backend.data_replication_enabled:
             logger.info("Applying DDP to the model")
@@ -449,7 +451,7 @@ class ControlTrainer:
         self.transformer.train()
         data_iterator = iter(self.dataloader)
 
-        compute_posterior = True if self.args.enable_precomputation else (not self.args.precomputation_once)
+        compute_posterior = False if self.args.enable_precomputation else (not self.args.precomputation_once)
         preprocessor = data.initialize_preprocessor(
             rank=parallel_backend.rank,
             num_items=self.args.precomputation_items if self.args.enable_precomputation else 1,
@@ -528,14 +530,14 @@ class ControlTrainer:
 
             # NOTE: for planned refactor, make sure that forward and backward pass run under the context.
             # If only forward runs under context, backward will most likely fail when using activation checkpointing
-            with attention_provider(self.args.attn_provider_training):
+            with self.attention_provider_ctx(training=True):
                 pred, target, sigmas = self.model_specification.forward(
                     transformer=self.transformer,
                     scheduler=self.scheduler,
                     condition_model_conditions=condition_model_conditions,
                     latent_model_conditions=latent_model_conditions,
                     sigmas=sigmas,
-                    compute_posterior=not self.args.precomputation_once,
+                    compute_posterior=compute_posterior,
                 )
 
                 timesteps = (sigmas * 1000.0).long()
@@ -702,7 +704,7 @@ class ControlTrainer:
                 break
 
             validation_data = validation_data[0]
-            with attention_provider(self.args.attn_provider_inference):
+            with self.attention_provider_ctx(training=False):
                 validation_artifacts = self.model_specification.validation(
                     pipeline=pipeline, generator=generator, **validation_data
                 )
