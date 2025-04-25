@@ -24,11 +24,15 @@ class Trainer:
 
     @contextlib.contextmanager
     def attention_provider_ctx(self, training: bool = True):
-        name_providers_active = self._module_name_providers_training if training else self._module_name_providers_inference
-        name_providers_dict = {module_name: provider for module_name, provider in name_providers_active}
+        name_providers_active = (
+            self._module_name_providers_training if training else self._module_name_providers_inference
+        )
+        name_providers_dict = dict(name_providers_active)
         default_provider = _AttentionProviderRegistry._active_provider
 
-        all_registered_module_names = [attr for attr in dir(self) if isinstance(getattr(self, attr, None), torch.nn.Module)]
+        all_registered_module_names = [
+            attr for attr in dir(self) if isinstance(getattr(self, attr, None), torch.nn.Module)
+        ]
         for module_name in all_registered_module_names:
             if module_name in name_providers_dict:
                 continue
@@ -80,7 +84,9 @@ def _parse_attention_providers(attn_providers: List[str] = None) -> List[Tuple[s
         for provider_str in attn_providers:
             parts = provider_str.split(":")
             if len(parts) != 2:
-                raise ValueError(f"Invalid attention provider format: '{provider_str}'. Expected 'module_name:provider_name'.")
+                raise ValueError(
+                    f"Invalid attention provider format: '{provider_str}'. Expected 'module_name:provider_name'."
+                )
             parts[1] = AttentionProvider(parts[1])
             parsed_providers.append(tuple(parts))
     return parsed_providers
@@ -89,7 +95,7 @@ def _parse_attention_providers(attn_providers: List[str] = None) -> List[Tuple[s
 def _apply_forward_hooks_hack(module: torch.nn.Module, provider: AttentionProvider):
     if hasattr(module, "_finetrainers_wrapped_methods"):
         return
-    
+
     def create_wrapper(old_method):
         @functools.wraps(old_method)
         def wrapper(*args, **kwargs):

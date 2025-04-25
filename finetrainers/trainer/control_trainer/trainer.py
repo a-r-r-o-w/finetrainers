@@ -40,7 +40,7 @@ logger = logging.get_logger()
 class ControlTrainer(Trainer):
     def __init__(self, args: ArgsType, model_specification: ControlModelSpecification) -> None:
         super().__init__(args)
-        
+
         self.state = State()
         self.state.train_state = TrainState()
 

@@ -1,2 +1,2 @@
-from .attention_dispatch import AttentionProvider
+from .attention_dispatch import AttentionProvider, attention_dispatch, attention_provider
 from .modeling_utils import ControlModelSpecification, ModelSpecification
