@@ -30,10 +30,10 @@ Checkout to the latest stable release tag:
 
 ```bash
 git fetch --all --tags
-git checkout tags/v0.1.0
+git checkout tags/v0.2.0
 ```
 
-Follow the instructions mentioned in the [README](https://github.com/a-r-r-o-w/finetrainers/tree/v0.1.0) for the latest stable release.
+Follow the instructions mentioned in the [README](https://github.com/a-r-r-o-w/finetrainers/tree/v0.2.0-release) for the latest stable release.
 
 #### Using the main branch
 

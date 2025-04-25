@@ -9,7 +9,7 @@ with open("requirements.txt", "r", encoding="utf-8") as file:
 
 setup(
     name="finetrainers",
-    version="0.1.0",
+    version="0.2.0.dev0",
     description="Finetrainers is a work-in-progress library to support (accessible) training of diffusion models",
     long_description=long_description,
     long_description_content_type="text/markdown",
