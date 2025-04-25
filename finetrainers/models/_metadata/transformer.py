@@ -1,4 +1,4 @@
-from diffusers import WanTransformer3DModel
+from diffusers import FluxTransformer2DModel, WanTransformer3DModel
 
 from finetrainers._metadata import (
     ContextParallelInputMetadata,
@@ -13,10 +13,23 @@ from finetrainers.logging import get_logger
 logger = get_logger()
 
 
-# ===== Transformer Metadata Registrations =====
-
-
 def register_transformer_metadata():
+    # Flux
+    TransformerRegistry.register(
+        model_class=FluxTransformer2DModel,
+        metadata=TransformerMetadata(
+            cp_plan={
+                "": {
+                    ParamIdentifier("hidden_states", 0): ContextParallelInputMetadata(1, 3),
+                    ParamIdentifier("encoder_hidden_states", 1): ContextParallelInputMetadata(1, 3),
+                    ParamIdentifier("img_ids", 4): ContextParallelInputMetadata(0, 2),
+                    ParamIdentifier("txt_ids", 5): ContextParallelInputMetadata(0, 2),
+                },
+                "proj_out": [ContextParallelOutputMetadata(1, 3)],
+            }
+        ),
+    )
+
     # Wan2.1
     TransformerRegistry.register(
         model_class=WanTransformer3DModel,

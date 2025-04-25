@@ -11,21 +11,13 @@ export NCCL_IB_DISABLE=1
 export TORCH_NCCL_ENABLE_MONITORING=0
 export FINETRAINERS_LOG_LEVEL="DEBUG"
 
-# Download the validation dataset
-if [ ! -d "examples/inference/datasets/openvid-1k-split-validation" ]; then
-  echo "Downloading validation dataset..."
-  huggingface-cli download --repo-type dataset finetrainers/OpenVid-1k-split-validation --local-dir examples/inference/datasets/openvid-1k-split-validation
-else
-  echo "Validation dataset already exists. Skipping download."
-fi
-
 BACKEND="ptd"
 
 NUM_GPUS=4
 CUDA_VISIBLE_DEVICES="0,1,2,3"
 
 # Check the JSON files for the expected JSON format
-DATASET_FILE="examples/inference/wan/dummy_text_to_video.json"
+DATASET_FILE="examples/inference/flux/dummy_text_to_image.json"
 
 # Depending on how many GPUs you have available, choose your degree of parallelism and technique!
 DDP_1="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 1 --tp_degree 1"
@@ -45,21 +37,22 @@ parallel_cmd=(
 
 # Model arguments
 model_cmd=(
-  --model_name "wan"
-  --pretrained_model_name_or_path "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
+  --model_name "flux"
+  --pretrained_model_name_or_path "black-forest-labs/FLUX.1-dev"
+  --cache_dir /raid/.cache/huggingface
   --enable_slicing
   --enable_tiling
 )
 
 # Inference arguments
 inference_cmd=(
-  --inference_type text_to_video
+  --inference_type text_to_image
   --dataset_file "$DATASET_FILE"
 )
 
 # Attention provider arguments
 attn_provider_cmd=(
-  --attn_provider sage
+  --attn_provider flash_varlen
 )
 
 # Torch config arguments
@@ -72,7 +65,7 @@ torch_config_cmd=(
 miscellaneous_cmd=(
   --seed 31337
   --tracker_name "finetrainers-inference"
-  --output_dir "/raid/aryan/wan-inference"
+  --output_dir "/raid/aryan/flux-inference"
   --init_timeout 600
   --nccl_timeout 600
   --report_to "wandb"

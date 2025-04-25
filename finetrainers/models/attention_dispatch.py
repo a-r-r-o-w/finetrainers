@@ -513,7 +513,7 @@ def _flash_varlen_attention(
     if _AttentionProviderRegistry.context_parallel_enabled():
         return_attn_probs = True
 
-    out, *rest = flash_attn_varlen_func(
+    out = flash_attn_varlen_func(
         q=query_packed,
         k=key_packed,
         v=value_packed,
@@ -530,9 +530,12 @@ def _flash_varlen_attention(
         deterministic=deterministic,
         return_attn_probs=return_attn_probs,
     )
-    out = out.unflatten(0, (batch_size, -1)).permute(0, 2, 1, 3)  # .contiguous()
 
-    if _AttentionProviderRegistry.context_parallel_enabled():
+    rest = None
+    if return_attn_probs:
+        out, *rest = out
+    out = out.unflatten(0, (batch_size, -1)).permute(0, 2, 1, 3)  # .contiguous()
+    if return_attn_probs:
         return out, *rest[:1]
     return out
 
@@ -754,6 +757,9 @@ def _sage_attention(
     scale: Optional[float] = None,
     return_lse: bool = False,
 ) -> torch.Tensor:
+    if _AttentionProviderRegistry.context_parallel_enabled():
+        return_lse = True
+
     kwargs = {
         "q": query,
         "k": key,
@@ -763,12 +769,12 @@ def _sage_attention(
         "sm_scale": scale,
         "return_lse": return_lse,
     }
-    if _AttentionProviderRegistry.context_parallel_enabled():
-        kwargs["return_lse"] = True
+    out = sageattn(**kwargs)
 
-    out, *rest = sageattn(**kwargs)
-
-    if _AttentionProviderRegistry.context_parallel_enabled() or return_lse:
+    rest = None
+    if return_lse:
+        out, *rest = out
+    if return_lse:
         return out, *rest[:1]
     return out
 

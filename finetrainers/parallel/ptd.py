@@ -507,20 +507,26 @@ def apply_fsdp2(
     fully_shard(model, **fsdp_config, reshard_after_forward=not pp_enabled)
 
 
-def apply_cp(model: torch.nn.Module, cp_mesh: torch.distributed.device_mesh.DeviceMesh) -> None:
+def apply_cp(
+    model: torch.nn.Module,
+    mesh: torch.distributed.device_mesh.DeviceMesh,
+    plan: Optional[Dict[str, ContextParallelModelPlan]] = None,
+) -> None:
     """Apply context parallel on a model."""
-    logger.debug(f"Applying context parallel with CP mesh: {cp_mesh}")
+    logger.debug(f"Applying context parallel with CP mesh: {mesh}")
     model_cls = unwrap_module(model).__class__
-    metadata = TransformerRegistry.get(model_cls)
 
-    for module_id, cp_model_plan in metadata.cp_plan.items():
+    if plan is None:
+        plan = TransformerRegistry.get(model_cls).cp_plan
+
+    for module_id, cp_model_plan in plan.items():
         module = get_submodule_by_name(model, module_id)
         if not isinstance(module, list):
             module = [module]
         logger.debug(f"Applying ContextParallelHook to {module_id=} identifying a total of {len(module)} modules")
         for m in module:
             registry = HookRegistry.check_if_exists_or_initialize(m)
-            hook = ContextParallelHook(cp_model_plan, cp_mesh)
+            hook = ContextParallelHook(cp_model_plan, mesh)
             registry.register_hook(hook, f"context_parallel---{module_id}")
 
 

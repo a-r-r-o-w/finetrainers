@@ -18,6 +18,7 @@ from finetrainers import data, get_logger, logging, parallel, patches, utils
 from finetrainers.args import AttentionProviderInference
 from finetrainers.config import ModelType
 from finetrainers.models import ModelSpecification, attention_provider
+from finetrainers.models.flux import FluxModelSpecification
 from finetrainers.models.wan import WanModelSpecification
 from finetrainers.parallel import ParallelBackendEnum
 from finetrainers.state import ParallelBackendType
@@ -74,6 +75,7 @@ def main():
 
 
 class InferenceType(str, Enum):
+    TEXT_TO_IMAGE = "text_to_image"
     TEXT_TO_VIDEO = "text_to_video"
     IMAGE_TO_VIDEO = "image_to_video"
 
@@ -93,10 +95,13 @@ _DTYPE_MAP = {
 
 
 SUPPORTED_MODEL_CONFIGS = {
+    ModelType.FLUX: {
+        InferenceType.TEXT_TO_IMAGE: FluxModelSpecification,
+    },
     ModelType.WAN: {
         InferenceType.TEXT_TO_VIDEO: WanModelSpecification,
         InferenceType.IMAGE_TO_VIDEO: WanModelSpecification,
-    }
+    },
 }
 
 
