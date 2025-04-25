@@ -95,6 +95,7 @@ class ControlTrainerFastTestsMixin:
         args.train_qk_norm = True
         args.frame_conditioning_type = "random"
         args.frame_conditioning_index = None
+        args.frame_conditioning_concatenate_mask = False
 
         return args
 
