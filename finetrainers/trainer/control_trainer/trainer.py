@@ -451,7 +451,7 @@ class ControlTrainer:
         self.transformer.train()
         data_iterator = iter(self.dataloader)
 
-        compute_posterior = True if self.args.enable_precomputation else (not self.args.precomputation_once)
+        compute_posterior = False if self.args.enable_precomputation else (not self.args.precomputation_once)
         preprocessor = data.initialize_preprocessor(
             rank=parallel_backend.rank,
             num_items=self.args.precomputation_items if self.args.enable_precomputation else 1,
@@ -534,7 +534,7 @@ class ControlTrainer:
                 condition_model_conditions=condition_model_conditions,
                 latent_model_conditions=latent_model_conditions,
                 sigmas=sigmas,
-                compute_posterior=not self.args.precomputation_once,
+                compute_posterior=compute_posterior,
             )
 
             timesteps = (sigmas * 1000.0).long()
