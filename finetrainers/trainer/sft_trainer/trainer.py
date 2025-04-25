@@ -18,12 +18,13 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
-from finetrainers import data, logging, optimizer, parallel, patches, utils
+from finetrainers import data, logging, models, optimizer, parallel, patches, utils
 from finetrainers.args import BaseArgsType
 from finetrainers.config import TrainingType
 from finetrainers.models import ModelSpecification, attention_provider
 from finetrainers.state import State, TrainState
 
+from ..base import Trainer
 from .config import SFTFullRankConfig, SFTLowRankConfig
 
 
@@ -32,9 +33,10 @@ ArgsType = Union[BaseArgsType, SFTFullRankConfig, SFTLowRankConfig]
 logger = logging.get_logger()
 
 
-class SFTTrainer:
-    def __init__(self, args: ArgsType, model_specification: ModelSpecification) -> None:
-        self.args = args
+class SFTTrainer(Trainer):
+    def __init__(self, args: ArgsType, model_specification: models.ModelSpecification) -> None:
+        super().__init__(args)
+
         self.state = State()
         self.state.train_state = TrainState()
 
@@ -308,11 +310,17 @@ class SFTTrainer:
                     metadata = {"lora_config": json.dumps(metadata, indent=4)}
                     # fmt: on
                     self.model_specification._save_lora_weights(
-                        self.args.output_dir, state_dict, self.scheduler, metadata
+                        os.path.join(self.args.output_dir, "lora_weights", f"{self.state.train_state.step:06d}"),
+                        state_dict,
+                        self.scheduler,
+                        metadata,
                     )
                 elif self.args.training_type == TrainingType.FULL_FINETUNE:
                     self.model_specification._save_model(
-                        self.args.output_dir, self.transformer, state_dict, self.scheduler
+                        os.path.join(self.args.output_dir, "model_weights", f"{self.state.train_state.step:06d}"),
+                        self.transformer,
+                        state_dict,
+                        self.scheduler,
                     )
             parallel_backend.wait_for_everyone()
 
@@ -393,7 +401,7 @@ class SFTTrainer:
         self.transformer.train()
         data_iterator = iter(self.dataloader)
 
-        compute_posterior = True if self.args.enable_precomputation else (not self.args.precomputation_once)
+        compute_posterior = False if self.args.enable_precomputation else (not self.args.precomputation_once)
         preprocessor = data.initialize_preprocessor(
             rank=parallel_backend.rank,
             num_items=self.args.precomputation_items if self.args.enable_precomputation else 1,
@@ -472,14 +480,14 @@ class SFTTrainer:
 
             # NOTE: for planned refactor, make sure that forward and backward pass run under the context.
             # If only forward runs under context, backward will most likely fail when using activation checkpointing
-            with attention_provider(self.args.attn_provider_training):
+            with self.attention_provider_ctx(training=True):
                 pred, target, sigmas = self.model_specification.forward(
                     transformer=self.transformer,
                     scheduler=self.scheduler,
                     condition_model_conditions=condition_model_conditions,
                     latent_model_conditions=latent_model_conditions,
                     sigmas=sigmas,
-                    compute_posterior=not self.args.precomputation_once,
+                    compute_posterior=compute_posterior,
                 )
 
                 timesteps = (sigmas * 1000.0).long()
@@ -645,7 +653,7 @@ class SFTTrainer:
                 break
 
             validation_data = validation_data[0]
-            with attention_provider(self.args.attn_provider_validation):
+            with self.attention_provider_ctx(training=False):
                 validation_artifacts = self.model_specification.validation(
                     pipeline=pipeline, generator=generator, **validation_data
                 )
@@ -867,7 +875,9 @@ class SFTTrainer:
 
             # Load the LoRA weights if performing LoRA finetuning
             if self.args.training_type == TrainingType.LORA:
-                pipeline.load_lora_weights(self.args.output_dir)
+                pipeline.load_lora_weights(
+                    os.path.join(self.args.output_dir, "lora_weights", f"{self.state.train_state.step:06d}")
+                )
 
         components = {module_name: getattr(pipeline, module_name, None) for module_name in module_names}
         self._set_components(components)

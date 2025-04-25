@@ -26,28 +26,51 @@ BaseArgsType = Union["BaseArgs", "AttentionProviderArgs"]
 
 class AttentionProviderArgs(ArgsConfigMixin):
     """
-    Arguments for the attention provider.
-
     Args:
-        attn_provider_training (`str`, defaults to "native"):
-            The attention provider to use for training. Choose between ['flash', 'flash_varlen', 'flex', 'native', '_native_cudnn', '_native_efficient', '_native_flash', '_native_math'].
-        attn_provider_validation (`str`, defaults to "native"):
-            The attention provider to use for validation. Choose between ['flash', 'flash_varlen', 'flex', 'native', '_native_cudnn', '_native_efficient', '_native_flash', '_native_math', 'sage', 'sage_varlen', '_sage_qk_int8_pv_fp8_cuda', '_sage_qk_int8_pv_fp8_cuda_sm90', '_sage_qk_int8_pv_fp16_cuda', '_sage_qk_int8_pv_fp16_triton', 'xformers'].
+        attn_provider_training (`List[str]`, defaults to `None`):
+            Must be a string of the form `"<component_name>:<attention_provider>"`. For example, if you want to use
+            flash varlen attention implementation on the `transformer` module, you can set this argument to
+            `"transformer:flash_varlen"`. The attention provider will be used for both training and validation.
+            Options for `<attention_provider>` are:
+                flash, flash_varlen, flex, native, _native_cudnn, _native_efficient, _native_flash, _native_math, xformers
+        attn_provider_inference (`List[str]`, defaults to `None`):
+            Must be a string of the form `"<component_name>:<attention_provider>"`. For example, if you want to use
+            flash varlen attention implementation on the `transformer` module, you can set this argument to
+            `"transformer:flash_varlen"`. The attention provider will be used for both training and validation.
+            Options for `<attention_provider>` are:
+                flash, flash_varlen, flex, native, _native_cudnn, _native_efficient, _native_flash, _native_math,
+                _native_math, sage, sage_varlen, _sage_qk_int8_pv_fp8_cuda, _sage_qk_int8_pv_fp8_cuda_sm90,
+                _sage_qk_int8_pv_fp16_cuda, _sage_qk_int8_pv_fp16_triton, xformers
     """
 
-    attn_provider_training: AttentionProviderTraining = "native"
-    attn_provider_validation: AttentionProviderValidation = "native"
-    # attn_provider_specialized_modules: List[str] = []
+    attn_provider_training: List[AttentionProviderTraining] = None
+    attn_provider_inference: List[AttentionProviderValidation] = None
 
     def add_args(self, parser: argparse.ArgumentParser) -> None:
-        # fmt: off
-        parser.add_argument("--attn_provider_training", type=str, default="native", choices=["flash", "flash_varlen", "flex", "native", "_native_cudnn", "_native_efficient", "_native_flash", "_native_math", "xformers"])
-        parser.add_argument("--attn_provider_validation", type=str, default="native", choices=["flash", "flash_varlen", "flex", "native", "_native_cudnn", "_native_efficient", "_native_flash", "_native_math", "sage", "sage_varlen", "_sage_qk_int8_pv_fp8_cuda", "_sage_qk_int8_pv_fp8_cuda_sm90", "_sage_qk_int8_pv_fp16_cuda", "_sage_qk_int8_pv_fp16_triton", "xformers"])
-        # fmt: on
+        parser.add_argument(
+            "--attn_provider_training",
+            type=str,
+            default=None,
+            nargs="+",
+            help="Attention provider for training. Must be a string of the form `<component_name>:<attention_provider>`.",
+        )
+        parser.add_argument(
+            "--attn_provider_inference",
+            type=str,
+            default=None,
+            nargs="+",
+            help="Attention provider for inference. Must be a string of the form `<component_name>:<attention_provider>`.",
+        )
 
     def map_args(self, argparse_args: argparse.Namespace, mapped_args: "BaseArgs"):
-        mapped_args.attn_provider_training = argparse_args.attn_provider_training
-        mapped_args.attn_provider_validation = argparse_args.attn_provider_validation
+        attn_training = argparse_args.attn_provider_training
+        attn_inference = argparse_args.attn_provider_inference
+        if attn_training is None:
+            attn_training = []
+        if attn_inference is None:
+            attn_inference = []
+        mapped_args.attn_provider_training = attn_training
+        mapped_args.attn_provider_inference = attn_inference
 
     def validate_args(self, args: "BaseArgs"):
         pass
@@ -55,7 +78,7 @@ class AttentionProviderArgs(ArgsConfigMixin):
     def to_dict(self) -> Dict[str, Any]:
         return {
             "attn_provider_training": self.attn_provider_training,
-            "attn_provider_validation": self.attn_provider_validation,
+            "attn_provider_inference": self.attn_provider_inference,
         }
 
 

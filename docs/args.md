@@ -270,6 +270,26 @@ float32_matmul_precision (`str`, defaults to `highest`):
     The precision to use for float32 matmul. Choose between ['highest', 'high', 'medium'].
 ```
 
+### Attention Provider
+
+These arguments are relevant to setting attention provider for different modeling components. The attention providers may be set differently for training and validation/inference.
+
+```
+attn_provider_training (`str`, defaults to "native"):
+    The attention provider to use for training. Choose between
+    [
+        'flash', 'flash_varlen', 'flex', 'native', '_native_cudnn', '_native_efficient', '_native_flash',
+        '_native_math'
+    ]
+attn_provider_inference (`str`, defaults to "native"):
+    The attention provider to use for validation. Choose between
+    [
+        'flash', 'flash_varlen', 'flex', 'native', '_native_cudnn', '_native_efficient', '_native_flash',
+        '_native_math', 'sage', 'sage_varlen', '_sage_qk_int8_pv_fp8_cuda', '_sage_qk_int8_pv_fp8_cuda_sm90',
+        '_sage_qk_int8_pv_fp16_cuda', '_sage_qk_int8_pv_fp16_triton', 'xformers'
+    ]
+```
+
 ## SFT training
 
 If using `--training_type lora`, these arguments can be specified.

@@ -57,6 +57,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 - DDP, FSDP-2 & HSDP support for all models
 - LoRA and full-rank finetuning; Conditional Control training
 - Memory-efficient single-GPU training
+- Multiple attention backends supported - `flash`, `flex`, `sage`, `xformers` (see [attention](./docs/models/attention.md) docs)
 - Auto-detection of commonly used dataset formats
 - Combined image/video datasets, multiple chainable local/remote datasets, multi-resolution bucketing & more
 - Memory-efficient precomputation support with/without on-the-fly precomputation for large scale datasets
@@ -65,6 +66,8 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 
 ## News
 
+- 🔥 **2025-04-25**: Support for different attention providers added!
+- 🔥 **2025-04-21**: Wan I2V supported added!
 - 🔥 **2025-04-12**: Channel-concatenated control conditioning support added for CogView4 and Wan!
 - 🔥 **2025-04-08**: `torch.compile` support added!
 - 🔥 **2025-04-06**: Flux support added!
