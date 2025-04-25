@@ -94,9 +94,10 @@ class WanImageConditioningLatentEncodeProcessor(ProcessorMixin):
             - mask: The conditioning frame mask for the input image/video.
     """
 
-    def __init__(self, output_names: List[str]):
+    def __init__(self, output_names: List[str], *, use_last_frame: bool = False):
         super().__init__()
         self.output_names = output_names
+        self.use_last_frame = use_last_frame
         assert len(self.output_names) == 4
 
     def forward(
@@ -117,8 +118,12 @@ class WanImageConditioningLatentEncodeProcessor(ProcessorMixin):
         video = video.permute(0, 2, 1, 3, 4).contiguous()  # [B, F, C, H, W] -> [B, C, F, H, W]
 
         num_frames = video.size(2)
-        first_frame, remaining_frames = video[:, :, :1], video[:, :, 1:]
-        video = torch.cat([first_frame, torch.zeros_like(remaining_frames)], dim=2)
+        if not self.use_last_frame:
+            first_frame, remaining_frames = video[:, :, :1], video[:, :, 1:]
+            video = torch.cat([first_frame, torch.zeros_like(remaining_frames)], dim=2)
+        else:
+            first_frame, remaining_frames, last_frame = video[:, :, :1], video[:, :, 1:-1], video[:, :, -1:]
+            video = torch.cat([first_frame, torch.zeros_like(remaining_frames), last_frame], dim=2)
 
         # Image conditioning uses argmax sampling, so we use "mode" here
         if compute_posterior:
@@ -134,6 +139,7 @@ class WanImageConditioningLatentEncodeProcessor(ProcessorMixin):
             moments = vae._encode(video)
             latents = moments.to(dtype=dtype)
 
+        # TODO(aryan): take a look from here when you're back
         latents_mean = torch.tensor(vae.config.latents_mean)
         latents_std = 1.0 / torch.tensor(vae.config.latents_std)
 
@@ -164,9 +170,10 @@ class WanImageEncodeProcessor(ProcessorMixin):
             - image_embeds: The CLIP vision model image embeddings of the input image.
     """
 
-    def __init__(self, output_names: List[str]):
+    def __init__(self, output_names: List[str], *, use_last_frame: bool = False):
         super().__init__()
         self.output_names = output_names
+        self.use_last_frame = use_last_frame
         assert len(self.output_names) == 1
 
     def forward(
@@ -178,15 +185,19 @@ class WanImageEncodeProcessor(ProcessorMixin):
     ) -> Dict[str, torch.Tensor]:
         device = image_encoder.device
         dtype = image_encoder.dtype
-
-        if video is not None:
-            image = video[:, 0]  # [B, F, C, H, W] -> [B, C, H, W] (take first frame)
-
-        assert image.ndim == 4, f"Expected 4D tensor, got {image.ndim}D tensor"
+        last_image = None
 
         # We know the image here is in the range [-1, 1] (probably a little overshot if using bilinear interpolation), but
         # the processor expects it to be in the range [0, 1].
-        image = FF.normalize(image, min=0.0, max=1.0)
+        image = image if video is None else video[:, 0]  # [B, F, C, H, W] -> [B, C, H, W] (take first frame)
+        image = FF.normalize(image, min=0.0, max=1.0, dim=1)
+        assert image.ndim == 4, f"Expected 4D tensor, got {image.ndim}D tensor"
+        
+        if self.use_last_frame:
+            last_image = image if video is None else video[:, -1]
+            last_image = FF.normalize(last_image, min=0.0, max=1.0, dim=1)
+            image = torch.stack([image, last_image], dim=0)
+        
         image = image_processor(images=image.float(), do_rescale=False, do_convert_rgb=False, return_tensors="pt")
         image = image.to(device=device, dtype=dtype)
         image_embeds = image_encoder(**image, output_hidden_states=True)
