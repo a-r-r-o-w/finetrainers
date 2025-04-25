@@ -66,7 +66,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 
 ## News
 
-- 🔥 **2025-04-24**: Support for different attention providers added!
+- 🔥 **2025-04-25**: Support for different attention providers added!
 - 🔥 **2025-04-21**: Wan I2V supported added!
 - 🔥 **2025-04-12**: Channel-concatenated control conditioning support added for CogView4 and Wan!
 - 🔥 **2025-04-08**: `torch.compile` support added!
