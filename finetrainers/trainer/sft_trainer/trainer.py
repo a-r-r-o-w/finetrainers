@@ -412,6 +412,7 @@ class SFTTrainer(Trainer):
             },
             save_dir=self.args.precomputation_dir,
             enable_precomputation=self.args.enable_precomputation,
+            enable_reuse=self.args.precomputation_reuse,
         )
         condition_iterator: Iterable[Dict[str, Any]] = None
         latent_iterator: Iterable[Dict[str, Any]] = None

@@ -17,9 +17,10 @@ def initialize_preprocessor(
     processor_fn: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]],
     save_dir: Optional[str] = None,
     enable_precomputation: bool = False,
+    enable_reuse: bool = False,
 ) -> Union["InMemoryDistributedDataPreprocessor", "PrecomputedDistributedDataPreprocessor"]:
     if enable_precomputation:
-        return PrecomputedDistributedDataPreprocessor(rank, num_items, processor_fn, save_dir)
+        return PrecomputedDistributedDataPreprocessor(rank, num_items, processor_fn, save_dir, enable_reuse)
     return InMemoryDistributedDataPreprocessor(rank, num_items, processor_fn)
 
 
@@ -133,6 +134,7 @@ class PrecomputedDistributedDataPreprocessor(DistributedDataProcessorMixin):
         num_items: int,
         processor_fn: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]],
         save_dir: str,
+        enable_reuse: bool = False,
     ) -> None:
         super().__init__()
 
@@ -140,12 +142,20 @@ class PrecomputedDistributedDataPreprocessor(DistributedDataProcessorMixin):
         self._num_items = num_items
         self._processor_fn = processor_fn
         self._save_dir = pathlib.Path(save_dir)
+        self._enable_reuse = enable_reuse
 
         self._cached_samples = []
         self._preprocessed_iterator: Union["PrecomputedDataIterable", "PrecomputedOnceDataIterable"] = None
 
-        delete_files([self._save_dir])
-        self._save_dir.mkdir(parents=True, exist_ok=True)
+        if enable_reuse:
+            if not self._save_dir.exists() or not self._save_dir.is_dir():
+                raise RuntimeError(f"This directory '{self._save_dir}' does not exist, or is not a directory, or does not contain any precomputed data files.")
+        else:
+            subdirectories = [f for f in self._save_dir.iterdir() if f.is_dir()]
+            if len(subdirectories) > 0:
+                raise RuntimeError("The current directory contains subdirectories other than the saved precomputed files. Please remove them or enable precomputation reuse.")
+            delete_files([self._save_dir])
+            self._save_dir.mkdir(parents=True, exist_ok=True)
 
     def consume(
         self,
@@ -165,15 +175,16 @@ class PrecomputedDistributedDataPreprocessor(DistributedDataProcessorMixin):
             if drop_samples:
                 raise ValueError("Cannot cache and drop samples at the same time.")
 
-        for i in tqdm(range(self._num_items), desc=f"Rank {self._rank}", total=self._num_items):
-            if use_cached_samples:
-                item = self._cached_samples[i]
-            else:
-                item = next(data_iterator)
-                if cache_samples:
-                    self._cached_samples.append(item)
-            item = self._processor_fn[data_type](**item, **components, generator=generator)
-            _save_item(self._rank, i, item, self._save_dir, data_type)
+        if not self._enable_reuse:
+            for i in tqdm(range(self._num_items), desc=f"Rank {self._rank}", total=self._num_items):
+                if use_cached_samples:
+                    item = self._cached_samples[i]
+                else:
+                    item = next(data_iterator)
+                    if cache_samples:
+                        self._cached_samples.append(item)
+                item = self._processor_fn[data_type](**item, **components, generator=generator)
+                _save_item(self._rank, i, item, self._save_dir, data_type)
 
         if drop_samples:
             del self._cached_samples
@@ -200,15 +211,16 @@ class PrecomputedDistributedDataPreprocessor(DistributedDataProcessorMixin):
             if drop_samples:
                 raise ValueError("Cannot cache and drop samples at the same time.")
 
-        for i in tqdm(range(self._num_items), desc=f"Processing data on rank {self._rank}", total=self._num_items):
-            if use_cached_samples:
-                item = self._cached_samples[i]
-            else:
-                item = next(data_iterator)
-                if cache_samples:
-                    self._cached_samples.append(item)
-            item = self._processor_fn[data_type](**item, **components, generator=generator)
-            _save_item(self._rank, i, item, self._save_dir, data_type)
+        if not self._enable_reuse:
+            for i in tqdm(range(self._num_items), desc=f"Processing data on rank {self._rank}", total=self._num_items):
+                if use_cached_samples:
+                    item = self._cached_samples[i]
+                else:
+                    item = next(data_iterator)
+                    if cache_samples:
+                        self._cached_samples.append(item)
+                item = self._processor_fn[data_type](**item, **components, generator=generator)
+                _save_item(self._rank, i, item, self._save_dir, data_type)
 
         if drop_samples:
             del self._cached_samples
