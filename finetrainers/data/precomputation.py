@@ -144,10 +144,8 @@ class PrecomputedDistributedDataPreprocessor(DistributedDataProcessorMixin):
         self._cached_samples = []
         self._preprocessed_iterator: Union["PrecomputedDataIterable", "PrecomputedOnceDataIterable"] = None
 
+        delete_files([self._save_dir])
         self._save_dir.mkdir(parents=True, exist_ok=True)
-
-        subdirectories = [f for f in self._save_dir.iterdir() if f.is_dir()]
-        delete_files(subdirectories)
 
     def consume(
         self,
