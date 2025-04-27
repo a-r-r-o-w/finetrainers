@@ -108,6 +108,17 @@ def convert_lora_sd(diffusers_lora_sd):
             elif "proj_out" in key:
                 new_key = key.replace("proj_out", "linear2").replace(single_block_pattern, prefix + "single_blocks")
                 converted_lora_sd[new_key] = diffusers_lora_sd[key]
+        elif "x_embedder" in key:
+            new_key = key.replace("x_embedder", "img_in").replace(double_block_pattern, prefix + "")
+            if "lora_A" in key:
+                embed = diffusers_lora_sd[key]
+                sizes = embed.size()
+                x_reshaped = embed.view(sizes[0], 16, sizes[2], sizes[3], sizes[4], 2)
+                x_meaned = x_reshaped.mean(dim=2)
+                converted_lora_sd[new_key] = x_meaned
+            else:
+                converted_lora_sd[new_key] = diffusers_lora_sd[key]
+            print(new_key, diffusers_lora_sd[key].size())
 
         else:
             print(f"unknown or not implemented: {key}")
