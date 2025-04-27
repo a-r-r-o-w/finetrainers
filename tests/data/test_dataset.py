@@ -16,7 +16,7 @@ from finetrainers.data import (
     VideoWebDataset,
     initialize_dataset,
 )
-from finetrainers.data.utils import find_files
+from finetrainers.utils import find_files
 
 from .utils import create_dummy_directory_structure
 

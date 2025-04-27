@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 
@@ -8,6 +9,7 @@ from finetrainers.data import (
     initialize_preprocessor,
     wrap_iterable_dataset_for_preprocessing,
 )
+from finetrainers.data.precomputation import PRECOMPUTED_DATA_DIR
 from finetrainers.utils import find_files
 
 from .utils import create_dummy_directory_structure
@@ -16,6 +18,7 @@ from .utils import create_dummy_directory_structure
 class PreprocessorFastTests(unittest.TestCase):
     def setUp(self):
         self.rank = 0
+        self.world_size = 1
         self.num_items = 3
         self.processor_fn = {
             "latent": self._latent_processor_fn,
@@ -65,19 +68,34 @@ class PreprocessorFastTests(unittest.TestCase):
 
     def test_initialize_preprocessor(self):
         preprocessor = initialize_preprocessor(
-            self.rank, self.num_items, self.processor_fn, self.save_dir.name, enable_precomputation=False
+            self.rank,
+            self.world_size,
+            self.num_items,
+            self.processor_fn,
+            self.save_dir.name,
+            enable_precomputation=False,
         )
         self.assertIsInstance(preprocessor, InMemoryDistributedDataPreprocessor)
 
         preprocessor = initialize_preprocessor(
-            self.rank, self.num_items, self.processor_fn, self.save_dir.name, enable_precomputation=True
+            self.rank,
+            self.world_size,
+            self.num_items,
+            self.processor_fn,
+            self.save_dir.name,
+            enable_precomputation=True,
         )
         self.assertIsInstance(preprocessor, PrecomputedDistributedDataPreprocessor)
 
     def test_in_memory_preprocessor_consume(self):
         data_iterator = iter(self.dataset)
         preprocessor = initialize_preprocessor(
-            self.rank, self.num_items, self.processor_fn, self.save_dir.name, enable_precomputation=False
+            self.rank,
+            self.world_size,
+            self.num_items,
+            self.processor_fn,
+            self.save_dir.name,
+            enable_precomputation=False,
         )
 
         condition_iterator = preprocessor.consume(
@@ -100,7 +118,12 @@ class PreprocessorFastTests(unittest.TestCase):
     def test_in_memory_preprocessor_consume_once(self):
         data_iterator = iter(self.dataset)
         preprocessor = initialize_preprocessor(
-            self.rank, self.num_items, self.processor_fn, self.save_dir.name, enable_precomputation=False
+            self.rank,
+            self.world_size,
+            self.num_items,
+            self.processor_fn,
+            self.save_dir.name,
+            enable_precomputation=False,
         )
 
         condition_iterator = preprocessor.consume_once(
@@ -123,7 +146,12 @@ class PreprocessorFastTests(unittest.TestCase):
     def test_precomputed_preprocessor_consume(self):
         data_iterator = iter(self.dataset)
         preprocessor = initialize_preprocessor(
-            self.rank, self.num_items, self.processor_fn, self.save_dir.name, enable_precomputation=True
+            self.rank,
+            self.world_size,
+            self.num_items,
+            self.processor_fn,
+            self.save_dir.name,
+            enable_precomputation=True,
         )
 
         condition_iterator = preprocessor.consume(
@@ -133,8 +161,9 @@ class PreprocessorFastTests(unittest.TestCase):
             "latent", components={}, data_iterator=data_iterator, use_cached_samples=True, drop_samples=True
         )
 
-        condition_file_list = find_files(self.save_dir.name, "condition")
-        latent_file_list = find_files(self.save_dir.name, "latent")
+        precomputed_data_dir = os.path.join(self.save_dir.name, PRECOMPUTED_DATA_DIR)
+        condition_file_list = find_files(precomputed_data_dir, "condition-*")
+        latent_file_list = find_files(precomputed_data_dir, "latent-*")
         self.assertEqual(len(condition_file_list), 3)
         self.assertEqual(len(latent_file_list), 3)
 
@@ -151,7 +180,12 @@ class PreprocessorFastTests(unittest.TestCase):
     def test_precomputed_preprocessor_consume_once(self):
         data_iterator = iter(self.dataset)
         preprocessor = initialize_preprocessor(
-            self.rank, self.num_items, self.processor_fn, self.save_dir.name, enable_precomputation=True
+            self.rank,
+            self.world_size,
+            self.num_items,
+            self.processor_fn,
+            self.save_dir.name,
+            enable_precomputation=True,
         )
 
         condition_iterator = preprocessor.consume_once(
@@ -161,8 +195,9 @@ class PreprocessorFastTests(unittest.TestCase):
             "latent", components={}, data_iterator=data_iterator, use_cached_samples=True, drop_samples=True
         )
 
-        condition_file_list = find_files(self.save_dir.name, "condition")
-        latent_file_list = find_files(self.save_dir.name, "latent")
+        precomputed_data_dir = os.path.join(self.save_dir.name, PRECOMPUTED_DATA_DIR)
+        condition_file_list = find_files(precomputed_data_dir, "condition-*")
+        latent_file_list = find_files(precomputed_data_dir, "latent-*")
         self.assertEqual(len(condition_file_list), 3)
         self.assertEqual(len(latent_file_list), 3)
 

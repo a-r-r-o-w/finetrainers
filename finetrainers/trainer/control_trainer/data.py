@@ -115,6 +115,7 @@ class IterableControlDataset(torch.utils.data.IterableDataset, torch.distributed
         if "control_output" in shallow_copy_data:
             # Normalize to [-1, 1] range
             control_output = shallow_copy_data.pop("control_output")
+            # TODO(aryan): need to specify a dim for normalize here across channels
             control_output = FF.normalize(control_output, min=-1.0, max=1.0)
             key = "control_image" if is_image_control else "control_video"
             shallow_copy_data[key] = control_output
@@ -182,6 +183,7 @@ class ValidationControlDataset(torch.utils.data.IterableDataset):
             # Normalize to [-1, 1] range
             control_output = shallow_copy_data.pop("control_output")
             if torch.is_tensor(control_output):
+                # TODO(aryan): need to specify a dim for normalize here across channels
                 control_output = FF.normalize(control_output, min=-1.0, max=1.0)
                 ndim = control_output.ndim
                 assert 3 <= ndim <= 5, "Control output should be at least ndim=3 and less than or equal to ndim=5"

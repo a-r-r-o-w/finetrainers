@@ -94,9 +94,10 @@ class WanImageConditioningLatentEncodeProcessor(ProcessorMixin):
             - mask: The conditioning frame mask for the input image/video.
     """
 
-    def __init__(self, output_names: List[str]):
+    def __init__(self, output_names: List[str], *, use_last_frame: bool = False):
         super().__init__()
         self.output_names = output_names
+        self.use_last_frame = use_last_frame
         assert len(self.output_names) == 4
 
     def forward(
@@ -117,8 +118,12 @@ class WanImageConditioningLatentEncodeProcessor(ProcessorMixin):
         video = video.permute(0, 2, 1, 3, 4).contiguous()  # [B, F, C, H, W] -> [B, C, F, H, W]
 
         num_frames = video.size(2)
-        first_frame, remaining_frames = video[:, :, :1], video[:, :, 1:]
-        video = torch.cat([first_frame, torch.zeros_like(remaining_frames)], dim=2)
+        if not self.use_last_frame:
+            first_frame, remaining_frames = video[:, :, :1], video[:, :, 1:]
+            video = torch.cat([first_frame, torch.zeros_like(remaining_frames)], dim=2)
+        else:
+            first_frame, remaining_frames, last_frame = video[:, :, :1], video[:, :, 1:-1], video[:, :, -1:]
+            video = torch.cat([first_frame, torch.zeros_like(remaining_frames), last_frame], dim=2)
 
         # Image conditioning uses argmax sampling, so we use "mode" here
         if compute_posterior:
@@ -139,7 +144,10 @@ class WanImageConditioningLatentEncodeProcessor(ProcessorMixin):
 
         temporal_downsample = 2 ** sum(vae.temperal_downsample) if getattr(self, "vae", None) else 4
         mask = latents.new_ones(latents.shape[0], 1, num_frames, latents.shape[3], latents.shape[4])
-        mask[:, :, 1:] = 0
+        if not self.use_last_frame:
+            mask[:, :, 1:] = 0
+        else:
+            mask[:, :, 1:-1] = 0
         first_frame_mask = mask[:, :, :1]
         first_frame_mask = torch.repeat_interleave(first_frame_mask, dim=2, repeats=temporal_downsample)
         mask = torch.cat([first_frame_mask, mask[:, :, 1:]], dim=2)
@@ -164,9 +172,10 @@ class WanImageEncodeProcessor(ProcessorMixin):
             - image_embeds: The CLIP vision model image embeddings of the input image.
     """
 
-    def __init__(self, output_names: List[str]):
+    def __init__(self, output_names: List[str], *, use_last_frame: bool = False):
         super().__init__()
         self.output_names = output_names
+        self.use_last_frame = use_last_frame
         assert len(self.output_names) == 1
 
     def forward(
@@ -178,15 +187,19 @@ class WanImageEncodeProcessor(ProcessorMixin):
     ) -> Dict[str, torch.Tensor]:
         device = image_encoder.device
         dtype = image_encoder.dtype
-
-        if video is not None:
-            image = video[:, 0]  # [B, F, C, H, W] -> [B, C, H, W] (take first frame)
-
-        assert image.ndim == 4, f"Expected 4D tensor, got {image.ndim}D tensor"
+        last_image = None
 
         # We know the image here is in the range [-1, 1] (probably a little overshot if using bilinear interpolation), but
         # the processor expects it to be in the range [0, 1].
-        image = FF.normalize(image, min=0.0, max=1.0)
+        image = image if video is None else video[:, 0]  # [B, F, C, H, W] -> [B, C, H, W] (take first frame)
+        image = FF.normalize(image, min=0.0, max=1.0, dim=1)
+        assert image.ndim == 4, f"Expected 4D tensor, got {image.ndim}D tensor"
+
+        if self.use_last_frame:
+            last_image = image if video is None else video[:, -1]
+            last_image = FF.normalize(last_image, min=0.0, max=1.0, dim=1)
+            image = torch.stack([image, last_image], dim=0)
+
         image = image_processor(images=image.float(), do_rescale=False, do_convert_rgb=False, return_tensors="pt")
         image = image.to(device=device, dtype=dtype)
         image_embeds = image_encoder(**image, output_hidden_states=True)
@@ -224,18 +237,23 @@ class WanModelSpecification(ModelSpecification):
             cache_dir=cache_dir,
         )
 
+        use_last_frame = self.transformer_config.pos_embed_seq_len is not None
+
         if condition_model_processors is None:
-            condition_model_processors = [T5Processor(["encoder_hidden_states", "prompt_attention_mask"])]
+            condition_model_processors = [T5Processor(["encoder_hidden_states", "__drop__"])]
         if latent_model_processors is None:
             latent_model_processors = [WanLatentEncodeProcessor(["latents", "latents_mean", "latents_std"])]
 
         if self.transformer_config.image_dim is not None:
             latent_model_processors.append(
                 WanImageConditioningLatentEncodeProcessor(
-                    ["latent_condition", "__drop__", "__drop__", "latent_condition_mask"]
+                    ["latent_condition", "__drop__", "__drop__", "latent_condition_mask"],
+                    use_last_frame=use_last_frame,
                 )
             )
-            latent_model_processors.append(WanImageEncodeProcessor(["encoder_hidden_states_image"]))
+            latent_model_processors.append(
+                WanImageEncodeProcessor(["encoder_hidden_states_image"], use_last_frame=use_last_frame)
+            )
 
         self.condition_model_processors = condition_model_processors
         self.latent_model_processors = latent_model_processors
@@ -380,7 +398,6 @@ class WanModelSpecification(ModelSpecification):
         input_keys = set(conditions.keys())
         conditions = super().prepare_conditions(**conditions)
         conditions = {k: v for k, v in conditions.items() if k not in input_keys}
-        conditions.pop("prompt_attention_mask", None)
         return conditions
 
     @torch.no_grad()
@@ -480,6 +497,7 @@ class WanModelSpecification(ModelSpecification):
         pipeline: Union[WanPipeline, WanImageToVideoPipeline],
         prompt: str,
         image: Optional[PIL.Image.Image] = None,
+        last_image: Optional[PIL.Image.Image] = None,
         video: Optional[List[PIL.Image.Image]] = None,
         height: Optional[int] = None,
         width: Optional[int] = None,
@@ -501,9 +519,11 @@ class WanModelSpecification(ModelSpecification):
         if self.transformer_config.image_dim is not None:
             if image is None and video is None:
                 raise ValueError("Either image or video must be provided for Wan I2V validation.")
-            if image is None:
-                image = video[0]
+            image = image if image is not None else video[0]
             generation_kwargs["image"] = image
+        if self.transformer_config.pos_embed_seq_len is not None:
+            last_image = last_image if last_image is not None else image if video is None else video[-1]
+            generation_kwargs["last_image"] = last_image
         generation_kwargs = get_non_null_items(generation_kwargs)
         video = pipeline(**generation_kwargs).frames[0]
         return [VideoArtifact(value=video)]

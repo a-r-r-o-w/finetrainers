@@ -10,16 +10,22 @@ from finetrainers.utils import delete_files
 
 logger = get_logger()
 
+PRECOMPUTED_DATA_DIR = "finetrainers-precomputed-data"
+
 
 def initialize_preprocessor(
     rank: int,
+    world_size: int,
     num_items: int,
     processor_fn: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]],
     save_dir: Optional[str] = None,
     enable_precomputation: bool = False,
+    enable_reuse: bool = False,
 ) -> Union["InMemoryDistributedDataPreprocessor", "PrecomputedDistributedDataPreprocessor"]:
     if enable_precomputation:
-        return PrecomputedDistributedDataPreprocessor(rank, num_items, processor_fn, save_dir)
+        return PrecomputedDistributedDataPreprocessor(
+            rank, world_size, num_items, processor_fn, save_dir, enable_reuse
+        )
     return InMemoryDistributedDataPreprocessor(rank, num_items, processor_fn)
 
 
@@ -130,22 +136,41 @@ class PrecomputedDistributedDataPreprocessor(DistributedDataProcessorMixin):
     def __init__(
         self,
         rank: int,
+        world_size: int,
         num_items: int,
         processor_fn: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]],
         save_dir: str,
+        enable_reuse: bool = False,
     ) -> None:
         super().__init__()
 
         self._rank = rank
+        self._world_size = world_size
         self._num_items = num_items
         self._processor_fn = processor_fn
-        self._save_dir = pathlib.Path(save_dir)
+        self._save_dir = pathlib.Path(save_dir) / PRECOMPUTED_DATA_DIR
+        self._enable_reuse = enable_reuse
 
         self._cached_samples = []
         self._preprocessed_iterator: Union["PrecomputedDataIterable", "PrecomputedOnceDataIterable"] = None
 
-        delete_files([self._save_dir])
-        self._save_dir.mkdir(parents=True, exist_ok=True)
+        if enable_reuse:
+            if not self._save_dir.exists() or not self._save_dir.is_dir():
+                raise RuntimeError(
+                    f"The directory '{self._save_dir}' does not exist or is not a directory, but is required when enabling reuse of precomputed data."
+                )
+            logger.info(f"Reusing precomputed data from {self._save_dir}.")
+        else:
+            subdirectories = [] if not self._save_dir.exists() else [f for f in self._save_dir.iterdir() if f.is_dir()]
+            if len(subdirectories) > 0:
+                raise RuntimeError(
+                    "The current directory contains subdirectories other than the saved precomputed files. Please remove them or enable precomputation reuse."
+                )
+            # NOTE: this should be safe since we are adding `PRECOMPUTED_DATA_DIR` to the path, but be careful since
+            # delete_files can seriously mess up your filesystem if used incorrectly.
+            delete_files([self._save_dir])
+            self._save_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Cleaned up any existing precomputed data in {self._save_dir} and created a fresh directory.")
 
     def consume(
         self,
@@ -165,22 +190,28 @@ class PrecomputedDistributedDataPreprocessor(DistributedDataProcessorMixin):
             if drop_samples:
                 raise ValueError("Cannot cache and drop samples at the same time.")
 
-        for i in tqdm(range(self._num_items), desc=f"Rank {self._rank}", total=self._num_items):
-            if use_cached_samples:
-                item = self._cached_samples[i]
-            else:
-                item = next(data_iterator)
-                if cache_samples:
-                    self._cached_samples.append(item)
-            item = self._processor_fn[data_type](**item, **components, generator=generator)
-            _save_item(self._rank, i, item, self._save_dir, data_type)
+        if not self._enable_reuse:
+            for i in tqdm(range(self._num_items), desc=f"Rank {self._rank}", total=self._num_items):
+                if use_cached_samples:
+                    item = self._cached_samples[i]
+                else:
+                    item = next(data_iterator)
+                    if cache_samples:
+                        self._cached_samples.append(item)
+                item = self._processor_fn[data_type](**item, **components, generator=generator)
+                index = self._rank * self._num_items + i
+                _save_item(item, index, self._save_dir, data_type)
 
-        if drop_samples:
-            del self._cached_samples
-            self._cached_samples = []
+            if drop_samples:
+                del self._cached_samples
+                self._cached_samples = []
 
-        self._preprocessed_iterator = PrecomputedDataIterable(self._rank, self._save_dir, data_type)
-        return iter(self._preprocessed_iterator)
+        if self._enable_reuse:
+            data_iterator = PrecomputedOnceDataIterable(self._rank, self._world_size, self._save_dir, data_type)
+        else:
+            data_iterator = PrecomputedDataIterable(self._rank, self._world_size, self._save_dir, data_type)
+        self._preprocessed_iterator = data_iterator
+        return iter(data_iterator)
 
     def consume_once(
         self,
@@ -200,21 +231,25 @@ class PrecomputedDistributedDataPreprocessor(DistributedDataProcessorMixin):
             if drop_samples:
                 raise ValueError("Cannot cache and drop samples at the same time.")
 
-        for i in tqdm(range(self._num_items), desc=f"Processing data on rank {self._rank}", total=self._num_items):
-            if use_cached_samples:
-                item = self._cached_samples[i]
-            else:
-                item = next(data_iterator)
-                if cache_samples:
-                    self._cached_samples.append(item)
-            item = self._processor_fn[data_type](**item, **components, generator=generator)
-            _save_item(self._rank, i, item, self._save_dir, data_type)
+        if not self._enable_reuse:
+            for i in tqdm(range(self._num_items), desc=f"Processing data on rank {self._rank}", total=self._num_items):
+                if use_cached_samples:
+                    item = self._cached_samples[i]
+                else:
+                    item = next(data_iterator)
+                    if cache_samples:
+                        self._cached_samples.append(item)
+                item = self._processor_fn[data_type](**item, **components, generator=generator)
+                index = self._rank * self._num_items + i
+                _save_item(item, index, self._save_dir, data_type)
 
-        if drop_samples:
-            del self._cached_samples
-            self._cached_samples = []
+            if drop_samples:
+                del self._cached_samples
+                self._cached_samples = []
 
-        self._preprocessed_iterator = PrecomputedOnceDataIterable(self._rank, self._save_dir, data_type)
+        self._preprocessed_iterator = PrecomputedOnceDataIterable(
+            self._rank, self._world_size, self._save_dir, data_type
+        )
         return iter(self._preprocessed_iterator)
 
     @property
@@ -288,19 +323,22 @@ class PrecomputedDataIterable:
     the preprocessor's consume method should be called again.
     """
 
-    def __init__(self, rank: int, save_dir: str, data_type: str) -> None:
+    def __init__(self, rank: int, world_size: int, save_dir: str, data_type: str) -> None:
         self._rank = rank
+        self._world_size = world_size
         self._save_dir = pathlib.Path(save_dir)
-        self._num_items = len(list(self._save_dir.glob(f"{data_type}-{rank}-*.pt")))
         self._data_type = data_type
-
         self._requires_data = False
 
+        self._num_items = len(list(self._save_dir.glob(f"{data_type}-*.pt")))
+
     def __iter__(self) -> Iterable[Dict[str, Any]]:
+        map_location = torch.device(self._rank)
         for i in range(self._num_items):
             if i == self._num_items - 1:
                 self._requires_data = True
-            yield _load_item(self._rank, i, self._save_dir, self._data_type)
+            index = self._rank * self._num_items + i
+            yield _load_item(index, self._save_dir, self._data_type, map_location)
 
     def __len__(self) -> int:
         return self._num_items
@@ -317,22 +355,30 @@ class PrecomputedOnceDataIterable:
     be preprocessed by the user.
     """
 
-    def __init__(self, rank: int, save_dir: str, data_type: str) -> None:
+    def __init__(self, rank: int, world_size: int, save_dir: str, data_type: str) -> None:
         self._rank = rank
+        self._world_size = world_size
         self._save_dir = pathlib.Path(save_dir)
-        self._num_items = len(list(self._save_dir.glob(f"{data_type}-{rank}-*.pt")))
         self._data_type = data_type
-
         self._requires_data = False
 
+        self._num_items = len(list(self._save_dir.glob(f"{data_type}-*.pt")))
+        if self._num_items <= self._rank:
+            raise ValueError(
+                f"Precomputed data directory is empty or does not contain enough items (required {self._rank + 1}, found {self._num_items})."
+            )
+        self._num_items_per_rank = max(1, self._num_items // world_size)
+
     def __iter__(self) -> Iterable[Dict[str, Any]]:
-        index = 0
+        map_location = torch.device(self._rank)
+        i = 0
         while True:
-            yield _load_item(self._rank, index, self._save_dir, self._data_type)
-            index = (index + 1) % self._num_items
+            index = self._rank * self._num_items_per_rank + i
+            yield _load_item(index, self._save_dir, self._data_type, map_location)
+            i = (i + 1) % self._num_items_per_rank
 
     def __len__(self) -> int:
-        return self._num_items
+        return self._num_items_per_rank
 
     @property
     def requires_data(self):
@@ -364,11 +410,11 @@ class InMemoryDataBuffer:
         return len(self.buffer[data_type])
 
 
-def _save_item(rank: int, index: int, item: Dict[str, Any], directory: pathlib.Path, data_type: str) -> None:
-    filename = directory / f"{data_type}-{rank}-{index}.pt"
+def _save_item(item: Dict[str, Any], index: int, directory: pathlib.Path, data_type: str) -> None:
+    filename = directory / f"{data_type}-{index}.pt"
     torch.save(item, filename.as_posix())
 
 
-def _load_item(rank: int, index: int, directory: pathlib.Path, data_type: str) -> Dict[str, Any]:
-    filename = directory / f"{data_type}-{rank}-{index}.pt"
-    return torch.load(filename.as_posix(), weights_only=True)
+def _load_item(index: int, directory: pathlib.Path, data_type: str, map_location=None) -> Dict[str, Any]:
+    filename = directory / f"{data_type}-{index}.pt"
+    return torch.load(filename.as_posix(), map_location=map_location, weights_only=True)

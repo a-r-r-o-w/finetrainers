@@ -454,6 +454,7 @@ class ControlTrainer(Trainer):
         compute_posterior = False if self.args.enable_precomputation else (not self.args.precomputation_once)
         preprocessor = data.initialize_preprocessor(
             rank=parallel_backend.rank,
+            world_size=parallel_backend.world_size,
             num_items=self.args.precomputation_items if self.args.enable_precomputation else 1,
             processor_fn={
                 "condition": self.model_specification.prepare_conditions,
@@ -463,6 +464,7 @@ class ControlTrainer(Trainer):
             },
             save_dir=self.args.precomputation_dir,
             enable_precomputation=self.args.enable_precomputation,
+            enable_reuse=self.args.precomputation_reuse,
         )
         condition_iterator: Iterable[Dict[str, Any]] = None
         latent_iterator: Iterable[Dict[str, Any]] = None
@@ -1007,12 +1009,14 @@ class ControlTrainer(Trainer):
                 consume_fn = preprocessor.consume
 
             # Prepare condition iterators
-            condition_components = self.model_specification.load_condition_models()
-            component_names = list(condition_components.keys())
-            component_modules = list(condition_components.values())
-            self._set_components(condition_components)
-            self._move_components_to_device(component_modules)
-            self._maybe_torch_compile()
+            condition_components, component_names, component_modules = {}, [], []
+            if not self.args.precomputation_reuse:
+                condition_components = self.model_specification.load_condition_models()
+                component_names = list(condition_components.keys())
+                component_modules = list(condition_components.values())
+                self._set_components(condition_components)
+                self._move_components_to_device(component_modules)
+                self._maybe_torch_compile()
             condition_iterator = consume_fn(
                 "condition",
                 components=condition_components,
@@ -1024,13 +1028,15 @@ class ControlTrainer(Trainer):
             del condition_components, component_names, component_modules
 
             # Prepare latent iterators
-            latent_components = self.model_specification.load_latent_models()
-            utils._enable_vae_memory_optimizations(self.vae, self.args.enable_slicing, self.args.enable_tiling)
-            component_names = list(latent_components.keys())
-            component_modules = list(latent_components.values())
-            self._set_components(latent_components)
-            self._move_components_to_device(component_modules)
-            self._maybe_torch_compile()
+            latent_components, component_names, component_modules = {}, [], []
+            if not self.args.precomputation_reuse:
+                latent_components = self.model_specification.load_latent_models()
+                utils._enable_vae_memory_optimizations(self.vae, self.args.enable_slicing, self.args.enable_tiling)
+                component_names = list(latent_components.keys())
+                component_modules = list(latent_components.values())
+                self._set_components(latent_components)
+                self._move_components_to_device(component_modules)
+                self._maybe_torch_compile()
             latent_iterator = consume_fn(
                 "latent",
                 components=latent_components,
