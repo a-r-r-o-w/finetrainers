@@ -207,7 +207,7 @@ class BaseArgs:
         with medium/large datasets. By default, old precomputed embeddings that exist in the specified precomputation
         directory, or default precomputation dir `{output_dir}/precomputed` will be deleted if this is not set to `True`.
         This flag is ignored if `enable_precomputation` is `False`. The topology of the distributed training run must be
-        the same as the one used to precompute the embeddings for this to work correctly (this limitation will be 
+        the same as the one used to precompute the embeddings for this to work correctly (this limitation will be
         addressed in the future).
 
     DATALOADER_ARGUMENTS
