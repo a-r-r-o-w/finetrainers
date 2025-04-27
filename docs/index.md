@@ -1,17 +1,15 @@
-# Welcome to MkDocs
 
-For full documentation visit [mkdocs.org](https://www.mkdocs.org).
 
-## Commands
+Finetrainers is a work-in-progress library to support (accessible) training of diffusion models and various commonly used training algorithms.
 
-* `mkdocs new [dir-name]` - Create a new project.
-* `mkdocs serve` - Start the live-reloading docs server.
-* `mkdocs build` - Build the documentation site.
-* `mkdocs -h` - Print help message and exit.
+# Features
 
-## Project layout
-
-    mkdocs.yml    # The configuration file.
-    docs/
-        index.md  # The documentation homepage.
-        ...       # Other markdown pages, images and other files.
+DDP, FSDP-2 & HSDP support for all models
+LoRA and full-rank finetuning; Conditional Control training
+Memory-efficient single-GPU training
+Multiple attention backends supported - flash, flex, sage, xformers (see attention docs)
+Auto-detection of commonly used dataset formats
+Combined image/video datasets, multiple chainable local/remote datasets, multi-resolution bucketing & more
+Memory-efficient precomputation support with/without on-the-fly precomputation for large scale datasets
+Standardized model specification format for training arbitrary models
+Fake FP8 training (QAT upcoming!)
