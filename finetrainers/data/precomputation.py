@@ -333,10 +333,12 @@ class PrecomputedDataIterable:
         self._num_items = len(list(self._save_dir.glob(f"{data_type}-*.pt")))
 
     def __iter__(self) -> Iterable[Dict[str, Any]]:
+        map_location = torch.device(self._rank)
         for i in range(self._num_items):
             if i == self._num_items - 1:
                 self._requires_data = True
-            yield _load_item(self._rank, i, self._save_dir, self._data_type)
+            index = self._rank * self._num_items + i
+            yield _load_item(index, self._save_dir, self._data_type, map_location)
 
     def __len__(self) -> int:
         return self._num_items
