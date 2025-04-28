@@ -10,6 +10,8 @@ theme:
     - navigation.top
     - navigation.tabs
     - navigation.tabs.sticky
+    - content.code.copy
+    - content.code.annotate
   palette:
       # Light Mode
     - scheme: default
