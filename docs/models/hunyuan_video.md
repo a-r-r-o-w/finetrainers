@@ -22,9 +22,6 @@ Assuming your LoRA is saved and pushed to the HF Hub, and named `my-awesome-name
 
 ```py
 import torch
-from diffusers import HunyuanVideoPipeline
-
-import torch
 from diffusers import HunyuanVideoPipeline, HunyuanVideoTransformer3DModel
 from diffusers.utils import export_to_video
 
