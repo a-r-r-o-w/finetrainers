@@ -18,6 +18,8 @@ from finetrainers import data, get_logger, logging, parallel, patches, utils
 from finetrainers.args import AttentionProviderInference
 from finetrainers.config import ModelType
 from finetrainers.models import ModelSpecification, attention_provider
+from finetrainers.models.cogvideox import CogVideoXModelSpecification
+from finetrainers.models.cogview4 import CogView4ModelSpecification
 from finetrainers.models.flux import FluxModelSpecification
 from finetrainers.models.wan import WanModelSpecification
 from finetrainers.parallel import ParallelBackendEnum
@@ -95,6 +97,12 @@ _DTYPE_MAP = {
 
 
 SUPPORTED_MODEL_CONFIGS = {
+    ModelType.COGVIDEOX: {
+        InferenceType.TEXT_TO_VIDEO: CogVideoXModelSpecification,
+    },
+    ModelType.COGVIEW4: {
+        InferenceType.TEXT_TO_IMAGE: CogView4ModelSpecification,
+    },
     ModelType.FLUX: {
         InferenceType.TEXT_TO_IMAGE: FluxModelSpecification,
     },

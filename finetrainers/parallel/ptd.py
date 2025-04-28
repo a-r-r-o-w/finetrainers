@@ -20,11 +20,7 @@ from torch.distributed.checkpoint.state_dict import (
     set_model_state_dict,
 )
 
-from finetrainers._metadata import (
-    ContextParallelInputMetadata,
-    ContextParallelModelPlan,
-    TransformerRegistry,
-)
+from finetrainers._metadata import ContextParallelModelPlan, CPInput, CPOutput, TransformerRegistry
 from finetrainers.data import DPDataLoader
 from finetrainers.logging import get_logger
 from finetrainers.utils import enable_determinism, get_device_info, get_submodule_by_name, unwrap_module
@@ -526,26 +522,32 @@ def apply_cp(
         logger.debug(f"Applying ContextParallelHook to {module_id=} identifying a total of {len(module)} modules")
         for m in module:
             registry = HookRegistry.check_if_exists_or_initialize(m)
-            hook = ContextParallelHook(cp_model_plan, mesh)
-            registry.register_hook(hook, f"context_parallel---{module_id}")
+            if isinstance(cp_model_plan, list):
+                # Metadata can only be a list when it is a list of CPOutput
+                assert all(isinstance(x, CPOutput) for x in cp_model_plan)
+                hook = ContextParallelGatherHook(cp_model_plan, mesh)
+                hook_name = f"cp_output---{module_id}"
+            else:
+                hook = ContextParallelSplitHook(cp_model_plan, mesh)
+                hook_name = f"cp_input---{module_id}"
+            registry.register_hook(hook, hook_name)
 
 
-class ContextParallelHook(ModelHook):
+class ContextParallelSplitHook(ModelHook):
     def __init__(self, metadata: ContextParallelModelPlan, mesh: torch.distributed.device_mesh.DeviceMesh) -> None:
         super().__init__()
         self.metadata = metadata
         self.mesh = mesh
 
     def pre_forward(self, module, *args, **kwargs):
-        if isinstance(self.metadata, list):
-            # Metadata can only be a list when it is a list of ContextParallelOutputMetadata (which is handled in post_forward)
-            return args, kwargs
-
         args_list = list(args)
 
         for param_identifier, cpm in self.metadata.items():
             name = param_identifier.name
             index = param_identifier.index
+
+            if isinstance(cpm, CPInput) and cpm.split_output:
+                continue
 
             # Maybe the parameter was passed as a keyword argument
             is_kwarg = True
@@ -565,15 +567,23 @@ class ContextParallelHook(ModelHook):
             if input_val is None:
                 continue
 
-            # The input_val may be a tensor or list/tuple of tensors
+            # The input_val may be a tensor or list/tuple of tensors. In certain cases, user may specify to shard
+            # the output instead of input for a particular layer by setting split_output=True
             if torch.is_tensor(input_val):
                 input_val = self._prepare_cp_input(input_val, cpm)
 
             elif isinstance(input_val, (list, tuple)):
-                input_val = [
-                    self._prepare_cp_input(x, cpm[i]) if isinstance(x, torch.Tensor) else x
-                    for i, x in enumerate(input_val)
-                ]
+                if len(input_val) != len(cpm):
+                    raise ValueError(
+                        f"Expected input model plan to have {len(input_val)} elements, but got {len(cpm)}."
+                    )
+                sharded_input_val = []
+                for i, x in enumerate(input_val):
+                    if torch.is_tensor(x) and not cpm[i].split_output:
+                        x = self._prepare_cp_input(x, cpm[i])
+                    sharded_input_val.append(x)
+                input_val = sharded_input_val
+
             else:
                 raise ValueError(f"Unsupported input type: {type(input_val)}")
 
@@ -585,10 +595,37 @@ class ContextParallelHook(ModelHook):
         return tuple(args_list), kwargs
 
     def post_forward(self, module, output):
-        if not isinstance(self.metadata, list):
-            # Metadata can only be a list when it is a list of ContextParallelOutputMetadata
-            return output
+        is_tensor = torch.is_tensor(output)
+        is_tensor_list = isinstance(output, (list, tuple)) and all(torch.is_tensor(x) for x in output)
+        if not is_tensor and not is_tensor_list:
+            raise ValueError(f"Expected output to be a tensor or a list/tuple of tensors, but got {type(output)}.")
+        output = [output] if is_tensor else list(output)
+        for param_identifier, cpm in self.metadata.items():
+            if not isinstance(cpm, CPInput) or not cpm.split_output:
+                continue
+            index = param_identifier.index
+            if index >= len(output):
+                raise ValueError(f"Index {index} out of bounds for output of length {len(output)}.")
+            current_output = output[index]
+            current_output = self._prepare_cp_input(current_output, cpm)
+            output[index] = current_output
+        return output[0] if is_tensor else tuple(output)
 
+    def _prepare_cp_input(self, x: torch.Tensor, cp_input: CPInput) -> torch.Tensor:
+        if cp_input.expected_dims is not None and x.dim() != cp_input.expected_dims:
+            raise ValueError(
+                f"Expected input tensor to have {cp_input.expected_dims} dimensions, but got {x.dim()} dimensions."
+            )
+        return _EquipartitionSharder.shard(x, cp_input.split_dim, self.mesh)
+
+
+class ContextParallelGatherHook(ModelHook):
+    def __init__(self, metadata: ContextParallelModelPlan, mesh: torch.distributed.device_mesh.DeviceMesh) -> None:
+        super().__init__()
+        self.metadata = metadata
+        self.mesh = mesh
+
+    def post_forward(self, module, output):
         is_tensor = torch.is_tensor(output)
         if is_tensor:
             output = [output]
@@ -596,15 +633,7 @@ class ContextParallelHook(ModelHook):
             if cpm is None:
                 continue
             output[i] = _EquipartitionSharder.unshard(output[i], cpm.gather_dim, self.mesh)
-
         return output[0] if is_tensor else output
-
-    def _prepare_cp_input(self, x: torch.Tensor, metadata: ContextParallelInputMetadata) -> torch.Tensor:
-        if metadata.expected_dims is not None and x.dim() != metadata.expected_dims:
-            raise ValueError(
-                f"Expected input tensor to have {metadata.expected_dims} dimensions, but got {x.dim()} dimensions."
-            )
-        return _EquipartitionSharder.shard(x, metadata.split_dim, self.mesh)
 
 
 class _ContextParallelSharder:
@@ -662,8 +691,7 @@ class _CausalSharder(_ContextParallelSharder):
         rank = mesh.get_local_rank()
         assert tensor.size()[dim] % (2 * world_size) == 0
         chunks = tensor.chunk(2 * world_size, dim=dim)
-        i = rank
-        j = 2 * world_size - 1 - rank
+        i, j = rank, 2 * world_size - 1 - rank
         return torch.cat((chunks[i], chunks[j]), dim=dim)
 
     @classmethod

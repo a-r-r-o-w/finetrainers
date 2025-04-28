@@ -14,7 +14,7 @@ ContextParallelModelPlan = Union[_ContextParallelInputType, _ContextParallelOutp
 
 
 @dataclass(frozen=True)
-class ParamIdentifier:
+class ParamId:
     """
     A class to identify a parameter of a method.
 
@@ -37,13 +37,14 @@ class ParamIdentifier:
 
 
 @dataclass(frozen=True)
-class ContextParallelInputMetadata:
+class CPInput:
     split_dim: int
     expected_dims: Optional[int] = None
+    split_output: bool = False
 
 
 @dataclass(frozen=True)
-class ContextParallelOutputMetadata:
+class CPOutput:
     gather_dim: int
     expected_dims: Optional[int] = None
 
