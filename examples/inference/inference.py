@@ -181,7 +181,7 @@ class Inference:
 
         if parallel_backend.context_parallel_enabled:
             cp_mesh = parallel_backend.get_mesh()["cp"]
-            parallel_backend.apply_cp(self.pipeline.transformer, cp_mesh)
+            parallel_backend.apply_context_parallel(self.pipeline.transformer, cp_mesh)
 
         registry = HookRegistry.check_if_exists_or_initialize(self.pipeline.transformer)
         hook = AttentionProviderHook(

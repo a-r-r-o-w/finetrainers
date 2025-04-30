@@ -22,6 +22,9 @@ class BaseParallelBackend:
 
     def apply_fsdp2(self, *args, **kwargs) -> torch.nn.Module:
         raise NotImplementedError("Method `apply_fsdp2` must be implemented by subclass.")
+    
+    def apply_context_parallel(self, *args, **kwargs) -> torch.nn.Module:
+        raise NotImplementedError("Method `apply_context_parallel` must be implemented by subclass.")
 
     def prepare_model(self, *args, **kwargs) -> Any:
         raise NotImplementedError("Method `prepare_model` must be implemented by subclass.")

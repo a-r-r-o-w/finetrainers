@@ -120,7 +120,7 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
         logger.debug("Applied PytorchDTensorParallel::apply_fsdp2 to model.")
         return model
 
-    def apply_cp(
+    def apply_context_parallel(
         self, model: torch.nn.Module, device_mesh: Optional[torch.distributed.DeviceMesh] = None
     ) -> torch.nn.Module:
         if device_mesh is None:
