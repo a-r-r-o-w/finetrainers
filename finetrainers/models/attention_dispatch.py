@@ -1030,5 +1030,4 @@ def _xformers_attention(
 def _ring_attention(dim: int, op: _AttentionOp, **kwargs):
     if _AttentionProviderRegistry._mesh is None:
         raise ValueError("Ring attention requires a mesh to be set in the attention provider registry")
-    print("Inside ring attention with op:", op)
     return _templated_ring_attention(_AttentionProviderRegistry._mesh, dim, op, **kwargs)[0]
