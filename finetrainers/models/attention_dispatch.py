@@ -182,9 +182,9 @@ class _AttentionProviderRegistry:
     @classmethod
     def _set_context_parallel(
         cls,
-        mesh: torch.distributed.device_mesh.DeviceMesh,
-        convert_to_fp32: bool = True,
-        rotate_method: str = "allgather",
+        mesh: torch.distributed.device_mesh.DeviceMesh = None,
+        convert_to_fp32: bool = None,
+        rotate_method: str = None,
         *,
         reset: bool = False,
     ):

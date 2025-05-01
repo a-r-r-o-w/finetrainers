@@ -595,19 +595,17 @@ class SFTTrainer(Trainer):
         parallel_backend = self.state.parallel_backend
 
         # Hack to make accelerate work. TODO(aryan): refactor
-        dp_mesh = None
-        if parallel_backend.world_size > 1:
-            dp_mesh = parallel_backend.get_mesh("dp_replicate")
-
-        if dp_mesh is not None:
-            local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
+        if parallel_backend._dp_degree > 1:
+            dp_mesh = parallel_backend.get_mesh()["dp"]
+            dp_local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
         else:
-            local_rank, dp_world_size = 0, 1
+            dp_mesh = None
+            dp_local_rank, dp_world_size = 0, 1
 
         dataset = data.ValidationDataset(self.args.validation_dataset_file)
-        dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, local_rank, dp_world_size)
+        dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, dp_local_rank, dp_world_size)
         validation_dataloader = data.DPDataLoader(
-            local_rank,
+            dp_local_rank,
             dataset,
             batch_size=1,
             num_workers=self.args.dataloader_num_workers,
@@ -696,12 +694,10 @@ class SFTTrainer(Trainer):
         torch.cuda.reset_peak_memory_stats(parallel_backend.device)
 
         # Gather artifacts from all processes. We also need to flatten them since each process returns a list of artifacts.
-        # TODO(aryan): probably should only all gather from dp mesh process group
-        all_artifacts = [None] * parallel_backend.world_size
-        if parallel_backend.world_size > 1:
+        all_artifacts = [None] * dp_world_size
+        if dp_world_size > 1:
             torch.distributed.all_gather_object(all_artifacts, all_processes_artifacts)
         else:
-            # TODO(aryan): workaround for accelerate for now, but refactor
             all_artifacts = [all_processes_artifacts]
         all_artifacts = [artifact for artifacts in all_artifacts for artifact in artifacts]
 

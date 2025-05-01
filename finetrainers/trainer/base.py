@@ -63,8 +63,12 @@ class Trainer:
             module_name, provider = module_providers_dict[m]
             # HACK: for CP on transformer. Need to support other modules too and improve overall experience for external usage
             if module_name in ["transformer"] and self.state.parallel_backend.context_parallel_enabled:
+                if not _AttentionProviderRegistry.supports_context_parallel(provider):
+                    raise ValueError(
+                        f"Attention provider {provider} does not support context parallel. Please use a different provider."
+                    )
                 _AttentionProviderRegistry._set_context_parallel(
-                    mesh=self.state.parallel_backend.mesh, convert_to_fp32=True, rotate_method="allgather"
+                    mesh=self.state.parallel_backend.get_mesh()["cp"], convert_to_fp32=True, rotate_method="allgather"
                 )
             _AttentionProviderRegistry._active_provider = provider
 
@@ -159,6 +163,7 @@ def _apply_forward_hooks_hack(module: torch.nn.Module, provider: AttentionProvid
     def create_wrapper(old_method):
         @functools.wraps(old_method)
         def wrapper(*args, **kwargs):
+            _AttentionProviderRegistry._set_context_parallel(reset=True)  # HACK: needs improvement
             old_provider = _AttentionProviderRegistry._active_provider
             _AttentionProviderRegistry._active_provider = provider
             output = old_method(*args, **kwargs)
