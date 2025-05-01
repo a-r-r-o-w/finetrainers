@@ -187,6 +187,9 @@ class BaseArgs:
     dataset_shuffle_buffer_size (`int`, defaults to `1`):
         The buffer size for shuffling the dataset. This is useful for shuffling the dataset before training. The default
         value of `1` means that the dataset will not be shuffled.
+    enable_precomputation (`bool`, defaults to `False`):
+        Whether or not to precompute the embeddings for the dataset. This is useful for faster training. If set to `True`,
+        the embeddings will be precomputed and saved to disk and loaded as required.
     precomputation_items (`int`, defaults to `512`):
         Number of data samples to precompute at once for memory-efficient training. The higher this value,
         the more disk memory will be used to save the precomputed samples (conditions and latents).
@@ -196,8 +199,16 @@ class BaseArgs:
     precomputation_once (`bool`, defaults to `False`):
         Precompute embeddings from all datasets at once before training. This is useful to save time during training
         with smaller datasets. If set to `False`, will save disk space by precomputing embeddings on-the-fly during
-        training when required. Make sure to set `precomputation_items` to a reasonable value in line with the size
-        of your dataset(s).
+        training when required (that is, computing embeddings of more data samples once `precomputation_items` of them
+        have been exhausted across all distributed ranks). Make sure to set `precomputation_items` to a reasonable value
+        in line with the size of your dataset(s).
+    precomputation_reuse (`bool`, defaults to `False`):
+        Reuse precomputed embeddings from previous training runs. This is useful to save time during training
+        with medium/large datasets. By default, old precomputed embeddings that exist in the specified precomputation
+        directory, or default precomputation dir `{output_dir}/precomputed` will be deleted if this is not set to `True`.
+        This flag is ignored if `enable_precomputation` is `False`. The topology of the distributed training run must be
+        the same as the one used to precompute the embeddings for this to work correctly (this limitation will be
+        addressed in the future).
 
     DATALOADER_ARGUMENTS
     --------------------
@@ -391,6 +402,7 @@ class BaseArgs:
     precomputation_items: int = 512
     precomputation_dir: Optional[str] = None
     precomputation_once: bool = False
+    precomputation_reuse: bool = False
 
     # Dataloader arguments
     dataloader_num_workers: int = 0
@@ -515,6 +527,7 @@ class BaseArgs:
             "precomputation_items": self.precomputation_items,
             "precomputation_dir": self.precomputation_dir,
             "precomputation_once": self.precomputation_once,
+            "precomputation_reuse": self.precomputation_reuse,
         }
         dataset_arguments = get_non_null_items(dataset_arguments)
 
@@ -749,6 +762,7 @@ def _add_dataset_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--precomputation_items", type=int, default=512)
     parser.add_argument("--precomputation_dir", type=str, default=None)
     parser.add_argument("--precomputation_once", action="store_true")
+    parser.add_argument("--precomputation_reuse", action="store_true")
 
 
 def _add_dataloader_arguments(parser: argparse.ArgumentParser) -> None:
@@ -909,6 +923,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.precomputation_items = args.precomputation_items
     result_args.precomputation_dir = args.precomputation_dir or os.path.join(args.output_dir, "precomputed")
     result_args.precomputation_once = args.precomputation_once
+    result_args.precomputation_reuse = args.precomputation_reuse
 
     # Dataloader arguments
     result_args.dataloader_num_workers = args.dataloader_num_workers

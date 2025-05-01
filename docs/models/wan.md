@@ -18,6 +18,16 @@ chmod +x ./examples/training/sft/wan/crush_smol_lora/train.sh
 
 On Windows, you will have to modify the script to a compatible format to run it. [TODO(aryan): improve instructions for Windows]
 
+## Supported checkpoints
+
+Wan has multiple checkpoints as one can find [here](https://huggingface.co/Wan-AI). The following checkpoints were tested with `finetrainers` and are known to be working:
+
+- [Wan-AI/Wan2.1-T2V-1.3B-Diffusers](https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B-Diffusers)
+- [Wan-AI/Wan2.1-T2V-14B-Diffusers](https://huggingface.co/Wan-AI/Wan2.1-T2V-14B-Diffusers)
+- [Wan-AI/Wan2.1-I2V-14B-480P-Diffusers](https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P-Diffusers)
+- [Wan-AI/Wan2.1-I2V-14B-720P-Diffusers](https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-720P-Diffusers)
+- [Wan-AI/Wan2.1-FLF2V-14B-720P-diffusers](https://huggingface.co/Wan-AI/Wan2.1-FLF2V-14B-720P-diffusers)
+
 ## Inference
 
 Assuming your LoRA is saved and pushed to the HF Hub, and named `my-awesome-name/my-awesome-lora`, we can now use the finetuned model for inference:
