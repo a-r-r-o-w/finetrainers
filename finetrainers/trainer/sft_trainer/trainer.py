@@ -595,17 +595,17 @@ class SFTTrainer(Trainer):
 
         # 1. Load validation dataset
         parallel_backend = self.state.parallel_backend
+        dataset = data.ValidationDataset(self.args.validation_dataset_file)
 
         # Hack to make accelerate work. TODO(aryan): refactor
         if parallel_backend._dp_degree > 1:
             dp_mesh = parallel_backend.get_mesh()["dp"]
             dp_local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
+            dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, dp_local_rank, dp_world_size)
         else:
             dp_mesh = None
-            dp_local_rank, dp_world_size = 0, 1
+            dp_local_rank, dp_world_size = parallel_backend.local_rank, 1
 
-        dataset = data.ValidationDataset(self.args.validation_dataset_file)
-        dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, dp_local_rank, dp_world_size)
         validation_dataloader = data.DPDataLoader(
             dp_local_rank,
             dataset,
@@ -639,6 +639,9 @@ class SFTTrainer(Trainer):
                 validation_artifacts = self.model_specification.validation(
                     pipeline=pipeline, generator=generator, **validation_data
                 )
+
+            if dp_local_rank != 0:
+                continue
 
             PROMPT = validation_data["prompt"]
             IMAGE = validation_data.get("image", None)

@@ -230,7 +230,7 @@ class Inference:
             dp_local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
         else:
             dp_mesh = None
-            dp_local_rank, dp_world_size = 0, 1
+            dp_local_rank, dp_world_size = parallel_backend.local_rank, 1
 
         self.pipeline.to(parallel_backend.device)
 
