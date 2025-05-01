@@ -17,10 +17,10 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
-from finetrainers import data, logging, models, optimizer, parallel, patches, utils
+from finetrainers import data, logging, models, optimizer, parallel, utils
 from finetrainers.args import BaseArgsType
 from finetrainers.config import TrainingType
-from finetrainers.state import State, TrainState
+from finetrainers.state import TrainState
 
 from ..base import Trainer
 from .config import SFTFullRankConfig, SFTLowRankConfig
@@ -34,9 +34,6 @@ logger = logging.get_logger()
 class SFTTrainer(Trainer):
     def __init__(self, args: ArgsType, model_specification: models.ModelSpecification) -> None:
         super().__init__(args)
-
-        self.state = State()
-        self.state.train_state = TrainState()
 
         # Tokenizers
         self.tokenizer = None
@@ -68,9 +65,6 @@ class SFTTrainer(Trainer):
 
         # Checkpoint manager
         self.checkpointer = None
-
-        # Perform any patches that might be necessary for training to work as expected
-        patches.perform_patches_for_training(self.args, self.state.parallel_backend)
 
         self.model_specification = model_specification
         self._are_condition_models_loaded = False
@@ -174,7 +168,7 @@ class SFTTrainer(Trainer):
 
             dp_method = "HSDP" if parallel_backend.data_replication_enabled else "FSDP"
             logger.info(f"Applying {dp_method} to the model")
-            
+
             if parallel_backend.data_replication_enabled or parallel_backend.context_parallel_enabled:
                 dp_mesh_names = ("dp_replicate", "dp_shard_cp")
             else:

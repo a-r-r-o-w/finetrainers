@@ -23,7 +23,7 @@ from finetrainers import data, logging, models, optimizer, parallel, patches, ut
 from finetrainers.args import BaseArgsType
 from finetrainers.config import TrainingType
 from finetrainers.patches import load_lora_weights
-from finetrainers.state import State, TrainState
+from finetrainers.state import TrainState
 
 from ..base import Trainer
 from .config import ControlFullRankConfig, ControlLowRankConfig
@@ -38,9 +38,6 @@ logger = logging.get_logger()
 class ControlTrainer(Trainer):
     def __init__(self, args: ArgsType, model_specification: models.ControlModelSpecification) -> None:
         super().__init__(args)
-
-        self.state = State()
-        self.state.train_state = TrainState()
 
         # Tokenizers
         self.tokenizer = None

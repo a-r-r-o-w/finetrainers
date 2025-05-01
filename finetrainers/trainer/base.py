@@ -7,10 +7,11 @@ import torch
 import torch.backends
 from diffusers.hooks import HookRegistry, ModelHook
 
-from finetrainers import parallel, logging
+from finetrainers import logging, parallel, patches
 from finetrainers.args import BaseArgsType
 from finetrainers.logging import get_logger
 from finetrainers.models.attention_dispatch import AttentionProvider, _AttentionProviderRegistry
+from finetrainers.state import State
 
 
 logger = get_logger()
@@ -22,11 +23,16 @@ class Trainer:
     def __init__(self, args: BaseArgsType):
         self.args = args
 
+        self.state = State()
+
         self._module_name_providers_training = _parse_attention_providers(args.attn_provider_training)
         self._module_name_providers_inference = _parse_attention_providers(args.attn_provider_inference)
 
         self._init_distributed()
         self._init_config_options()
+
+        # Perform any patches that might be necessary for training to work as expected
+        patches.perform_patches_for_training(self.args, self.state.parallel_backend)
 
     @contextlib.contextmanager
     def attention_provider_ctx(self, training: bool = True):
@@ -55,6 +61,11 @@ class Trainer:
         # So, we lazily switch attention providers only when the forward pass of a new module is called
         def callback(m: torch.nn.Module):
             module_name, provider = module_providers_dict[m]
+            # HACK: for CP on transformer. Need to support other modules too and improve overall experience for external usage
+            if module_name in ["transformer"] and self.state.parallel_backend.context_parallel_enabled:
+                _AttentionProviderRegistry._set_context_parallel(
+                    mesh=self.state.parallel_backend.mesh, convert_to_fp32=True, rotate_method="allgather"
+                )
             _AttentionProviderRegistry._active_provider = provider
 
         # HACK: for VAE
@@ -69,10 +80,11 @@ class Trainer:
         yield
 
         _AttentionProviderRegistry._active_provider = default_provider
+        _AttentionProviderRegistry._set_context_parallel(reset=True)
         for module in module_providers_dict.keys():
             registry: HookRegistry = module._diffusers_hook
             registry.remove_hook(_LATEST_ACTIVE_MODULE_HOOK)
-    
+
     def _init_distributed(self) -> None:
         world_size = int(os.environ.get("WORLD_SIZE", torch.cuda.device_count()))
 
@@ -94,7 +106,7 @@ class Trainer:
 
         if self.args.seed is not None:
             self.state.parallel_backend.enable_determinism(self.args.seed)
-    
+
     def _init_logging(self) -> None:
         logging._set_parallel_backend(self.state.parallel_backend)
         logging.set_dependency_log_level(self.args.verbose, self.state.parallel_backend.is_local_main_process)
@@ -107,7 +119,7 @@ class Trainer:
         self.state.parallel_backend.initialize_trackers(
             trackers, experiment_name=experiment_name, config=self._get_training_info(), log_dir=self.args.logging_dir
         )
-    
+
     def _init_config_options(self) -> None:
         # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
         if self.args.allow_tf32 and torch.cuda.is_available():
@@ -139,6 +151,7 @@ def _parse_attention_providers(attn_providers: List[str] = None) -> List[Tuple[s
     return parsed_providers
 
 
+# TODO(aryan): instead of this, we could probably just apply the hook to vae.children() as we know their forward methods will be invoked
 def _apply_forward_hooks_hack(module: torch.nn.Module, provider: AttentionProvider):
     if hasattr(module, "_finetrainers_wrapped_methods"):
         return

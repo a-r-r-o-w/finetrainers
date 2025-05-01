@@ -144,7 +144,7 @@ class _AttentionProviderRegistry:
     # Context parallel attributes
     _mesh: torch.distributed.device_mesh.DeviceMesh = None
     _convert_to_fp32: bool = None
-    _rotate_method: str = None
+    _rotate_method: Literal["allgather", "alltoall"] = None
 
     @classmethod
     def register(
@@ -178,6 +178,21 @@ class _AttentionProviderRegistry:
     @classmethod
     def context_parallel_enabled(cls):
         return cls._mesh is not None
+
+    @classmethod
+    def _set_context_parallel(
+        cls,
+        mesh: torch.distributed.device_mesh.DeviceMesh,
+        convert_to_fp32: bool = True,
+        rotate_method: str = "allgather",
+        *,
+        reset: bool = False,
+    ):
+        if reset:
+            mesh = convert_to_fp32 = rotate_method = None
+        cls._mesh = mesh
+        cls._convert_to_fp32 = convert_to_fp32
+        cls._rotate_method = rotate_method
 
 
 @contextlib.contextmanager
@@ -1015,4 +1030,5 @@ def _xformers_attention(
 def _ring_attention(dim: int, op: _AttentionOp, **kwargs):
     if _AttentionProviderRegistry._mesh is None:
         raise ValueError("Ring attention requires a mesh to be set in the attention provider registry")
+    print("Inside ring attention with op:", op)
     return _templated_ring_attention(_AttentionProviderRegistry._mesh, dim, op, **kwargs)[0]
