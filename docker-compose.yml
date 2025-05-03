@@ -1,0 +1,20 @@
+services:
+  finetrainers:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: finetrainers:latest
+    container_name: finetrainers
+    volumes:
+      # シンプルな設定：カレントディレクトリをマウント
+      - .:/app
+      # データセット用のディレクトリ作成
+      - ./datasets:/app/datasets
+      # 出力用のディレクトリ作成
+      - ./outputs:/app/outputs
+    # ttyをtrueに設定してインタラクティブに使用可能に
+    tty: true
+    # Windowsで一般的なGPUアクセス設定
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
