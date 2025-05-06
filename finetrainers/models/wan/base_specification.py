@@ -237,7 +237,7 @@ class WanModelSpecification(ModelSpecification):
             cache_dir=cache_dir,
         )
 
-        use_last_frame = self.transformer_config.pos_embed_seq_len is not None
+        use_last_frame = self.transformer_config.get("pos_embed_seq_len") is not None
 
         if condition_model_processors is None:
             condition_model_processors = [T5Processor(["encoder_hidden_states", "__drop__"])]
@@ -521,7 +521,7 @@ class WanModelSpecification(ModelSpecification):
                 raise ValueError("Either image or video must be provided for Wan I2V validation.")
             image = image if image is not None else video[0]
             generation_kwargs["image"] = image
-        if self.transformer_config.pos_embed_seq_len is not None:
+        if self.transformer_config.get("pos_embed_seq_len") is not None:
             last_image = last_image if last_image is not None else image if video is None else video[-1]
             generation_kwargs["last_image"] = last_image
         generation_kwargs = get_non_null_items(generation_kwargs)
