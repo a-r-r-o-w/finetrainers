@@ -19,6 +19,7 @@ from torch.distributed.checkpoint.state_dict import (
     get_model_state_dict,
     set_model_state_dict,
 )
+from torch.distributed.tensor import DTensor, Shard
 
 from finetrainers._metadata import ContextParallelModelPlan, CPInput, CPOutput, TransformerRegistry
 from finetrainers.data import DPDataLoader
@@ -126,20 +127,17 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
         if device_mesh is None:
             device_mesh = self.get_mesh()
         apply_cp(model, device_mesh)
-        logger.debug("Applied PytorchDTensorParallel::apply_cp to model.")
+        logger.debug("Applied PytorchDTensorParallel::apply_context_parallel to model.")
         return model
 
     def prepare_model(self, model: torch.nn.Module) -> torch.nn.Module:
         return model
 
     def prepare_dataset(self, dataset: torch.utils.data.IterableDataset) -> torch.utils.data.IterableDataset:
-        dp_mesh = self.get_mesh("dp_replicate")
-        if dp_mesh is None:
-            dp_mesh = self.get_mesh()
-        if self.world_size > 1:
-            dp_local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
-        else:
-            dp_local_rank, dp_world_size = 0, 1
+        if self._dp_degree == 1:
+            return dataset
+        dp_mesh = self.get_mesh()["dp_replicate"]
+        dp_local_rank, dp_world_size = dp_mesh.get_local_rank(), dp_mesh.size()
         dataset._data = datasets.distributed.split_dataset_by_node(dataset._data, dp_local_rank, dp_world_size)
         logger.debug("PytorchDTensorParallelBackend::prepare_dataset completed!")
         return dataset
@@ -147,7 +145,7 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
     def prepare_dataloader(
         self, dataset: torch.utils.data.IterableDataset, batch_size: int, num_workers: int, pin_memory: bool
     ) -> DPDataLoader:
-        dp_mesh = self.get_mesh("dp_replicate")
+        dp_mesh = self.get_mesh()["dp_replicate"]
         if dp_mesh is None:
             dp_mesh = self.get_mesh()
         if self.world_size > 1:
@@ -629,11 +627,13 @@ class ContextParallelGatherHook(ModelHook):
         is_tensor = torch.is_tensor(output)
         if is_tensor:
             output = [output]
+        output = list(output)
+        assert len(output) == len(self.metadata), f"Expected {len(self.metadata)} outputs, but got {len(output)}."
         for i, cpm in enumerate(self.metadata):
             if cpm is None:
                 continue
             output[i] = _EquipartitionSharder.unshard(output[i], cpm.gather_dim, self.mesh)
-        return output[0] if is_tensor else output
+        return output[0] if is_tensor else tuple(output)
 
 
 class _ContextParallelSharder:
@@ -663,11 +663,12 @@ class _EquipartitionSharder(_ContextParallelSharder):
     @classmethod
     def unshard(cls, tensor: torch.Tensor, dim: int, mesh: torch.distributed.device_mesh.DeviceMesh) -> torch.Tensor:
         tensor = tensor.contiguous()
-        all_tensors = [torch.empty_like(tensor) for _ in range(mesh.size())]
-        torch.distributed._functional_collectives.all_gather_inplace(all_tensors, tensor, mesh)
-        return torch.cat(all_tensors, dim=dim)
+        # TODO(aryan): pass a shape here so that we can allow uneven sharding across seq dim
+        result = DTensor.from_local(tensor, mesh, placements=[Shard(dim)]).full_tensor()
+        return result
 
 
+# TODO(aryan): this class is untested
 class _CausalSharder(_ContextParallelSharder):
     """
     Shards the input tensor along the specified dimension into 2x cp_mesh's world size chunks.
@@ -698,8 +699,8 @@ class _CausalSharder(_ContextParallelSharder):
     def unshard(cls, tensor: torch.Tensor, dim: int, mesh: torch.distributed.device_mesh.DeviceMesh) -> torch.Tensor:
         tensor = tensor.contiguous()
         world_size = mesh.size()
-        all_tensors = [torch.empty_like(tensor) for _ in range(world_size)]
-        torch.distributed._functional_collectives.all_gather_inplace(all_tensors, tensor, mesh)
+        # TODO(aryan): pass a shape here so that we can allow uneven sharding across seq dim
+        all_tensors = DTensor.from_local(tensor, mesh, placements=[Shard(dim)]).full_tensor()
         sliced_tensors = [st for t in all_tensors for st in t.chunk(2, dim=dim)]
         ordered_tensors = list(sliced_tensors)
         for i, t in enumerate(sliced_tensors):

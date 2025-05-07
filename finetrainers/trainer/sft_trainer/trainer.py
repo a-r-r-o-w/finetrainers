@@ -501,7 +501,7 @@ class SFTTrainer(Trainer):
                 [p for m in model_parts for p in m.parameters()],
                 self.args.max_grad_norm,
                 foreach=True,
-                pp_mesh=parallel_backend.get_mesh("pp") if parallel_backend.pipeline_parallel_enabled else None,
+                pp_mesh=parallel_backend.get_mesh()["pp"] if parallel_backend.pipeline_parallel_enabled else None,
             )
 
             # 6. Step optimizer & log metrics
@@ -520,7 +520,7 @@ class SFTTrainer(Trainer):
                     or parallel_backend.data_sharding_enabled
                     or parallel_backend.context_parallel_enabled
                 ):
-                    dp_cp_mesh = parallel_backend.get_mesh("dp_cp")
+                    dp_cp_mesh = parallel_backend.get_mesh()["dp_cp"]
                     global_avg_loss, global_max_loss = (
                         parallel.dist_mean(torch.tensor([accumulated_loss], device=device), dp_cp_mesh),
                         parallel.dist_max(torch.tensor([accumulated_loss], device=device), dp_cp_mesh),
