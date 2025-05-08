@@ -32,11 +32,12 @@ if is_flash_attn_available():
         )
 
     from flash_attn import flash_attn_func, flash_attn_varlen_func
-    from flash_attn.flash_attn_interface import FlashAttnFunc
+    from flash_attn.flash_attn_interface import _flash_attn_forward, _flash_attn_backward
 else:
     flash_attn_func = None
     flash_attn_varlen_func = None
-    FlashAttnFunc = None
+    _flash_attn_forward = None
+    _flash_attn_backward = None
 
 
 if is_sageattention_available():
@@ -107,10 +108,7 @@ _SAGE_ATTENTION_QUANTIZATION_BACKEND = Literal["cuda", "triton"]
 # ===== Custom operator implementations/wrappers =====
 
 
-@torch.library.custom_op(
-    "finetrainers::_scaled_dot_product_efficient_attention", mutates_args=(), device_types=("cpu", "cuda")
-)
-def _(
+def _finetrainers_scaled_dot_product_efficient_attention_forward(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
@@ -144,10 +142,7 @@ def _(
 
 
 # aten::_scaled_dot_product_efficient_attention_backward(Tensor grad_out_, Tensor query, Tensor key, Tensor value, Tensor attn_bias, Tensor out, Tensor logsumexp, Tensor philox_seed, Tensor philox_offset, float dropout_p, bool[4] grad_input_mask, bool is_causal=False, *, float? scale=None) -> (Tensor, Tensor, Tensor, Tensor)
-@torch.library.custom_op(
-    "finetrainers::_scaled_dot_product_efficient_attention_backward", mutates_args=(), device_types=("cpu", "cuda")
-)
-def _(
+def _finetrainers_scaled_dot_product_efficient_attention_backward(
     grad_out_: torch.Tensor,
     query: torch.Tensor,
     key: torch.Tensor,
@@ -187,6 +182,54 @@ def _(
     )
 
     return grad_query, grad_key, grad_value, grad_attn_bias
+
+
+# This function wraps the actual _flash_attn_forward call to return LSE at index 1 to be compatible with pytorch's native ring attention
+def _finetrainers_flash_attn_forward(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    dropout_p: float = 0.0,
+    scale: Optional[float] = None,
+    is_causal: bool = False,
+    window_size: Tuple[int, int] = (-1, -1),
+    softcap: float = 0.0,
+    alibi_slopes: Optional[torch.Tensor] = None,
+    return_softmax: bool = False,
+):
+    out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state = _flash_attn_forward(
+        query, key, value, dropout_p, scale, is_causal, window_size, softcap, alibi_slopes, return_softmax
+    )
+    return out, softmax_lse, q, k, v, out_padded, S_dmask, rng_state
+
+
+# This function wraps the actual _flash_attn_backward call as the counterpart of the _finetrainers_flash_attn_forward function
+def _finetrainers_flash_attn_backward(
+    grad_out: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    out: torch.Tensor,
+    logsumexp: torch.Tensor,  # Needs a different names than the one used in flash-attn because _templated_ring_attention_backward assumes name is logsumexp
+    dropout_p: float,
+    scale: Optional[float] = None,
+    is_causal: bool = False,
+    window_size: Tuple[int, int] = (-1, -1),
+    softcap: float = 0.0,
+    alibi_slopes: Optional[torch.Tensor] = None,
+    deterministic: bool = False,
+    rng_state: Optional[torch.Tensor] = None,
+):
+    dq, dk, dv = torch.empty_like(query), torch.empty_like(key), torch.empty_like(value)
+    
+    dq, dk, dv, softmax_d = _flash_attn_backward(grad_out, query, key, value, out, logsumexp, dq, dk, dv, dropout_p, scale, is_causal, window_size, softcap, alibi_slopes, deterministic, rng_state)
+
+    # We could have padded the head dimension
+    dq = dq[..., : grad_out.shape[-1]]
+    dk = dk[..., : grad_out.shape[-1]]
+    dv = dv[..., : grad_out.shape[-1]]
+    
+    return dq, dk, dv
 
 
 # ===== Attention provider =====
@@ -528,30 +571,176 @@ def _flex_attention_causal_mask_mod(batch_idx, head_idx, q_idx, kv_idx):
 # ===== Attention provider implementations =====
 
 
-class _flash_attention(torch.autograd.Function):
+# Adapted from: https://github.com/Dao-AILab/flash-attention/blob/fd2fc9d85c8e54e5c20436465bca709bc1a6c5a1/flash_attn/flash_attn_interface.py#L807
+class _flash_attn_flash_attention(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx: torch.autograd.function.FunctionCtx,
-        query: torch.Tensor,
-        key: torch.Tensor,
-        value: torch.Tensor,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
         dropout_p: float = 0.0,
-        scale: Optional[float] = None,
-        is_causal: bool = False,
+        softmax_scale: Optional[float] = None,
+        causal: bool = False,
         window_size: Tuple[int, int] = (-1, -1),
         softcap: float = 0.0,
         alibi_slopes: Optional[torch.Tensor] = None,
         deterministic: bool = False,
-        return_attn_probs: bool = False,
+        return_softmax: bool = False,
     ):
-        pass
+        if softmax_scale is None:
+            softmax_scale = q.shape[-1] ** (-0.5)
+        
+        ctx.dropout_p = dropout_p
+        ctx.softmax_scale = softmax_scale
+        ctx.causal = causal
+        ctx.window_size = window_size
+        ctx.softcap = softcap
+        ctx.alibi_slopes = alibi_slopes
+        ctx.deterministic = deterministic
+        
+        q, k, v = (x.permute(0, 2, 1, 3).contiguous() for x in (q, k, v))  # [B, N, S, D] -> [B, S, N, D]
+        
+        out, lse, q, k, v, out_padded, S_dmask, rng_state = _finetrainers_flash_attn_forward(
+            query=q,
+            key=k,
+            value=v,
+            dropout_p=dropout_p,
+            scale=softmax_scale,
+            is_causal=causal,
+            window_size=window_size,
+            softcap=softcap,
+            alibi_slopes=alibi_slopes,
+            return_softmax=return_softmax,
+        )
+        out = out.permute(0, 2, 1, 3)  # [B, S, N, D] -> [B, N, S, D]
+        
+        ctx.save_for_backward(q, k, v, out_padded, lse, rng_state)
+        
+        return (out, lse) if return_softmax else out
+    
+    @staticmethod
+    def backward(
+        ctx: torch.autograd.function.FunctionCtx,
+        grad_out: torch.Tensor,
+        *args: torch.Tensor,
+    ):
+        q, k, v, out, lse, rng_state = ctx.saved_tensors
+        
+        grad_out = grad_out.permute(0, 2, 1, 3).contiguous()  # [B, N, S, D] -> [B, S, N, D]
+        grad_query, grad_key, grad_value = _finetrainers_flash_attn_backward(
+            grad_out=grad_out,
+            query=q,
+            key=k,
+            value=v,
+            out=out,
+            logsumexp=lse,
+            dropout_p=ctx.dropout_p,
+            scale=ctx.softmax_scale,
+            is_causal=ctx.causal,
+            window_size=ctx.window_size,
+            softcap=ctx.softcap,
+            alibi_slopes=ctx.alibi_slopes,
+            deterministic=ctx.deterministic,
+            rng_state=rng_state,
+        )
+        grad_query, grad_key, grad_value = (x.permute(0, 2, 1, 3).contiguous() for x in (grad_query, grad_key, grad_value))  # [B, S, N, D] -> [B, N, S, D]
+        
+        return grad_query, grad_key, grad_value, None, None, None, None, None, None, None, None
+
+
+# Adapted from: https://github.com/Dao-AILab/flash-attention/blob/fd2fc9d85c8e54e5c20436465bca709bc1a6c5a1/flash_attn/flash_attn_interface.py#L807
+class _native_ring_flash_attn_flash_attention(torch.autograd.Function):
+    @staticmethod
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        dropout_p: float = 0.0,
+        softmax_scale: Optional[float] = None,
+        causal: bool = False,
+        window_size: Tuple[int, int] = (-1, -1),
+        softcap: float = 0.0,
+        alibi_slopes: Optional[torch.Tensor] = None,
+        deterministic: bool = False,
+        return_softmax: bool = False,
+    ):
+        if softmax_scale is None:
+            softmax_scale = q.shape[-1] ** (-0.5)
+        
+        # For ring flash attention using the flash-attn repo, we want the LSE but flash-attn only supports it if dropout_p > 0
+        dropout_p = dropout_p if dropout_p > 0 else 1e-30
+        
+        ctx.dropout_p = dropout_p
+        ctx.softmax_scale = softmax_scale
+        ctx.causal = causal
+        ctx.window_size = window_size
+        ctx.softcap = softcap
+        ctx.alibi_slopes = alibi_slopes
+        ctx.deterministic = deterministic
+
+        q, k, v = (x.permute(0, 2, 1, 3).contiguous() for x in (q, k, v))  # [B, N, S, D] -> [B, S, N, D]
+
+        out, lse, q, k, v, out_padded, S_dmask, rng_state = _templated_ring_attention(
+            mesh=_AttentionProviderRegistry._mesh,
+            seq_dim=1,
+            op=_finetrainers_flash_attn_forward,
+            query=q,
+            key=k,
+            value=v,
+            dropout_p=dropout_p,
+            scale=softmax_scale,
+            is_causal=causal,
+            window_size=window_size,
+            softcap=softcap,
+            alibi_slopes=alibi_slopes,
+            return_softmax=True,
+        )
+        out = out.permute(0, 2, 1, 3)  # [B, S, N, D] -> [B, N, S, D]
+        
+        ctx.save_for_backward(q, k, v, out_padded, lse, rng_state)
+        
+        return (out, lse) if return_softmax else out
+    
+    @staticmethod
+    def backward(
+        ctx: torch.autograd.function.FunctionCtx,
+        grad_out: torch.Tensor,
+        *args: torch.Tensor,
+    ):
+        q, k, v, out, lse, rng_state = ctx.saved_tensors
+
+        grad_query, grad_key, grad_value = _templated_ring_attention_backward(
+            mesh=_AttentionProviderRegistry._mesh,
+            seq_dim=1,
+            op=_finetrainers_flash_attn_backward,
+            grad_out=grad_out,
+            grad_out_name="grad_out",
+            query=q,
+            key=k,
+            value=v,
+            out=out,
+            logsumexp=lse,
+            dropout_p=ctx.dropout_p,
+            scale=ctx.softmax_scale,
+            is_causal=ctx.causal,
+            window_size=ctx.window_size,
+            softcap=ctx.softcap,
+            alibi_slopes=ctx.alibi_slopes,
+            deterministic=ctx.deterministic,
+            rng_state=rng_state,
+        )
+        
+        return grad_query, grad_key, grad_value, None, None, None, None, None, None, None, None
 
 
 @_AttentionProviderRegistry.register(
     AttentionProvider.FLASH,
     constraints=[_check_attn_mask_is_none, _check_device, _check_qkv_dtype_bf16_or_fp16, _check_shape],
+    supports_cp=True,
 )
-def _flash_attention(
+def flash_attn_flash_attention(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
@@ -562,17 +751,10 @@ def _flash_attention(
     softcap: float = 0.0,
     alibi_slopes: Optional[torch.Tensor] = None,
     deterministic: bool = False,
-    return_attn_probs: bool = False,
-    attn_mask: Optional[torch.Tensor] = None,
-    enable_gqa: bool = False,
+    return_lse: bool = False,
 ) -> torch.Tensor:
-    if enable_gqa:
-        # TODO
-        pass
-
-    query, key, value = (x.permute(0, 2, 1, 3) for x in (query, key, value))
-
-    out = flash_attn_func(
+    dispatch_fn = _native_ring_flash_attn_flash_attention if _AttentionProviderRegistry.context_parallel_enabled() else _flash_attn_flash_attention
+    return dispatch_fn.apply(
         q=query,
         k=key,
         v=value,
@@ -583,16 +765,14 @@ def _flash_attention(
         softcap=softcap,
         alibi_slopes=alibi_slopes,
         deterministic=deterministic,
-        return_attn_probs=return_attn_probs,
+        return_softmax=return_lse,
     )
-    out = out.permute(0, 2, 1, 3)
-    return out
 
 
 @_AttentionProviderRegistry.register(
     AttentionProvider.FLASH_VARLEN,
     constraints=[_check_device, _check_qkv_dtype_bf16_or_fp16, _check_shape],
-    supports_cp=True,
+    supports_cp=False,
 )
 def _flash_varlen_attention(
     query: torch.Tensor,
@@ -611,17 +791,12 @@ def _flash_varlen_attention(
     deterministic: bool = False,
     return_attn_probs: bool = False,
     attn_mask: Optional[torch.Tensor] = None,
-    enable_gqa: bool = False,
 ) -> torch.Tensor:
     batch_size, _, seq_len_q, _ = query.shape
     _, _, seq_len_kv, _ = key.shape
 
     if attn_mask is not None:
         attn_mask = _normalize_attn_mask(attn_mask, batch_size, seq_len_kv)
-
-    if enable_gqa:
-        # TODO
-        pass
 
     if any(x is None for x in (cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k)):
         (_, seqlens_k), (cu_seqlens_q, cu_seqlens_k), (max_seqlen_q, max_seqlen_k) = (
@@ -814,6 +989,7 @@ class _native_cudnn_attention(torch.autograd.Function):
     def backward(
         ctx: torch.autograd.function.FunctionCtx,
         grad_out: torch.Tensor,
+        *args: torch.Tensor,
     ):
         query, key, value, out, lse, cum_seq_q, cum_seq_k, philox_seed, philox_offset = ctx.saved_tensors
 
@@ -885,6 +1061,7 @@ class _native_ring_native_cudnn_attention(torch.autograd.Function):
     def backward(
         ctx: torch.autograd.function.FunctionCtx,
         grad_out: torch.Tensor,
+        *args: torch.Tensor,
     ):
         _AttentionProviderRegistry._raise_cp_error_if_mesh_not_set()
         query, key, value, out, lse, cum_seq_q, cum_seq_k, philox_seed, philox_offset = ctx.saved_tensors
@@ -963,7 +1140,7 @@ class _native_efficient_attention(torch.autograd.Function):
         ctx.attn_mask = attn_mask
 
         # NOTE: Uses finetrainers registered op because of LSE alignment issue. See the op registration for more details.
-        out, lse, philox_seed, philox_offset = torch.ops.finetrainers._scaled_dot_product_efficient_attention(
+        out, lse, philox_seed, philox_offset = _finetrainers_scaled_dot_product_efficient_attention_forward(
             query=query,
             key=key,
             value=value,
@@ -982,12 +1159,13 @@ class _native_efficient_attention(torch.autograd.Function):
     def backward(
         ctx: torch.autograd.function.FunctionCtx,
         grad_out: torch.Tensor,
+        *args: torch.Tensor,
     ):
         query, key, value, out, lse, philox_seed, philox_offset = ctx.saved_tensors
 
         # NOTE: Uses finetrainers registered op because of LSE alignment issue. See the op registration for more details.
         grad_query, grad_key, grad_value, grad_attn_bias = (
-            torch.ops.finetrainers._scaled_dot_product_efficient_attention_backward(
+            _finetrainers_scaled_dot_product_efficient_attention_backward(
                 grad_out_=grad_out,
                 query=query,
                 key=key,
@@ -1030,7 +1208,7 @@ class _native_ring_native_efficient_attention(torch.autograd.Function):
         out, lse, philox_seed, philox_offset = _templated_ring_attention(
             mesh=_AttentionProviderRegistry._mesh,
             seq_dim=2,
-            op=torch.ops.finetrainers._scaled_dot_product_efficient_attention,
+            op=_finetrainers_scaled_dot_product_efficient_attention_forward,
             query=query,
             key=key,
             value=value,
@@ -1049,6 +1227,7 @@ class _native_ring_native_efficient_attention(torch.autograd.Function):
     def backward(
         ctx: torch.autograd.function.FunctionCtx,
         grad_out: torch.Tensor,
+        *args: torch.Tensor,
     ):
         _AttentionProviderRegistry._raise_cp_error_if_mesh_not_set()
         query, key, value, out, lse, philox_seed, philox_offset = ctx.saved_tensors
@@ -1057,7 +1236,7 @@ class _native_ring_native_efficient_attention(torch.autograd.Function):
         grad_query, grad_key, grad_value, grad_attn_bias = _templated_ring_attention_backward(
             mesh=_AttentionProviderRegistry._mesh,
             seq_dim=2,
-            op=torch.ops.finetrainers._scaled_dot_product_efficient_attention_backward,
+            op=_finetrainers_scaled_dot_product_efficient_attention_backward,
             grad_out=grad_out,
             grad_out_name="grad_out_",
             query=query,
@@ -1143,6 +1322,7 @@ class _native_flash_attention(torch.autograd.Function):
     def backward(
         ctx: torch.autograd.function.FunctionCtx,
         grad_out: torch.Tensor,
+        *args: torch.Tensor,
     ):
         query, key, value, out, lse, cum_seq_q, cum_seq_k, philox_seed, philox_offset = ctx.saved_tensors
 
@@ -1208,6 +1388,7 @@ class _native_ring_native_flash_attention(torch.autograd.Function):
     def backward(
         ctx: torch.autograd.function.FunctionCtx,
         grad_out: torch.Tensor,
+        *args: torch.Tensor,
     ):
         _AttentionProviderRegistry._raise_cp_error_if_mesh_not_set()
         query, key, value, out, lse, cum_seq_q, cum_seq_k, philox_seed, philox_offset = ctx.saved_tensors
