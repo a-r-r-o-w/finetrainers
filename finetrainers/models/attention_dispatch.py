@@ -203,7 +203,7 @@ def _finetrainers_flash_attn_forward(
     out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state = _flash_attn_forward(
         query, key, value, dropout_p, scale, is_causal, window_size, softcap, alibi_slopes, return_softmax
     )
-    out = out.permute(0, 2, 1, 3)  # [B, S, N, D] -> [B, N, S, D]
+    out = out.permute(0, 2, 1, 3).contiguous()  # [B, S, N, D] -> [B, N, S, D]
     return out, softmax_lse, q, k, v, out_padded, S_dmask, rng_state
 
 
@@ -225,10 +225,7 @@ def _finetrainers_flash_attn_backward(
     rng_state: Optional[torch.Tensor] = None,
 ):
     dq, dk, dv = torch.empty_like(query), torch.empty_like(key), torch.empty_like(value)
-    query, key, value = (
-        x.permute(0, 2, 1, 3).contiguous() for x in (query, key, value)
-    )  # [B, N, S, D] -> [B, S, N, D]
-    logsumexp = logsumexp.permute(0, 2, 1)  # [B, N, S] -> [B, S, N]
+    grad_out = grad_out.permute(0, 2, 1, 3).contiguous()  # [B, N, S, D] -> [B, S, N, D]
 
     dq, dk, dv, softmax_d = _flash_attn_backward(
         grad_out,
@@ -250,11 +247,12 @@ def _finetrainers_flash_attn_backward(
         rng_state,
     )
 
-    # We could have padded the head dimension
+    # Head dimension may have been padded
     dq = dq[..., : grad_out.shape[-1]]
     dk = dk[..., : grad_out.shape[-1]]
     dv = dv[..., : grad_out.shape[-1]]
 
+    dq, dk, dv = (x.permute(0, 2, 1, 3).contiguous() for x in (dq, dk, dv))  # [B, S, N, D] -> [B, N, S, D]
     return dq, dk, dv
 
 
@@ -650,7 +648,6 @@ class _flash_attn_flash_attention(torch.autograd.Function):
     ):
         q, k, v, out, lse, rng_state = ctx.saved_tensors
 
-        grad_out = grad_out.permute(0, 2, 1, 3).contiguous()  # [B, N, S, D] -> [B, S, N, D]
         grad_query, grad_key, grad_value = _finetrainers_flash_attn_backward(
             grad_out=grad_out,
             query=q,
@@ -704,7 +701,7 @@ class _native_ring_flash_attn_flash_attention(torch.autograd.Function):
 
         out, lse, q, k, v, out_padded, S_dmask, rng_state = _templated_ring_attention(
             mesh=_AttentionProviderRegistry._mesh,
-            seq_dim=1,
+            seq_dim=2,
             op=_finetrainers_flash_attn_forward,
             query=q,
             key=k,
@@ -732,7 +729,7 @@ class _native_ring_flash_attn_flash_attention(torch.autograd.Function):
 
         grad_query, grad_key, grad_value = _templated_ring_attention_backward(
             mesh=_AttentionProviderRegistry._mesh,
-            seq_dim=1,
+            seq_dim=2,
             op=_finetrainers_flash_attn_backward,
             grad_out=grad_out,
             grad_out_name="grad_out",

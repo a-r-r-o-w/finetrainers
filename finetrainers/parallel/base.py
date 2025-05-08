@@ -3,7 +3,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import torch
 
-from finetrainers.trackers import TrackerType, initialize_trackers
+from finetrainers.trackers import DummyTracker, TrackerType, initialize_trackers
 
 
 class BaseParallelBackend:
@@ -49,6 +49,8 @@ class BaseParallelBackend:
     ) -> TrackerType:
         if self.is_main_process:
             self.tracker = initialize_trackers(trackers, experiment_name, config, log_dir)
+        else:
+            self.tracker = DummyTracker()
 
     def log(self, metrics: Dict[str, Any], step: int) -> None:
         if self.is_main_process:

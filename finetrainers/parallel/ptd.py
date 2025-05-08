@@ -126,7 +126,7 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
     ) -> torch.nn.Module:
         if device_mesh is None:
             device_mesh = self.get_mesh()
-        apply_cp(model, device_mesh)
+        apply_context_parallel(model, device_mesh)
         logger.debug("Applied PytorchDTensorParallel::apply_context_parallel to model.")
         return model
 
@@ -145,13 +145,11 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
     def prepare_dataloader(
         self, dataset: torch.utils.data.IterableDataset, batch_size: int, num_workers: int, pin_memory: bool
     ) -> DPDataLoader:
-        dp_mesh = self.get_mesh()["dp_replicate"]
-        if dp_mesh is None:
-            dp_mesh = self.get_mesh()
-        if self.world_size > 1:
-            dp_local_rank = dp_mesh.get_local_rank()
-        else:
+        if self._dp_degree == 1:
             dp_local_rank = 0
+        else:
+            dp_mesh = self.get_mesh()["dp_replicate"]
+            dp_local_rank = dp_mesh.get_local_rank()
         dataloader = DPDataLoader(dp_local_rank, dataset, batch_size=batch_size, num_workers=num_workers)
         logger.debug("PytorchDTensorParallelBackend::prepare_dataloader completed!")
         return dataloader
@@ -501,7 +499,7 @@ def apply_fsdp2(
     fully_shard(model, **fsdp_config, reshard_after_forward=not pp_enabled)
 
 
-def apply_cp(
+def apply_context_parallel(
     model: torch.nn.Module,
     mesh: torch.distributed.device_mesh.DeviceMesh,
     plan: Optional[Dict[str, ContextParallelModelPlan]] = None,

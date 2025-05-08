@@ -130,6 +130,10 @@ class Trainer:
             torch.backends.cuda.matmul.allow_tf32 = True
         torch.set_float32_matmul_precision(self.args.float32_matmul_precision)
 
+    @property
+    def tracker(self):
+        return self.state.parallel_backend.tracker
+
 
 class LatestActiveModuleHook(ModelHook):
     def __init__(self, callback: Callable[[torch.nn.Module], None] = None):

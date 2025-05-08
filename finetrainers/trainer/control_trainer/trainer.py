@@ -1,6 +1,5 @@
 import functools
 import json
-import math
 import os
 import re
 import time
@@ -417,17 +416,6 @@ class ControlTrainer(Trainer):
             generator = generator.manual_seed(self.args.seed)
         self.state.generator = generator
 
-        patch_size = 1
-        if (
-            getattr(self.transformer.config, "patch_size", None) is not None
-            and getattr(self.transformer.config, "patch_size_t", None) is not None
-        ):
-            patch_size = self.transformer.config.patch_size * self.transformer.config.patch_size_t
-        elif isinstance(getattr(self.transformer.config, "patch_size", None), int):
-            patch_size = self.transformer.config.patch_size
-        elif isinstance(getattr(self.transformer.config, "patch_size", None), (list, tuple)):
-            patch_size = math.prod(self.transformer.config.patch_size)
-
         scheduler_sigmas = utils.get_scheduler_sigmas(self.scheduler)
         scheduler_sigmas = (
             scheduler_sigmas.to(device=device, dtype=torch.float32) if scheduler_sigmas is not None else None
@@ -436,7 +424,7 @@ class ControlTrainer(Trainer):
         scheduler_alphas = (
             scheduler_alphas.to(device=device, dtype=torch.float32) if scheduler_alphas is not None else None
         )
-        timesteps_buffer = []
+        # timesteps_buffer = []
 
         self.transformer.train()
         data_iterator = iter(self.dataloader)
@@ -493,10 +481,6 @@ class ControlTrainer(Trainer):
 
             train_state.step += 1
             train_state.observed_data_samples += self.args.batch_size * parallel_backend._dp_degree
-
-            lmc_latents = latent_model_conditions["latents"]
-            # TODO(aryan): observed_num_tokens this needs to be allreduced
-            train_state.observed_num_tokens += math.prod(lmc_latents.shape[:-1]) // patch_size
 
             logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
 
@@ -572,13 +556,15 @@ class ControlTrainer(Trainer):
                 self.optimizer.zero_grad()
 
                 if grad_norm is not None:
-                    logs["grad_norm"] = grad_norm if isinstance(grad_norm, float) else grad_norm.detach().item()
+                    grad_norm = grad_norm if isinstance(grad_norm, float) else grad_norm.detach().item()
                 if (
                     parallel_backend.data_replication_enabled
                     or parallel_backend.data_sharding_enabled
                     or parallel_backend.context_parallel_enabled
                 ):
                     dp_cp_mesh = parallel_backend.get_mesh("dp_cp")
+                    if grad_norm is not None:
+                        grad_norm = parallel.dist_mean(torch.tensor([grad_norm], device=device), dp_cp_mesh)
                     global_avg_loss, global_max_loss = (
                         parallel.dist_mean(torch.tensor([accumulated_loss], device=device), dp_cp_mesh),
                         parallel.dist_max(torch.tensor([accumulated_loss], device=device), dp_cp_mesh),
@@ -586,8 +572,10 @@ class ControlTrainer(Trainer):
                 else:
                     global_avg_loss = global_max_loss = accumulated_loss
 
-                logs["global_avg_loss"] = global_avg_loss
-                logs["global_max_loss"] = global_max_loss
+                logs["train/global_avg_loss"] = global_avg_loss
+                logs["train/global_max_loss"] = global_max_loss
+                if grad_norm is not None:
+                    logs["train/grad_norm"] = grad_norm
                 train_state.global_avg_losses.append(global_avg_loss)
                 train_state.global_max_losses.append(global_max_loss)
                 accumulated_loss = 0.0
@@ -596,7 +584,7 @@ class ControlTrainer(Trainer):
             progress_bar.update(1)
             progress_bar.set_postfix(logs)
 
-            timesteps_buffer.extend([(train_state.step, t) for t in timesteps.detach().cpu().numpy().tolist()])
+            # timesteps_buffer.extend([(train_state.step, t) for t in timesteps.detach().cpu().numpy().tolist()])
 
             if train_state.step % self.args.logging_steps == 0:
                 # TODO(aryan): handle non-SchedulerWrapper schedulers (probably not required eventually) since they might not be dicts
@@ -607,10 +595,9 @@ class ControlTrainer(Trainer):
                 # logs["timesteps"] = wandb.plot.scatter(
                 #     timesteps_table, "step", "timesteps", title="Timesteps distribution"
                 # )
-                timesteps_buffer = []
+                # timesteps_buffer = []
 
-                logs["observed_data_samples"] = train_state.observed_data_samples
-                logs["observed_num_tokens"] = train_state.observed_num_tokens
+                logs["train/observed_data_samples"] = train_state.observed_data_samples
 
                 parallel_backend.log(logs, step=train_state.step)
                 train_state.log_steps.append(train_state.step)
