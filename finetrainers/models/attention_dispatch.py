@@ -197,9 +197,13 @@ def _finetrainers_flash_attn_forward(
     alibi_slopes: Optional[torch.Tensor] = None,
     return_softmax: bool = False,
 ):
+    query, key, value = (
+        x.permute(0, 2, 1, 3).contiguous() for x in (query, key, value)
+    )  # [B, N, S, D] -> [B, S, N, D]
     out, q, k, v, out_padded, softmax_lse, S_dmask, rng_state = _flash_attn_forward(
         query, key, value, dropout_p, scale, is_causal, window_size, softcap, alibi_slopes, return_softmax
     )
+    out = out.permute(0, 2, 1, 3)  # [B, S, N, D] -> [B, N, S, D]
     return out, softmax_lse, q, k, v, out_padded, S_dmask, rng_state
 
 
@@ -221,6 +225,10 @@ def _finetrainers_flash_attn_backward(
     rng_state: Optional[torch.Tensor] = None,
 ):
     dq, dk, dv = torch.empty_like(query), torch.empty_like(key), torch.empty_like(value)
+    query, key, value = (
+        x.permute(0, 2, 1, 3).contiguous() for x in (query, key, value)
+    )  # [B, N, S, D] -> [B, S, N, D]
+    logsumexp = logsumexp.permute(0, 2, 1)  # [B, N, S] -> [B, S, N]
 
     dq, dk, dv, softmax_d = _flash_attn_backward(
         grad_out,
@@ -617,8 +625,6 @@ class _flash_attn_flash_attention(torch.autograd.Function):
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
 
-        q, k, v = (x.permute(0, 2, 1, 3).contiguous() for x in (q, k, v))  # [B, N, S, D] -> [B, S, N, D]
-
         out, lse, q, k, v, out_padded, S_dmask, rng_state = _finetrainers_flash_attn_forward(
             query=q,
             key=k,
@@ -631,7 +637,6 @@ class _flash_attn_flash_attention(torch.autograd.Function):
             alibi_slopes=alibi_slopes,
             return_softmax=return_softmax,
         )
-        out = out.permute(0, 2, 1, 3)  # [B, S, N, D] -> [B, N, S, D]
 
         ctx.save_for_backward(q, k, v, out_padded, lse, rng_state)
 
@@ -662,9 +667,6 @@ class _flash_attn_flash_attention(torch.autograd.Function):
             deterministic=ctx.deterministic,
             rng_state=rng_state,
         )
-        grad_query, grad_key, grad_value = (
-            x.permute(0, 2, 1, 3).contiguous() for x in (grad_query, grad_key, grad_value)
-        )  # [B, S, N, D] -> [B, N, S, D]
 
         return grad_query, grad_key, grad_value, None, None, None, None, None, None, None, None
 
@@ -700,8 +702,6 @@ class _native_ring_flash_attn_flash_attention(torch.autograd.Function):
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
 
-        q, k, v = (x.permute(0, 2, 1, 3).contiguous() for x in (q, k, v))  # [B, N, S, D] -> [B, S, N, D]
-
         out, lse, q, k, v, out_padded, S_dmask, rng_state = _templated_ring_attention(
             mesh=_AttentionProviderRegistry._mesh,
             seq_dim=1,
@@ -717,7 +717,6 @@ class _native_ring_flash_attn_flash_attention(torch.autograd.Function):
             alibi_slopes=alibi_slopes,
             return_softmax=True,
         )
-        out = out.permute(0, 2, 1, 3)  # [B, S, N, D] -> [B, N, S, D]
 
         ctx.save_for_backward(q, k, v, out_padded, lse, rng_state)
 
