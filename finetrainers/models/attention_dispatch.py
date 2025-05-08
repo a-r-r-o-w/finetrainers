@@ -32,7 +32,7 @@ if is_flash_attn_available():
         )
 
     from flash_attn import flash_attn_func, flash_attn_varlen_func
-    from flash_attn.flash_attn_interface import _flash_attn_forward, _flash_attn_backward
+    from flash_attn.flash_attn_interface import _flash_attn_backward, _flash_attn_forward
 else:
     flash_attn_func = None
     flash_attn_varlen_func = None
@@ -221,14 +221,32 @@ def _finetrainers_flash_attn_backward(
     rng_state: Optional[torch.Tensor] = None,
 ):
     dq, dk, dv = torch.empty_like(query), torch.empty_like(key), torch.empty_like(value)
-    
-    dq, dk, dv, softmax_d = _flash_attn_backward(grad_out, query, key, value, out, logsumexp, dq, dk, dv, dropout_p, scale, is_causal, window_size, softcap, alibi_slopes, deterministic, rng_state)
+
+    dq, dk, dv, softmax_d = _flash_attn_backward(
+        grad_out,
+        query,
+        key,
+        value,
+        out,
+        logsumexp,
+        dq,
+        dk,
+        dv,
+        dropout_p,
+        scale,
+        is_causal,
+        window_size,
+        softcap,
+        alibi_slopes,
+        deterministic,
+        rng_state,
+    )
 
     # We could have padded the head dimension
     dq = dq[..., : grad_out.shape[-1]]
     dk = dk[..., : grad_out.shape[-1]]
     dv = dv[..., : grad_out.shape[-1]]
-    
+
     return dq, dk, dv
 
 
@@ -590,7 +608,7 @@ class _flash_attn_flash_attention(torch.autograd.Function):
     ):
         if softmax_scale is None:
             softmax_scale = q.shape[-1] ** (-0.5)
-        
+
         ctx.dropout_p = dropout_p
         ctx.softmax_scale = softmax_scale
         ctx.causal = causal
@@ -598,9 +616,9 @@ class _flash_attn_flash_attention(torch.autograd.Function):
         ctx.softcap = softcap
         ctx.alibi_slopes = alibi_slopes
         ctx.deterministic = deterministic
-        
+
         q, k, v = (x.permute(0, 2, 1, 3).contiguous() for x in (q, k, v))  # [B, N, S, D] -> [B, S, N, D]
-        
+
         out, lse, q, k, v, out_padded, S_dmask, rng_state = _finetrainers_flash_attn_forward(
             query=q,
             key=k,
@@ -614,11 +632,11 @@ class _flash_attn_flash_attention(torch.autograd.Function):
             return_softmax=return_softmax,
         )
         out = out.permute(0, 2, 1, 3)  # [B, S, N, D] -> [B, N, S, D]
-        
+
         ctx.save_for_backward(q, k, v, out_padded, lse, rng_state)
-        
+
         return (out, lse) if return_softmax else out
-    
+
     @staticmethod
     def backward(
         ctx: torch.autograd.function.FunctionCtx,
@@ -626,7 +644,7 @@ class _flash_attn_flash_attention(torch.autograd.Function):
         *args: torch.Tensor,
     ):
         q, k, v, out, lse, rng_state = ctx.saved_tensors
-        
+
         grad_out = grad_out.permute(0, 2, 1, 3).contiguous()  # [B, N, S, D] -> [B, S, N, D]
         grad_query, grad_key, grad_value = _finetrainers_flash_attn_backward(
             grad_out=grad_out,
@@ -644,8 +662,10 @@ class _flash_attn_flash_attention(torch.autograd.Function):
             deterministic=ctx.deterministic,
             rng_state=rng_state,
         )
-        grad_query, grad_key, grad_value = (x.permute(0, 2, 1, 3).contiguous() for x in (grad_query, grad_key, grad_value))  # [B, S, N, D] -> [B, N, S, D]
-        
+        grad_query, grad_key, grad_value = (
+            x.permute(0, 2, 1, 3).contiguous() for x in (grad_query, grad_key, grad_value)
+        )  # [B, S, N, D] -> [B, N, S, D]
+
         return grad_query, grad_key, grad_value, None, None, None, None, None, None, None, None
 
 
@@ -668,10 +688,10 @@ class _native_ring_flash_attn_flash_attention(torch.autograd.Function):
     ):
         if softmax_scale is None:
             softmax_scale = q.shape[-1] ** (-0.5)
-        
+
         # For ring flash attention using the flash-attn repo, we want the LSE but flash-attn only supports it if dropout_p > 0
         dropout_p = dropout_p if dropout_p > 0 else 1e-30
-        
+
         ctx.dropout_p = dropout_p
         ctx.softmax_scale = softmax_scale
         ctx.causal = causal
@@ -698,11 +718,11 @@ class _native_ring_flash_attn_flash_attention(torch.autograd.Function):
             return_softmax=True,
         )
         out = out.permute(0, 2, 1, 3)  # [B, S, N, D] -> [B, N, S, D]
-        
+
         ctx.save_for_backward(q, k, v, out_padded, lse, rng_state)
-        
+
         return (out, lse) if return_softmax else out
-    
+
     @staticmethod
     def backward(
         ctx: torch.autograd.function.FunctionCtx,
@@ -731,7 +751,7 @@ class _native_ring_flash_attn_flash_attention(torch.autograd.Function):
             deterministic=ctx.deterministic,
             rng_state=rng_state,
         )
-        
+
         return grad_query, grad_key, grad_value, None, None, None, None, None, None, None, None
 
 
@@ -753,19 +773,13 @@ def flash_attn_flash_attention(
     deterministic: bool = False,
     return_lse: bool = False,
 ) -> torch.Tensor:
-    dispatch_fn = _native_ring_flash_attn_flash_attention if _AttentionProviderRegistry.context_parallel_enabled() else _flash_attn_flash_attention
+    dispatch_fn = (
+        _native_ring_flash_attn_flash_attention
+        if _AttentionProviderRegistry.context_parallel_enabled()
+        else _flash_attn_flash_attention
+    )
     return dispatch_fn.apply(
-        q=query,
-        k=key,
-        v=value,
-        dropout_p=dropout_p,
-        softmax_scale=scale,
-        causal=is_causal,
-        window_size=window_size,
-        softcap=softcap,
-        alibi_slopes=alibi_slopes,
-        deterministic=deterministic,
-        return_softmax=return_lse,
+        query, key, value, dropout_p, scale, is_causal, window_size, softcap, alibi_slopes, deterministic, return_lse
     )
 
 
