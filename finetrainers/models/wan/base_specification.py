@@ -237,14 +237,14 @@ class WanModelSpecification(ModelSpecification):
             cache_dir=cache_dir,
         )
 
-        use_last_frame = self.transformer_config.get("pos_embed_seq_len") is not None
+        use_last_frame = self.transformer_config.get("pos_embed_seq_len", None) is not None
 
         if condition_model_processors is None:
             condition_model_processors = [T5Processor(["encoder_hidden_states", "__drop__"])]
         if latent_model_processors is None:
             latent_model_processors = [WanLatentEncodeProcessor(["latents", "latents_mean", "latents_std"])]
 
-        if self.transformer_config.image_dim is not None:
+        if self.transformer_config.get("image_dim", None) is not None:
             latent_model_processors.append(
                 WanImageConditioningLatentEncodeProcessor(
                     ["latent_condition", "__drop__", "__drop__", "latent_condition_mask"],
@@ -297,7 +297,7 @@ class WanModelSpecification(ModelSpecification):
             )
 
         models = {"vae": vae}
-        if self.transformer_config.image_dim is not None:
+        if self.transformer_config.get("image_dim", None) is not None:
             # TODO(aryan): refactor the trainer to be able to support these extra models from CLI args more easily
             image_encoder = CLIPVisionModel.from_pretrained(
                 self.pretrained_model_name_or_path, subfolder="image_encoder", torch_dtype=torch.bfloat16
@@ -355,7 +355,7 @@ class WanModelSpecification(ModelSpecification):
         }
         components = get_non_null_items(components)
 
-        if self.transformer_config.image_dim is None:
+        if self.transformer_config.get("image_dim", None) is not None:
             pipe = WanPipeline.from_pretrained(
                 self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
             )
@@ -477,7 +477,7 @@ class WanModelSpecification(ModelSpecification):
         noisy_latents = FF.flow_match_xt(latents, noise, sigmas)
         timesteps = (sigmas.flatten() * 1000.0).long()
 
-        if self.transformer_config.image_dim is not None:
+        if self.transformer_config.get("image_dim", None) is not None:
             noisy_latents = torch.cat([noisy_latents, latent_condition_mask, latent_condition], dim=1)
 
         latent_model_conditions["hidden_states"] = noisy_latents.to(latents)
@@ -516,12 +516,12 @@ class WanModelSpecification(ModelSpecification):
             "return_dict": True,
             "output_type": "pil",
         }
-        if self.transformer_config.image_dim is not None:
+        if self.transformer_config.get("image_dim", None) is not None:
             if image is None and video is None:
                 raise ValueError("Either image or video must be provided for Wan I2V validation.")
             image = image if image is not None else video[0]
             generation_kwargs["image"] = image
-        if self.transformer_config.get("pos_embed_seq_len") is not None:
+        if self.transformer_config.get("pos_embed_seq_len", None) is not None:
             last_image = last_image if last_image is not None else image if video is None else video[-1]
             generation_kwargs["last_image"] = last_image
         generation_kwargs = get_non_null_items(generation_kwargs)
@@ -537,7 +537,9 @@ class WanModelSpecification(ModelSpecification):
         *args,
         **kwargs,
     ) -> None:
-        pipeline_cls = WanImageToVideoPipeline if self.transformer_config.image_dim is not None else WanPipeline
+        pipeline_cls = (
+            WanImageToVideoPipeline if self.transformer_config.get("image_dim", None) is not None else WanPipeline
+        )
         # TODO(aryan): this needs refactoring
         if transformer_state_dict is not None:
             pipeline_cls.save_lora_weights(
