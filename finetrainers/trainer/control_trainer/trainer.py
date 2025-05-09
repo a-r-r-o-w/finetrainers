@@ -1,6 +1,5 @@
 import functools
 import json
-import math
 import os
 import re
 import time
@@ -10,7 +9,6 @@ from typing import Any, Dict, Iterable, List, Optional, Union
 import datasets.distributed
 import safetensors.torch
 import torch
-import torch.backends
 import wandb
 from diffusers import DiffusionPipeline
 from diffusers.hooks import apply_layerwise_casting
@@ -20,12 +18,11 @@ from huggingface_hub import create_repo, upload_folder
 from peft import LoraConfig, get_peft_model_state_dict
 from tqdm import tqdm
 
-from finetrainers import data, logging, optimizer, parallel, patches, utils
+from finetrainers import data, logging, models, optimizer, parallel, patches, utils
 from finetrainers.args import BaseArgsType
 from finetrainers.config import TrainingType
-from finetrainers.models import ControlModelSpecification
 from finetrainers.patches import load_lora_weights
-from finetrainers.state import State, TrainState
+from finetrainers.state import TrainState
 
 from ..base import Trainer
 from .config import ControlFullRankConfig, ControlLowRankConfig
@@ -38,11 +35,8 @@ logger = logging.get_logger()
 
 
 class ControlTrainer(Trainer):
-    def __init__(self, args: ArgsType, model_specification: ControlModelSpecification) -> None:
+    def __init__(self, args: ArgsType, model_specification: models.ControlModelSpecification) -> None:
         super().__init__(args)
-
-        self.state = State()
-        self.state.train_state = TrainState()
 
         # Tokenizers
         self.tokenizer = None
@@ -70,9 +64,6 @@ class ControlTrainer(Trainer):
 
         # Checkpoint manager
         self.checkpointer = None
-
-        self._init_distributed()
-        self._init_config_options()
 
         # Perform any patches that might be necessary for training to work as expected
         patches.perform_patches_for_training(self.args, self.state.parallel_backend)
@@ -186,9 +177,7 @@ class ControlTrainer(Trainer):
         model_specification = self.model_specification
 
         if parallel_backend.context_parallel_enabled:
-            raise NotImplementedError(
-                "Context parallelism is not supported yet. This will be supported in the future."
-            )
+            parallel_backend.apply_context_parallel(self.transformer, parallel_backend.get_mesh()["cp"])
 
         if parallel_backend.tensor_parallel_enabled:
             # TODO(aryan): handle fp8 from TorchAO here
@@ -427,17 +416,6 @@ class ControlTrainer(Trainer):
             generator = generator.manual_seed(self.args.seed)
         self.state.generator = generator
 
-        patch_size = 1
-        if (
-            getattr(self.transformer.config, "patch_size", None) is not None
-            and getattr(self.transformer.config, "patch_size_t", None) is not None
-        ):
-            patch_size = self.transformer.config.patch_size * self.transformer.config.patch_size_t
-        elif isinstance(getattr(self.transformer.config, "patch_size", None), int):
-            patch_size = self.transformer.config.patch_size
-        elif isinstance(getattr(self.transformer.config, "patch_size", None), (list, tuple)):
-            patch_size = math.prod(self.transformer.config.patch_size)
-
         scheduler_sigmas = utils.get_scheduler_sigmas(self.scheduler)
         scheduler_sigmas = (
             scheduler_sigmas.to(device=device, dtype=torch.float32) if scheduler_sigmas is not None else None
@@ -446,7 +424,7 @@ class ControlTrainer(Trainer):
         scheduler_alphas = (
             scheduler_alphas.to(device=device, dtype=torch.float32) if scheduler_alphas is not None else None
         )
-        timesteps_buffer = []
+        # timesteps_buffer = []
 
         self.transformer.train()
         data_iterator = iter(self.dataloader)
@@ -503,10 +481,6 @@ class ControlTrainer(Trainer):
 
             train_state.step += 1
             train_state.observed_data_samples += self.args.batch_size * parallel_backend._dp_degree
-
-            lmc_latents = latent_model_conditions["latents"]
-            # TODO(aryan): observed_num_tokens this needs to be allreduced
-            train_state.observed_num_tokens += math.prod(lmc_latents.shape[:-1]) // patch_size
 
             logger.debug(f"Starting training step ({train_state.step}/{self.args.train_steps})")
 
@@ -582,13 +556,15 @@ class ControlTrainer(Trainer):
                 self.optimizer.zero_grad()
 
                 if grad_norm is not None:
-                    logs["grad_norm"] = grad_norm if isinstance(grad_norm, float) else grad_norm.detach().item()
+                    grad_norm = grad_norm if isinstance(grad_norm, float) else grad_norm.detach().item()
                 if (
                     parallel_backend.data_replication_enabled
                     or parallel_backend.data_sharding_enabled
                     or parallel_backend.context_parallel_enabled
                 ):
                     dp_cp_mesh = parallel_backend.get_mesh("dp_cp")
+                    if grad_norm is not None:
+                        grad_norm = parallel.dist_mean(torch.tensor([grad_norm], device=device), dp_cp_mesh)
                     global_avg_loss, global_max_loss = (
                         parallel.dist_mean(torch.tensor([accumulated_loss], device=device), dp_cp_mesh),
                         parallel.dist_max(torch.tensor([accumulated_loss], device=device), dp_cp_mesh),
@@ -596,8 +572,10 @@ class ControlTrainer(Trainer):
                 else:
                     global_avg_loss = global_max_loss = accumulated_loss
 
-                logs["global_avg_loss"] = global_avg_loss
-                logs["global_max_loss"] = global_max_loss
+                logs["train/global_avg_loss"] = global_avg_loss
+                logs["train/global_max_loss"] = global_max_loss
+                if grad_norm is not None:
+                    logs["train/grad_norm"] = grad_norm
                 train_state.global_avg_losses.append(global_avg_loss)
                 train_state.global_max_losses.append(global_max_loss)
                 accumulated_loss = 0.0
@@ -606,7 +584,7 @@ class ControlTrainer(Trainer):
             progress_bar.update(1)
             progress_bar.set_postfix(logs)
 
-            timesteps_buffer.extend([(train_state.step, t) for t in timesteps.detach().cpu().numpy().tolist()])
+            # timesteps_buffer.extend([(train_state.step, t) for t in timesteps.detach().cpu().numpy().tolist()])
 
             if train_state.step % self.args.logging_steps == 0:
                 # TODO(aryan): handle non-SchedulerWrapper schedulers (probably not required eventually) since they might not be dicts
@@ -617,10 +595,9 @@ class ControlTrainer(Trainer):
                 # logs["timesteps"] = wandb.plot.scatter(
                 #     timesteps_table, "step", "timesteps", title="Timesteps distribution"
                 # )
-                timesteps_buffer = []
+                # timesteps_buffer = []
 
-                logs["observed_data_samples"] = train_state.observed_data_samples
-                logs["observed_num_tokens"] = train_state.observed_num_tokens
+                logs["train/observed_data_samples"] = train_state.observed_data_samples
 
                 parallel_backend.log(logs, step=train_state.step)
                 train_state.log_steps.append(train_state.step)
@@ -816,41 +793,6 @@ class ControlTrainer(Trainer):
     def _evaluate(self) -> None:
         raise NotImplementedError("Evaluation has not been implemented yet.")
 
-    def _init_distributed(self) -> None:
-        world_size = int(os.environ.get("WORLD_SIZE", torch.cuda.device_count()))
-
-        # TODO(aryan): handle other backends
-        backend_cls: parallel.ParallelBackendType = parallel.get_parallel_backend_cls(self.args.parallel_backend)
-        self.state.parallel_backend = backend_cls(
-            world_size=world_size,
-            pp_degree=self.args.pp_degree,
-            dp_degree=self.args.dp_degree,
-            dp_shards=self.args.dp_shards,
-            cp_degree=self.args.cp_degree,
-            tp_degree=self.args.tp_degree,
-            backend="nccl",
-            timeout=self.args.init_timeout,
-            logging_dir=self.args.logging_dir,
-            output_dir=self.args.output_dir,
-            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
-        )
-
-        if self.args.seed is not None:
-            self.state.parallel_backend.enable_determinism(self.args.seed)
-
-    def _init_logging(self) -> None:
-        logging._set_parallel_backend(self.state.parallel_backend)
-        logging.set_dependency_log_level(self.args.verbose, self.state.parallel_backend.is_local_main_process)
-        logger.info("Initialized FineTrainers")
-
-    def _init_trackers(self) -> None:
-        # TODO(aryan): handle multiple trackers
-        trackers = [self.args.report_to]
-        experiment_name = self.args.tracker_name or "finetrainers-experiment"
-        self.state.parallel_backend.initialize_trackers(
-            trackers, experiment_name=experiment_name, config=self._get_training_info(), log_dir=self.args.logging_dir
-        )
-
     def _init_directories_and_repositories(self) -> None:
         if self.state.parallel_backend.is_main_process:
             self.args.output_dir = Path(self.args.output_dir)
@@ -860,12 +802,6 @@ class ControlTrainer(Trainer):
             if self.args.push_to_hub:
                 repo_id = self.args.hub_model_id or Path(self.args.output_dir).name
                 self.state.repo_id = create_repo(token=self.args.hub_token, repo_id=repo_id, exist_ok=True).repo_id
-
-    def _init_config_options(self) -> None:
-        # Enable TF32 for faster training on Ampere GPUs: https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
-        if self.args.allow_tf32 and torch.cuda.is_available():
-            torch.backends.cuda.matmul.allow_tf32 = True
-        torch.set_float32_matmul_precision(self.args.float32_matmul_precision)
 
     def _move_components_to_device(
         self, components: Optional[List[torch.nn.Module]] = None, device: Optional[Union[str, torch.device]] = None

@@ -42,6 +42,16 @@ def perform_patches_for_training(args: "BaseArgsType", parallel_backend: "Parall
         patch.patch_peft_move_adapter_to_device_of_base_layer()
 
 
+def perform_patches_for_inference(args: "BaseArgsType", parallel_backend: "ParallelBackendType") -> None:
+    # To avoid circular imports
+    from .dependencies.diffusers import patch
+
+    # Modeling patches
+    patch_scaled_dot_product_attention()
+
+    patch.patch_diffusers_rms_norm_forward()
+
+
 def patch_scaled_dot_product_attention():
     from finetrainers.models.attention_dispatch import attention_dispatch
 

@@ -174,5 +174,6 @@ outputs*
 *dummy*
 *curated*
 validation_dataset/
+wan-framepack/
 
 !requirements.txt

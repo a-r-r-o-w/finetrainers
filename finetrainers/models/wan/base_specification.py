@@ -237,6 +237,7 @@ class WanModelSpecification(ModelSpecification):
             cache_dir=cache_dir,
         )
 
+
         use_last_frame = self.transformer_config.get("pos_embed_seq_len", None) is not None
 
         if condition_model_processors is None:
