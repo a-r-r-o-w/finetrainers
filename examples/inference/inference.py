@@ -247,9 +247,10 @@ class Inference:
                 break
 
             inference_data = inference_data[0]
-            inference_artifacts = self.model_specification.validation(
-                pipeline=self.pipeline, generator=generator, **inference_data
-            )
+            with torch.inference_mode():
+                inference_artifacts = self.model_specification.validation(
+                    pipeline=self.pipeline, generator=generator, **inference_data
+                )
 
             if dp_local_rank != 0:
                 continue
