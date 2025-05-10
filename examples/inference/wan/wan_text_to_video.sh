@@ -41,6 +41,7 @@ CP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp
 # Parallel arguments
 parallel_cmd=(
   $CP_4
+
 )
 
 # Model arguments
@@ -59,7 +60,7 @@ inference_cmd=(
 
 # Attention provider arguments
 attn_provider_cmd=(
-  --attn_provider sage
+  --attn_provider flash
 )
 
 # Torch config arguments

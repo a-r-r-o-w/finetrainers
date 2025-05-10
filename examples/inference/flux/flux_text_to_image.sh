@@ -13,8 +13,11 @@ export FINETRAINERS_LOG_LEVEL="DEBUG"
 
 BACKEND="ptd"
 
-NUM_GPUS=4
-CUDA_VISIBLE_DEVICES="0,1,2,3"
+# NUM_GPUS=4
+# CUDA_VISIBLE_DEVICES="0,1,2,3"
+
+NUM_GPUS=2
+CUDA_VISIBLE_DEVICES="2,3"
 
 # Check the JSON files for the expected JSON format
 DATASET_FILE="examples/inference/flux/dummy_text_to_image.json"
@@ -32,7 +35,8 @@ CP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp
 
 # Parallel arguments
 parallel_cmd=(
-  $CP_4
+  # $CP_4
+  $CP_2
 )
 
 # Model arguments
@@ -52,7 +56,7 @@ inference_cmd=(
 
 # Attention provider arguments
 attn_provider_cmd=(
-  --attn_provider flash_varlen
+  --attn_provider _native_flash
 )
 
 # Torch config arguments

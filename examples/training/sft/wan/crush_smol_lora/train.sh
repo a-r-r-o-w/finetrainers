@@ -14,8 +14,8 @@ export FINETRAINERS_LOG_LEVEL="DEBUG"
 BACKEND="ptd"
 
 # In this setting, I'm using 2 GPUs on a 4-GPU node for training
-NUM_GPUS=2
-CUDA_VISIBLE_DEVICES="2,3"
+NUM_GPUS=1
+CUDA_VISIBLE_DEVICES="3"
 
 # Check the JSON files for the expected JSON format
 TRAINING_DATASET_CONFIG="examples/training/sft/wan/crush_smol_lora/training.json"
@@ -28,10 +28,11 @@ DDP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 4 --dp_shards 1 --c
 FSDP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 2 --cp_degree 1 --tp_degree 1"
 FSDP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 4 --cp_degree 1 --tp_degree 1"
 HSDP_2_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 2 --cp_degree 1 --tp_degree 1"
+CP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 2 --tp_degree 1"
 
 # Parallel arguments
 parallel_cmd=(
-  $DDP_2
+  $DDP_1
 )
 
 # Model arguments
@@ -49,7 +50,7 @@ model_cmd=(
 dataset_cmd=(
   --dataset_config $TRAINING_DATASET_CONFIG
   --dataset_shuffle_buffer_size 10
-  --enable_precomputation
+  # --enable_precomputation
   --precomputation_items 25
   --precomputation_once
 )
@@ -72,8 +73,8 @@ training_cmd=(
   --seed 42
   --batch_size 1
   --train_steps 3000
-  --rank 32
-  --lora_alpha 32
+  --rank 8
+  --lora_alpha 8
   --target_modules "blocks.*(to_q|to_k|to_v|to_out.0)"
   --gradient_accumulation_steps 1
   --gradient_checkpointing
@@ -101,7 +102,7 @@ optimizer_cmd=(
 # Validation arguments
 validation_cmd=(
   --validation_dataset_file "$VALIDATION_DATASET_FILE"
-  --validation_steps 500
+  --validation_steps 251
 )
 
 # Miscellaneous arguments
@@ -157,7 +158,7 @@ elif [ "$BACKEND" == "ptd" ]; then
       "${training_cmd[@]}" \
       "${optimizer_cmd[@]}" \
       "${validation_cmd[@]}" \
-      "${miscellaneous_cmd[@]}"
+      "${miscellaneous_cmd[@]}" --attn_provider_training transformer:_native_flash --attn_provider_inference transformer:_native_flash
 fi
 
 echo -ne "-------------------- Finished executing script --------------------\n\n"

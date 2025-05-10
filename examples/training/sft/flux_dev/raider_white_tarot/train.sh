@@ -4,7 +4,7 @@ set -e -x
 
 # export TORCH_LOGS="+dynamo,recompiles,graph_breaks"
 # export TORCHDYNAMO_VERBOSE=1
-export WANDB_MODE="offline"
+export WANDB_MODE="disabled"
 export NCCL_P2P_DISABLE=1
 export TORCH_NCCL_ENABLE_MONITORING=0
 export FINETRAINERS_LOG_LEVEL="DEBUG"
@@ -14,8 +14,14 @@ export FINETRAINERS_LOG_LEVEL="DEBUG"
 BACKEND="ptd"
 
 # In this setting, I'm using 1 GPUs on a 4-GPU node for training
-NUM_GPUS=1
-CUDA_VISIBLE_DEVICES="3"
+NUM_GPUS=2
+CUDA_VISIBLE_DEVICES="0,1"
+
+# NUM_GPUS=4
+# CUDA_VISIBLE_DEVICES="0,1,2,3"
+
+# NUM_GPUS=1
+# CUDA_VISIBLE_DEVICES="3"
 
 # Check the JSON files for the expected JSON format
 TRAINING_DATASET_CONFIG="examples/training/sft/flux_dev/raider_white_tarot/training.json"
@@ -28,16 +34,19 @@ DDP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 4 --dp_shards 1 --c
 FSDP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 2 --cp_degree 1 --tp_degree 1"
 FSDP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 4 --cp_degree 1 --tp_degree 1"
 HSDP_2_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 2 --dp_shards 2 --cp_degree 1 --tp_degree 1"
+CP_2="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 2 --tp_degree 1"
+CP_4="--parallel_backend $BACKEND --pp_degree 1 --dp_degree 1 --dp_shards 1 --cp_degree 4 --tp_degree 1"
 
 # Parallel arguments
 parallel_cmd=(
-  $DDP_1
+  $CP_2
 )
 
 # Model arguments
 model_cmd=(
   --model_name "flux"
   --pretrained_model_name_or_path "black-forest-labs/FLUX.1-dev"
+  --cache_dir /raid/.cache/huggingface
 )
 
 # Dataset arguments
@@ -45,9 +54,10 @@ model_cmd=(
 # dataset 3 times for multi-resolution training. This gives us a total of about 240 images.
 dataset_cmd=(
   --dataset_config $TRAINING_DATASET_CONFIG
-  --dataset_shuffle_buffer_size 32
-  --enable_precomputation
-  --precomputation_items 240
+  # --enable_precomputation
+  # --dataset_shuffle_buffer_size 32
+  --dataset_shuffle_buffer_size 1
+  --precomputation_items 1
   --precomputation_once
 )
 
@@ -68,13 +78,13 @@ training_cmd=(
   --training_type "lora"
   --seed 42
   --batch_size 1
-  --train_steps 1000
-  --rank 32
-  --lora_alpha 32
+  --train_steps 100
+  --rank 8
+  --lora_alpha 8
   --target_modules "transformer_blocks.*(to_q|to_k|to_v|to_out.0|add_q_proj|add_k_proj|add_v_proj|to_add_out)"
   --gradient_accumulation_steps 1
-  --gradient_checkpointing
-  --checkpointing_steps 251
+  # --gradient_checkpointing
+  --checkpointing_steps 1001
   --checkpointing_limit 2
   # --resume_from_checkpoint 3000
   --enable_slicing
@@ -154,7 +164,7 @@ elif [ "$BACKEND" == "ptd" ]; then
       "${training_cmd[@]}" \
       "${optimizer_cmd[@]}" \
       "${validation_cmd[@]}" \
-      "${miscellaneous_cmd[@]}"
+      "${miscellaneous_cmd[@]}" --attn_provider_training transformer:_native_flash --attn_provider_inference transformer:_native_flash
 fi
 
 echo -ne "-------------------- Finished executing script --------------------\n\n"
