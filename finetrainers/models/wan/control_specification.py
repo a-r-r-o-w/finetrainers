@@ -65,7 +65,7 @@ class WanControlModelSpecification(ControlModelSpecification):
         )
 
         if condition_model_processors is None:
-            condition_model_processors = [T5Processor(["encoder_hidden_states", "prompt_attention_mask"])]
+            condition_model_processors = [T5Processor(["encoder_hidden_states", "__drop__"])]
         if latent_model_processors is None:
             latent_model_processors = [WanLatentEncodeProcessor(["latents", "latents_mean", "latents_std"])]
         if control_model_processors is None:
@@ -203,7 +203,6 @@ class WanControlModelSpecification(ControlModelSpecification):
         input_keys = set(conditions.keys())
         conditions = super().prepare_conditions(**conditions)
         conditions = {k: v for k, v in conditions.items() if k not in input_keys}
-        conditions.pop("prompt_attention_mask", None)
         return conditions
 
     @torch.no_grad()
