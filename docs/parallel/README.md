@@ -14,11 +14,12 @@ As an experiment for comparing performance of different training backends, Finet
 
 ## Support matrix
 
-There are various algorithms for parallel training. Currently, we only support:
+Currently supported parallelizations include: 
 - [DDP](https://pytorch.org/docs/stable/notes/ddp.html)
 - [FSDP2](https://pytorch.org/docs/stable/fsdp.html)
 - [HSDP](https://pytorch.org/docs/stable/fsdp.html)
-- [TP](https://pytorch.org/docs/stable/distributed.tensor.parallel.html)
+- [CP](https://docs.pytorch.org/tutorials/prototype/context_parallel.html)
+<!-- - [TP](https://pytorch.org/docs/stable/distributed.tensor.parallel.html) -->
 
 ## Training
 
@@ -28,7 +29,7 @@ The following parameters are relevant for launching training:
 - `pp_degree`: The degree of pipeline parallelism. Currently unsupported.
 - `dp_degree`: The degree of data parallelis/replicas. Defaults to `1`.
 - `dp_shards`: The number of shards for data parallelism. Defaults to `1`.
-- `cp_degree`: The degree of context parallelism. Currently unsupported.
+- `cp_degree`: The degree of context parallelism.
 - `tp_degree`: The degree of tensor parallelism.
 
 For launching training with the Pytorch DTensor backend, use the following:
@@ -57,3 +58,7 @@ accelerate launch --config_file accelerate_configs/uncompiled_4.yaml --gpu_ids 0
 # Multi-node - Nx8 GPUs available
 # TODO(aryan): Add slurm script
 ```
+
+## Inference
+
+For inference-only purposes, the example implementation can be found in the [examples/inference/](../../examples/inference/) directory.
