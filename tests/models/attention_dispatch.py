@@ -1,50 +1,44 @@
+import os
+import random
 import unittest
 
+import numpy as np
 import torch
+from torch.nn.functional import scaled_dot_product_attention
 
-from finetrainers.models.attention_dispatch import AttentionProvider, attention_dispatch, attention_provider
+from finetrainers.models.attention_dispatch import (
+    AttentionProvider,
+    _AttentionProviderRegistry,
+    _set_context_parallel_options,
+    attention_dispatch,
+    attention_provider,
+    flash_attn_flash_attention,
+    native_cudnn_attention,
+    native_efficient_attention,
+    native_flash_attention,
+)
+from finetrainers.parallel.ptd import _EquipartitionSharder
+
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+
+def get_world_size():
+    if torch.distributed.is_initialized():
+        return torch.distributed.get_world_size()
+    return int(os.environ.get("WORLD_SIZE", 1))
 
 
 class AttentionDispatchTest(unittest.TestCase):
-    def _create_dummy_inputs(
-        self, batch_size=2, num_heads=8, seq_len=256, head_dim=64, dtype=torch.bfloat16, device="cuda"
-    ):
-        torch.manual_seed(0)
-        query = torch.randn(batch_size, num_heads, seq_len, head_dim, dtype=dtype, device=device)
-        key = torch.randn(batch_size, num_heads, seq_len, head_dim, dtype=dtype, device=device)
-        value = torch.randn(batch_size, num_heads, seq_len, head_dim, dtype=dtype, device=device)
-        return query, key, value
+    @classmethod
+    def setUpClass(cls):
+        set_seed(0)
 
-    def _check_forward_pass(self, provider: AttentionProvider, query, key, value):
-        kwargs = {}
-        if provider == AttentionProvider._SAGE_QK_INT8_PV_FP16_CUDA:
-            kwargs["pv_accum_dtype"] = "fp32"
-        with attention_provider(provider):
-            output = attention_dispatch(query, key, value, attention_kwargs=kwargs)
-        self.assertIsNotNone(output)
-        self.assertEqual(output.shape, query.shape)
-        return output
-
-    def _check_backward_pass(self, provider: AttentionProvider, query, key, value):
-        query.requires_grad_(True)
-        key.requires_grad_(True)
-        value.requires_grad_(True)
-
-        with attention_provider(provider):
-            output = attention_dispatch(query, key, value)
-            loss = output.mean()
-            loss.backward()
-
-        self.assertTrue(query.grad is not None)
-        self.assertTrue(key.grad is not None)
-        self.assertTrue(value.grad is not None)
-
-        query.grad.zero_()
-        key.grad.zero_()
-        value.grad.zero_()
-        return output
-
-    def test_forward_pass_all_providers(self):
+    def test_forward(self):
         if not torch.cuda.is_available():
             self.skipTest("CUDA is not available")
         cuda_capability = torch.cuda.get_device_capability()
@@ -85,7 +79,7 @@ class AttentionDispatchTest(unittest.TestCase):
             except Exception as e:
                 print(f"Warning: Forward pass test failed for {provider} with error: {e}")
 
-    def test_backward_pass_selected_providers(self):
+    def test_backward(self):
         if not torch.cuda.is_available():
             self.skipTest("CUDA is not available")
 
@@ -116,6 +110,156 @@ class AttentionDispatchTest(unittest.TestCase):
             except Exception as e:
                 print(f"Warning: Backward pass test failed for {provider} with error: {e}")
 
+    def _create_dummy_inputs(
+        self, batch_size=2, num_heads=8, seq_len=256, head_dim=64, dtype=torch.bfloat16, device="cuda"
+    ):
+        torch.manual_seed(0)
+        query = torch.randn(batch_size, num_heads, seq_len, head_dim, dtype=dtype, device=device)
+        key = torch.randn(batch_size, num_heads, seq_len, head_dim, dtype=dtype, device=device)
+        value = torch.randn(batch_size, num_heads, seq_len, head_dim, dtype=dtype, device=device)
+        return query, key, value
 
-if __name__ == "__main__":
-    unittest.main()
+    def _check_forward_pass(self, provider: AttentionProvider, query, key, value):
+        kwargs = {}
+        if provider == AttentionProvider._SAGE_QK_INT8_PV_FP16_CUDA:
+            kwargs["pv_accum_dtype"] = "fp32"
+        with attention_provider(provider):
+            output = attention_dispatch(query, key, value, attention_kwargs=kwargs)
+        self.assertIsNotNone(output)
+        self.assertEqual(output.shape, query.shape)
+        return output
+
+    def _check_backward_pass(self, provider: AttentionProvider, query, key, value):
+        query.requires_grad_(True)
+        key.requires_grad_(True)
+        value.requires_grad_(True)
+
+        with attention_provider(provider):
+            output = attention_dispatch(query, key, value)
+            loss = output.mean()
+            loss.backward()
+
+        self.assertTrue(query.grad is not None)
+        self.assertTrue(key.grad is not None)
+        self.assertTrue(value.grad is not None)
+
+        query.grad.zero_()
+        key.grad.zero_()
+        value.grad.zero_()
+        return output
+
+
+class RingAttentionTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        torch.distributed.init_process_group(backend="nccl")
+        rank, world_size = torch.distributed.get_rank(), torch.distributed.get_world_size()
+
+        cls.rank = rank
+        cls.world_size = world_size
+        torch.cuda.set_device(rank)
+        cls.mesh = torch.distributed.device_mesh.init_device_mesh("cuda", (world_size,))
+
+        set_seed(0)
+        cls.batch_size = 2
+        cls.num_heads = 8
+        cls.seq_len = 1024
+        cls.head_dim = 64
+        cls.dtype = torch.float16
+        cls.device = "cuda"
+
+        _AttentionProviderRegistry._set_context_parallel(
+            mesh=cls.mesh, convert_to_fp32=True, rotate_method="allgather"
+        )
+        _set_context_parallel_options(is_causal=False)
+
+        cls.query = torch.randn(
+            cls.batch_size,
+            cls.num_heads,
+            cls.seq_len,
+            cls.head_dim,
+            dtype=cls.dtype,
+            device=cls.device,
+            requires_grad=False,
+        )
+        cls.key = torch.randn(
+            cls.batch_size,
+            cls.num_heads,
+            cls.seq_len,
+            cls.head_dim,
+            dtype=cls.dtype,
+            device=cls.device,
+            requires_grad=False,
+        )
+        cls.value = torch.randn(
+            cls.batch_size,
+            cls.num_heads,
+            cls.seq_len,
+            cls.head_dim,
+            dtype=cls.dtype,
+            device=cls.device,
+            requires_grad=False,
+        )
+
+        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
+            cls.reference_output = scaled_dot_product_attention(cls.query, cls.key, cls.value)
+
+        cls.query, cls.key, cls.value = (
+            _EquipartitionSharder.shard(x, dim=2, mesh=cls.mesh) for x in (cls.query, cls.key, cls.value)
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        torch.distributed.destroy_process_group()
+
+    def _test_forward_native_cudnn_attention(self, atol: float = 1e-3):
+        output = native_cudnn_attention(self.query, self.key, self.value)
+        output = _EquipartitionSharder.unshard(output, dim=2, mesh=self.mesh)
+        self.assertEqual(output.shape, self.reference_output.shape)
+        self.assertTrue(torch.allclose(output, self.reference_output, atol=atol))
+
+    def _test_forward_native_efficient_attention(self, atol: float = 1e-3):
+        output = native_efficient_attention(self.query, self.key, self.value)
+        output = _EquipartitionSharder.unshard(output, dim=2, mesh=self.mesh)
+        self.assertEqual(output.shape, self.reference_output.shape)
+        self.assertTrue(torch.allclose(output, self.reference_output, atol=atol))
+
+    def _test_forward_native_flash_attention(self, atol: float = 1e-3):
+        output = native_flash_attention(self.query, self.key, self.value)
+        output = _EquipartitionSharder.unshard(output, dim=2, mesh=self.mesh)
+        self.assertEqual(output.shape, self.reference_output.shape)
+        self.assertTrue(torch.allclose(output, self.reference_output, atol=atol))
+
+    def _test_forward_flash_attn_flash_attention(self, atol: float = 1e-3):
+        output = flash_attn_flash_attention(self.query, self.key, self.value)
+        output = _EquipartitionSharder.unshard(output, dim=2, mesh=self.mesh)
+        self.assertEqual(output.shape, self.reference_output.shape)
+        self.assertTrue(torch.allclose(output, self.reference_output, atol=atol))
+
+
+class RingAttentionCPTesterMixin:
+    def test_forward_native_cudnn_attention(self):
+        self._test_forward_native_cudnn_attention(atol=1e-2)
+
+    def test_forward_native_efficient_attention(self):
+        self._test_forward_native_efficient_attention(atol=1e-2)
+
+    def test_forward_native_flash_attention(self):
+        self._test_forward_native_flash_attention(atol=1e-2)
+
+    def test_forward_flash_attn_flash_attention(self):
+        self._test_forward_flash_attn_flash_attention(atol=1e-2)
+
+
+@unittest.skipIf(
+    not torch.cuda.is_available() or get_world_size() != 2, "CUDA is not available or world size is not 2"
+)
+class RingAttentionCP2Test(RingAttentionTest, RingAttentionCPTesterMixin):
+    pass
+
+
+@unittest.skipIf(
+    not torch.cuda.is_available() or get_world_size() != 4, "CUDA is not available or world size is not 4"
+)
+class RingAttentionCP4Test(RingAttentionTest, RingAttentionCPTesterMixin):
+    pass
