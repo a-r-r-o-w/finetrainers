@@ -163,9 +163,9 @@ class RingAttentionTest(unittest.TestCase):
         set_seed(0)
         cls.batch_size = 2
         cls.num_heads = 8
-        cls.seq_len = 1024
+        cls.seq_len = 256
         cls.head_dim = 64
-        cls.dtype = torch.float16
+        cls.dtype = torch.bfloat16
         cls.device = "cuda"
 
         _AttentionProviderRegistry._set_context_parallel(
@@ -173,39 +173,49 @@ class RingAttentionTest(unittest.TestCase):
         )
         _set_context_parallel_options(is_causal=False)
 
-        cls.query = torch.randn(
+        cls.full_query = torch.randn(
             cls.batch_size,
             cls.num_heads,
-            cls.seq_len,
+            cls.seq_len * cls.world_size,
             cls.head_dim,
             dtype=cls.dtype,
             device=cls.device,
-            requires_grad=False,
+            requires_grad=True,
         )
-        cls.key = torch.randn(
+        cls.full_key = torch.randn(
             cls.batch_size,
             cls.num_heads,
-            cls.seq_len,
+            cls.seq_len * cls.world_size,
             cls.head_dim,
             dtype=cls.dtype,
             device=cls.device,
-            requires_grad=False,
+            requires_grad=True,
         )
-        cls.value = torch.randn(
+        cls.full_value = torch.randn(
             cls.batch_size,
             cls.num_heads,
-            cls.seq_len,
+            cls.seq_len * cls.world_size,
             cls.head_dim,
             dtype=cls.dtype,
             device=cls.device,
-            requires_grad=False,
+            requires_grad=True,
         )
 
-        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.FLASH_ATTENTION):
-            cls.reference_output = scaled_dot_product_attention(cls.query, cls.key, cls.value)
+        # Ensure all ranks have the same data
+        with torch.no_grad():
+            torch.distributed.broadcast(cls.full_query, src=0)
+            torch.distributed.broadcast(cls.full_key, src=0)
+            torch.distributed.broadcast(cls.full_value, src=0)
+
+        with torch.nn.attention.sdpa_kernel(torch.nn.attention.SDPBackend.MATH):
+            reference_output = scaled_dot_product_attention(cls.full_query, cls.full_key, cls.full_value)
+
+        cls.reference_output = reference_output.detach().clone()
+        reference_output.sum().backward()
 
         cls.query, cls.key, cls.value = (
-            _EquipartitionSharder.shard(x, dim=2, mesh=cls.mesh) for x in (cls.query, cls.key, cls.value)
+            _EquipartitionSharder.shard(x, dim=2, mesh=cls.mesh).detach().clone()
+            for x in (cls.full_query, cls.full_key, cls.full_value)
         )
 
     @classmethod
@@ -236,6 +246,74 @@ class RingAttentionTest(unittest.TestCase):
         self.assertEqual(output.shape, self.reference_output.shape)
         self.assertTrue(torch.allclose(output, self.reference_output, atol=atol))
 
+    def _test_backward_native_cudnn_attention(self, atol: float = 1e-3):
+        query, key, value = (x.detach().clone() for x in (self.query, self.key, self.value))
+        query.requires_grad = True
+        key.requires_grad = True
+        value.requires_grad = True
+        output = native_cudnn_attention(query, key, value)
+        output = _EquipartitionSharder.unshard(output, dim=2, mesh=self.mesh)
+        output.sum().backward()
+        with torch.no_grad():
+            q_g, k_g, v_g = (
+                _EquipartitionSharder.shard(x, dim=2, mesh=self.mesh)
+                for x in (self.full_query.grad, self.full_key.grad, self.full_value.grad)
+            )
+        self.assertTrue(torch.allclose(query.grad, q_g, atol=atol))
+        self.assertTrue(torch.allclose(key.grad, k_g, atol=atol))
+        self.assertTrue(torch.allclose(value.grad, v_g, atol=atol))
+
+    def _test_backward_native_efficient_attention(self, atol: float = 1e-3):
+        query, key, value = (x.detach().clone() for x in (self.query, self.key, self.value))
+        query.requires_grad = True
+        key.requires_grad = True
+        value.requires_grad = True
+        output = native_efficient_attention(query, key, value)
+        output = _EquipartitionSharder.unshard(output, dim=2, mesh=self.mesh)
+        output.sum().backward()
+        with torch.no_grad():
+            q_g, k_g, v_g = (
+                _EquipartitionSharder.shard(x, dim=2, mesh=self.mesh)
+                for x in (self.full_query.grad, self.full_key.grad, self.full_value.grad)
+            )
+        self.assertTrue(torch.allclose(query.grad, q_g, atol=atol))
+        self.assertTrue(torch.allclose(key.grad, k_g, atol=atol))
+        self.assertTrue(torch.allclose(value.grad, v_g, atol=atol))
+
+    def _test_backward_native_flash_attention(self, atol: float = 1e-3):
+        query, key, value = (x.detach().clone() for x in (self.query, self.key, self.value))
+        query.requires_grad = True
+        key.requires_grad = True
+        value.requires_grad = True
+        output = native_flash_attention(query, key, value)
+        output = _EquipartitionSharder.unshard(output, dim=2, mesh=self.mesh)
+        output.sum().backward()
+        with torch.no_grad():
+            q_g, k_g, v_g = (
+                _EquipartitionSharder.shard(x, dim=2, mesh=self.mesh)
+                for x in (self.full_query.grad, self.full_key.grad, self.full_value.grad)
+            )
+        self.assertTrue(torch.allclose(query.grad, q_g, atol=atol))
+        self.assertTrue(torch.allclose(key.grad, k_g, atol=atol))
+        self.assertTrue(torch.allclose(value.grad, v_g, atol=atol))
+
+    def _test_backward_flash_attn_flash_attention(self, atol: float = 1e-3):
+        query, key, value = (x.detach().clone() for x in (self.query, self.key, self.value))
+        query.requires_grad = True
+        key.requires_grad = True
+        value.requires_grad = True
+        output = flash_attn_flash_attention(query, key, value)
+        output = _EquipartitionSharder.unshard(output, dim=2, mesh=self.mesh)
+        output.sum().backward()
+        with torch.no_grad():
+            q_g, k_g, v_g = (
+                _EquipartitionSharder.shard(x, dim=2, mesh=self.mesh)
+                for x in (self.full_query.grad, self.full_key.grad, self.full_value.grad)
+            )
+        self.assertTrue(torch.allclose(query.grad, q_g, atol=atol))
+        self.assertTrue(torch.allclose(key.grad, k_g, atol=atol))
+        self.assertTrue(torch.allclose(value.grad, v_g, atol=atol))
+
 
 class RingAttentionCPTesterMixin:
     def test_forward_native_cudnn_attention(self):
@@ -249,6 +327,18 @@ class RingAttentionCPTesterMixin:
 
     def test_forward_flash_attn_flash_attention(self):
         self._test_forward_flash_attn_flash_attention(atol=1e-2)
+
+    def test_backward_native_cudnn_attention(self):
+        atol = 1e-2 * self.world_size  # TODO: make bounds more strict
+        self._test_backward_native_cudnn_attention(atol=atol)
+
+    def test_backward_native_efficient_attention(self):
+        atol = 1e-2 * self.world_size  # TODO: make bounds more strict
+        self._test_backward_native_efficient_attention(atol=atol)
+
+    def test_backward_native_flash_attention(self):
+        atol = 1e-2 * self.world_size  # TODO: make bounds more strict
+        self._test_backward_native_flash_attention(atol=atol)
 
 
 @unittest.skipIf(
