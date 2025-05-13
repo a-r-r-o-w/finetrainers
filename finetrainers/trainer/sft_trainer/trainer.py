@@ -166,7 +166,7 @@ class SFTTrainer(Trainer):
                 raise NotImplementedError("Data sharding is not supported with Accelerate yet.")
 
             dp_method = "HSDP" if parallel_backend.data_replication_enabled else "FSDP"
-            logger.info(f"Applying {dp_method} to the model")
+            logger.info(f"Applying {dp_method} on the model")
 
             if parallel_backend.data_replication_enabled or parallel_backend.context_parallel_enabled:
                 dp_mesh_names = ("dp_replicate", "dp_shard_cp")
