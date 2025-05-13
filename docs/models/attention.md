@@ -124,13 +124,13 @@ class CPOutput:
 
 ### Training
 
-To enable training with context parallelism, you need to make sure a suitable CP plan is registered for the model you are using and launch training with `--cp_degree 2`. For models supported in finetrainers, this is internally done in the [transformer metadata](../../finetrainers/models/_metadata/transformer.py) file. For custom models, make sure to pass the `plan` argument to the `apply_context_parallel` function.
+To enable training with context parallelism, you need to make sure a suitable CP plan is registered for the model you are using and launch training with `--cp_degree 2`. For models supported in finetrainers, this is internally done in the [transformer metadata](https://github.com/a-r-r-o-w/finetrainers/tree/main/finetrainers/models/_metadata/transformer.py) file. For custom models, make sure to pass the `plan` argument to the `apply_context_parallel` function.
 
 Currently supported models include: CogVideoX, CogView4, Flux, Wan 2.1. Support for more models and attention providers is in progress.
 
 ### Inference
 
-The following example shows how to run context parallel inference. For more examples and ready-to-use inference scripts, check out the [examples/inference](../../examples/inference/) folder.
+The following example shows how to run context parallel inference. For more examples and ready-to-use inference scripts, check out the [examples/inference](https://github.com/a-r-r-o-w/finetrainers/tree/main/examples/inference/) folder.
 
 <details>
 <summary> Example </summary>
