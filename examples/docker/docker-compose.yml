@@ -1,0 +1,20 @@
+services:
+  finetrainers:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: finetrainers:latest
+    container_name: finetrainers
+    volumes:
+      # Simple setting: mount the current directory
+      - .:/app
+      # Create a directory for datasets
+      - ./datasets:/app/datasets
+      # Create a directory for outputs
+      - ./outputs:/app/outputs
+    # Set tty to true for interactive use
+    tty: true
+    # Common GPU access setting for Windows
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
