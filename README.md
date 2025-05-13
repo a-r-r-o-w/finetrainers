@@ -54,7 +54,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 
 ## Features
 
-- DDP, FSDP-2 & HSDP support for all models
+- DDP, FSDP-2 & HSDP, CP support
 - LoRA and full-rank finetuning; Conditional Control training
 - Memory-efficient single-GPU training
 - Multiple attention backends supported - `flash`, `flex`, `sage`, `xformers` (see [attention](./docs/models/attention.md) docs)

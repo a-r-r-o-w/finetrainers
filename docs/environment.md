@@ -27,6 +27,9 @@ NVIDIA A100-SXM4-80GB, 81920 MiB
 
 Other versions of dependencies may or may not work as expected. We would like to make finetrainers work on a wider range of environments, but due to the complexity of testing at the early stages of development, we are unable to do so. The long term goals include compatibility with most pytorch versions on CUDA, MPS, ROCm and XLA devices.
 
+> [!IMPORTANT]
+>
+> For context parallelism, PyTorch 2.6+ is required.
 
 ## Configuration
 
