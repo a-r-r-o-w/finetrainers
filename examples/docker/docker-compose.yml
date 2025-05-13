@@ -6,15 +6,15 @@ services:
     image: finetrainers:latest
     container_name: finetrainers
     volumes:
-      # シンプルな設定：カレントディレクトリをマウント
+      # Simple setting: mount the current directory
       - .:/app
-      # データセット用のディレクトリ作成
+      # Create a directory for datasets
       - ./datasets:/app/datasets
-      # 出力用のディレクトリ作成
+      # Create a directory for outputs
       - ./outputs:/app/outputs
-    # ttyをtrueに設定してインタラクティブに使用可能に
+    # Set tty to true for interactive use
     tty: true
-    # Windowsで一般的なGPUアクセス設定
+    # Common GPU access setting for Windows
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
