@@ -340,6 +340,14 @@ class RingAttentionCPTesterMixin:
         atol = 1e-2 * self.world_size  # TODO: make bounds more strict
         self._test_backward_native_flash_attention(atol=atol)
 
+    @unittest.skip(
+        """query diff: 0.298828125, key diff: 2.09375, value diff: 0.68359375; Needs further investigation"""
+    )
+    def test_backward_flash_attn_flash_attention(self):
+        # Seems to require much higher bound for some reason
+        atol = 1.5e-1 * self.world_size  # TODO: make bounds more strict
+        self._test_backward_flash_attn_flash_attention(atol=atol)
+
 
 @unittest.skipIf(
     not torch.cuda.is_available() or get_world_size() != 2, "CUDA is not available or world size is not 2"

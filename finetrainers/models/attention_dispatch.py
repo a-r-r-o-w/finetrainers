@@ -1,4 +1,5 @@
 import contextlib
+import functools
 import inspect
 from enum import Enum
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
@@ -223,6 +224,7 @@ def _finetrainers_flash_attn_backward(
     alibi_slopes: Optional[torch.Tensor] = None,
     deterministic: bool = False,
     rng_state: Optional[torch.Tensor] = None,
+    _permute_outputs: bool = True,
 ):
     dq, dk, dv = torch.empty_like(query), torch.empty_like(key), torch.empty_like(value)
     grad_out = grad_out.permute(0, 2, 1, 3).contiguous()  # [B, N, S, D] -> [B, S, N, D]
@@ -252,7 +254,8 @@ def _finetrainers_flash_attn_backward(
     dk = dk[..., : grad_out.shape[-1]]
     dv = dv[..., : grad_out.shape[-1]]
 
-    dq, dk, dv = (x.permute(0, 2, 1, 3).contiguous() for x in (dq, dk, dv))  # [B, S, N, D] -> [B, N, S, D]
+    if _permute_outputs:
+        dq, dk, dv = (x.permute(0, 2, 1, 3).contiguous() for x in (dq, dk, dv))  # [B, S, N, D] -> [B, N, S, D]
     return dq, dk, dv
 
 
@@ -726,11 +729,16 @@ class _native_ring_flash_attn_flash_attention(torch.autograd.Function):
         *args: torch.Tensor,
     ):
         q, k, v, out, lse, rng_state = ctx.saved_tensors
+        lse = lse.permute(0, 2, 1).contiguous()  # [B, N, S] -> [B, S, N]
 
         grad_query, grad_key, grad_value = _templated_ring_attention_backward(
             mesh=_AttentionProviderRegistry._mesh,
-            seq_dim=2,
-            op=_finetrainers_flash_attn_backward,
+            # This needs to be 1 because q, k, v, out_padded returned from forward are BSND instead of BNSD
+            # The grad_out permutation is handled in _finetrainers_flash_attn_backward, and the outputs from that are expected to have
+            # shape BSND instead of BNSD (requirement of _templated_ring_attention_backward), so we need to set seq_dim=1 and permute the
+            # returned outputs
+            seq_dim=1,
+            op=functools.partial(_finetrainers_flash_attn_backward, _permute_outputs=False),
             grad_out=grad_out,
             grad_out_name="grad_out",
             query=q,
@@ -746,6 +754,9 @@ class _native_ring_flash_attn_flash_attention(torch.autograd.Function):
             alibi_slopes=ctx.alibi_slopes,
             deterministic=ctx.deterministic,
             rng_state=rng_state,
+        )
+        grad_query, grad_key, grad_value = (
+            x.permute(0, 2, 1, 3).contiguous() for x in (grad_query, grad_key, grad_value)
         )
 
         return grad_query, grad_key, grad_value, None, None, None, None, None, None, None, None
@@ -1532,7 +1543,7 @@ def native_math_attention(
 @_AttentionProviderRegistry.register(
     AttentionProvider.SAGE,
     constraints=[_check_device_cuda, _check_qkv_dtype_bf16_or_fp16, _check_shape],
-    supports_cp=True,
+    supports_cp=False,
 )
 def _sage_attention(
     query: torch.Tensor,
