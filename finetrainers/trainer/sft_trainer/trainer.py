@@ -869,10 +869,7 @@ class SFTTrainer(Trainer):
                 utils.synchronize_device()
                 torch.cuda.reset_peak_memory_stats(parallel_backend.device)
 
-            if self.args.precomputation_once:
-                consume_fn = preprocessor.consume_once
-            else:
-                consume_fn = preprocessor.consume
+            consume_fn = preprocessor.consume_once if self.args.precomputation_once else preprocessor.consume
 
             # Prepare condition iterators
             condition_components, component_names, component_modules = {}, [], []
