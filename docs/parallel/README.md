@@ -7,10 +7,10 @@ As an experiment for comparing performance of different training backends, Finet
 - [Nanotron](https://github.com/huggingface/nanotron)
 - [Megatron-LM](https://github.com/NVIDIA/Megatron-LM)
 
-> [!IMPORTANT]
-> The multi-backend support is completely experimental and only serves to satisfy my curiosity of how much of a tradeoff there is between performance and ease of use. The Pytorch DTensor backend is the only one with stable support, following Accelerate.
->
-> Users will not have to worry about backwards-breaking changes or dependencies if they stick to the Pytorch DTensor backend.
+!!! Warning
+    The multi-backend support is completely experimental and only serves to satisfy my curiosity of how much of a tradeoff there is between performance and ease of use. The Pytorch DTensor backend is the only one with stable support, following Accelerate.
+
+    Users will not have to worry about backwards-breaking changes or dependencies if they stick to the Pytorch DTensor backend.
 
 ## Support matrix
 
@@ -32,7 +32,7 @@ The following parameters are relevant for launching training:
 - `cp_degree`: The degree of context parallelism.
 - `tp_degree`: The degree of tensor parallelism.
 
-For launching training with the Pytorch DTensor backend, use the following:
+For launching training with the Pytorch DTensor backend, use the following command:
 
 ```bash
 # Single node - 8 GPUs available
@@ -46,7 +46,7 @@ torchrun --standalone --nodes=1 --nproc_per_node=4 --rdzv_backend c10d --rdzv_en
 # TODO(aryan): Add slurm script
 ```
 
-For launching training with the Accelerate backend, use the following:
+For launching training with the Accelerate backend, use the following command:
 
 ```bash
 # Single node - 8 GPUs available

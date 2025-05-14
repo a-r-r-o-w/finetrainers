@@ -16,7 +16,10 @@ chmod +x ./examples/training/sft/wan/crush_smol_lora/train.sh
 ./examples/training/sft/wan/crush_smol_lora/train.sh
 ```
 
-On Windows, you will have to modify the script to a compatible format to run it. [TODO(aryan): improve instructions for Windows]
+On Windows, you will have to modify the script to a compatible format to run it. 
+
+??? Info
+    [TODO(aryan): improve instructions for Windows]
 
 ## Supported checkpoints
 

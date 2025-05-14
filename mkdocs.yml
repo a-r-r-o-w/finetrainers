@@ -1,0 +1,52 @@
+site_name: FineTrainers Documentation
+site_description: "Dcoumentation for finetrainers"
+theme:
+  name: "material"
+  font:
+    text: Hack
+  features:
+    - navigation.footer
+    - toc.follow
+    - navigation.top
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - content.code.copy
+    - content.code.annotate
+  palette:
+      # Light Mode
+    - scheme: default
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+      primary: white
+      accent: indigo
+    # Dark Mode
+    - scheme: slate
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+      primary: black
+      accent: indigo
+docs_dir: "/workspaces/finetrainers/docs"
+
+markdown_extensions:
+  - attr_list
+  - md_in_html
+  - pymdownx.blocks.caption
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details

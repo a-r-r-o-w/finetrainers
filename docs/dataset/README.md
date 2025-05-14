@@ -10,12 +10,11 @@ Dataset loading format support is very limited at the moment. This will be impro
 
 #### Two file format
 
-> [!NOTE]
-> Relevant classes to look for implementation:
-> - ImageFileCaptionFileListDataset
-> - VideoFileCaptionFileListDataset
->
-> Supports loading directly from the HF Hub.
+!!! TIP
+    Relevant classes to look for implementation:
+    1. ImageFileCaptionFileListDataset
+    2. VideoFileCaptionFileListDataset
+    Supports loading directly from the HF Hub.
 
 Your dataset structure should look like this. Running the `tree` command, you should see something similar to:
 
