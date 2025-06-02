@@ -1,59 +1,28 @@
-# Simple workflow for deploying static content to GitHub Pages
-name: Deploy website to Github Pages
-
+name: Publish documentation
 on:
-  # Runs on pushes targeting the default branch
   push:
-    branches: ["main"]
-
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+    branches:
+      - main
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
-
+  contents: write
 jobs:
-  # Single deploy job since we're just deploying
   deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-      - name: Set up Git
+      - uses: actions/checkout@v4
+      - name: Configure Git Credentials
         run: |
-          git fetch origin main
-          git diff --exit-code origin/main -- ./site || echo "Changes detected in './site'."
-      - name: Skip Deployment if No Changes
-        id: check_changes
-        run: |
-          if git diff --exit-code origin/main -- ./site; then
-            echo "No changes detected in './site'. Skipping deployment."
-            echo "should_skip=true" >> $GITHUB_ENV
-          else
-            echo "Changes detected. Proceeding with deployment."
-            echo "should_skip=false" >> $GITHUB_ENV
-          fi
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+      - uses: actions/setup-python@v5
         with:
-          # Upload the site
-          path: '/workspaces/finetrainers/site'
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          python-version: 3.x
+      - run: echo "cache_id=$(date --utc '+%V')" >> $GITHUB_ENV 
+      - uses: actions/cache@v4
+        with:
+          key: mkdocs-material-${{ env.cache_id }}
+          path: .cache
+          restore-keys: |
+            mkdocs-material-
+      - run: pip install mkdocs-material 
+      - run: mkdocs gh-deploy --force

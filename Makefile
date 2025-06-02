@@ -2,7 +2,7 @@
 MKDOCS = mkdocs
 CONFIG_FILE = /workspaces/finetrainers/mkdocs.yml
 CHECK_DIRS = finetrainers tests examples train.py setup.py
-DOCS_DIR = /workspaces/finetrainers/static_docs/source
+DOCS_DIR = /workspaces/finetrainers/site
 
 # Targets
 .PHONY: serve build clean quality style
