@@ -33,7 +33,21 @@ torchrun --nnodes=1 --nproc_per_node 2 -m pytest -s tests/trainer/test_sft_train
 torchrun --nnodes=1 --nproc_per_node 2 -m pytest -s tests/trainer/test_sft_trainer.py -k "test___dp_shards_2___batch_size_1 and ___PTD"
 torchrun --nnodes=1 --nproc_per_node 2 -m pytest -s tests/trainer/test_sft_trainer.py -k "test___dp_shards_2___batch_size_2 and ___PTD"
 torchrun --nnodes=1 --nproc_per_node 2 -m pytest -s tests/trainer/test_sft_trainer.py -k "test___tp_degree_2___batch_size_2 and ___PTD"
+torchrun --nnodes=1 --nproc_per_node 2 -m pytest -s tests/trainer/test_sft_trainer.py -k "test___cp_degree_2___batch_size_1 and ___PTD"
 
 # world_size=4 tests
 torchrun --nnodes=1 --nproc_per_node 4 -m pytest -s tests/trainer/test_sft_trainer.py -k "test___dp_degree_2___dp_shards_2___batch_size_1 and ___PTD"
+torchrun --nnodes=1 --nproc_per_node 4 -m pytest -s tests/trainer/test_sft_trainer.py -k "test___dp_degree_2___cp_degree_2___batch_size_1 and ___PTD"
+```
+
+## CP tests
+
+PTD:
+
+```
+# world_size=2 tests
+torchrun --nnodes 1 --nproc_per_node 2 -m pytest -s tests/models/attention_dispatch.py::RingAttentionCP2Test
+
+# world_size=4 tests
+torchrun --nnodes 1 --nproc_per_node 4 -m pytest -s tests/models/attention_dispatch.py::RingAttentionCP4Test
 ```

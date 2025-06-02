@@ -100,6 +100,8 @@ class SFTTrainerFastTestsMixin:
         args.precomputation_items = self.num_data_files
         args.precomputation_dir = os.path.join(self.tmpdir.name, "precomputed")
         args.compile_scopes = "regional"  # This will only be in effect when `compile_modules` is set
+        # args.attn_provider_training = ["transformer:_native_cudnn"]
+        # args.attn_provider_inference = ["transformer:_native_cudnn"]
         return args
 
     def get_args(self) -> BaseArgs:
@@ -342,6 +344,29 @@ class SFTTrainerLoRATestsMixin___PTD(SFTTrainerFastTestsMixin):
     def test___tp_degree_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.tp_degree = 2
+        args.batch_size = 2
+        args.enable_precomputation = enable_precomputation
+        self._test_training(args)
+
+    @unittest.skip(
+        "TODO: The model specifications for CP with cudnn/flash/efficient backend require the attention head dim to be a multiple with 8. Land math backend first for fast tests and then enable this test."
+    )
+    @parameterized.expand([(True,)])
+    def test___cp_degree_2___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.cp_degree = 2
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        self._test_training(args)
+
+    @unittest.skip(
+        "TODO: The model specifications for CP with cudnn/flash/efficient backend require the attention head dim to be a multiple with 8. Land math backend first for fast tests and then enable this test."
+    )
+    @parameterized.expand([(True,)])
+    def test___dp_degree_2___cp_degree_2___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 2
+        args.cp_degree = 2
         args.batch_size = 1
         args.enable_precomputation = enable_precomputation
         self._test_training(args)
@@ -433,6 +458,29 @@ class SFTTrainerFullFinetuneTestsMixin___PTD(SFTTrainerFastTestsMixin):
     def test___tp_degree_2___batch_size_2(self, enable_precomputation: bool):
         args = self.get_args()
         args.tp_degree = 2
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        self._test_training(args)
+
+    @unittest.skip(
+        "TODO: The model specifications for CP with cudnn/flash/efficient backend require the attention head dim to be a multiple with 8. Land math backend first for fast tests and then enable this test."
+    )
+    @parameterized.expand([(True,)])
+    def test___cp_degree_2___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.cp_degree = 2
+        args.batch_size = 1
+        args.enable_precomputation = enable_precomputation
+        self._test_training(args)
+
+    @unittest.skip(
+        "TODO: The model specifications for CP with cudnn/flash/efficient backend require the attention head dim to be a multiple with 8. Land math backend first for fast tests and then enable this test."
+    )
+    @parameterized.expand([(True,)])
+    def test___dp_degree_2___cp_degree_2___batch_size_1(self, enable_precomputation: bool):
+        args = self.get_args()
+        args.dp_degree = 2
+        args.cp_degree = 2
         args.batch_size = 1
         args.enable_precomputation = enable_precomputation
         self._test_training(args)

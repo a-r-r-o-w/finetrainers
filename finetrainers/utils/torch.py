@@ -239,9 +239,18 @@ def get_string_from_dtype(dtype: torch.dtype):
     return _DTYPE_TO_STRING[dtype]
 
 
+def get_submodule_by_name(model: torch.nn.Module, name: str) -> Union[torch.nn.Module, List[torch.nn.Module]]:
+    assert name.count("*") <= 1, "Wildcard '*' can only be used once in the name"
+    return _find_submodule_by_name(model, name)
+
+
 def get_unwrapped_model_state_dict(state_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     # Remove _orig_mod occurrences from the state dict keys
     return {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
+
+
+def is_compiled_module(module) -> bool:
+    return isinstance(module, torch._dynamo.eval_frame.OptimizedModule)
 
 
 def set_requires_grad(models: Union[torch.nn.Module, List[torch.nn.Module]], value: bool) -> None:
@@ -257,6 +266,33 @@ def synchronize_device() -> None:
         torch.cuda.synchronize()
     elif torch.backends.mps.is_available():
         torch.mps.synchronize()
+
+
+def unwrap_module(module):
+    """Unwraps a module if it was compiled with torch.compile()"""
+    return module._orig_mod if is_compiled_module(module) else module
+
+
+def _find_submodule_by_name(model: torch.nn.Module, name: str) -> Union[torch.nn.Module, List[torch.nn.Module]]:
+    if name == "":
+        return model
+    first_atom, remaining_name = name.split(".", 1) if "." in name else (name, "")
+    if first_atom == "*":
+        # Wildcard '*' can only be used once in the name
+        assert isinstance(model, torch.nn.ModuleList), "Wildcard '*' can only be used with ModuleList"
+        submodules = []
+        for submodule in model:
+            subsubmodules = _find_submodule_by_name(submodule, remaining_name)
+            if not isinstance(subsubmodules, list):
+                subsubmodules = [subsubmodules]
+            submodules.extend(subsubmodules)
+        return submodules
+    else:
+        if hasattr(model, first_atom):
+            submodule = getattr(model, first_atom)
+            return _find_submodule_by_name(submodule, remaining_name)
+        else:
+            raise ValueError(f"'{first_atom}' is not a submodule of '{model.__class__.__name__}'")
 
 
 # TODO(aryan): remove everything below this after next torch release
