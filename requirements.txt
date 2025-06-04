@@ -18,3 +18,4 @@ imageio-ffmpeg>=0.5.1
 numpy>=1.26.4
 kornia>=0.7.3
 ruff==0.9.10
+mkdocs-material
