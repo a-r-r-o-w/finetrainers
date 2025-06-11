@@ -136,8 +136,19 @@ class AccelerateParallelBackend(BaseParallelBackend):
         num_workers: int = 0,
         pin_memory: bool = False,
     ) -> DataLoader:
+        drop_last = False
+        if isinstance(dataset, torch.utils.data.IterableDataset) and num_workers > 1:
+            drop_last = True
+            logger.info(
+                "Using `drop_last=True` for IterableDataset with multiple workers to ensure consistent batch sizes."
+            )
+
         dataloader = torch.utils.data.DataLoader(
-            dataset, batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory
+            dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            drop_last=drop_last,
         )
         dataloader = self._accelerator.prepare_data_loader(dataloader)
         logger.debug("AccelerateParallelBackend::prepare_dataloader completed!")

@@ -1,3 +1,4 @@
+import itertools
 import pathlib
 import random
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -715,7 +716,12 @@ class IterableDatasetPreprocessingWrapper(
 
     def __iter__(self):
         logger.info("Starting IterableDatasetPreprocessingWrapper for the dataset")
-        for sample in iter(self.dataset):
+        worker_info = torch.utils.data.get_worker_info()
+        iterator = iter(self.dataset)
+        if worker_info is not None:
+            # When num_workers > 1, in a worker process, split the dataset across workers to avoid data duplication.
+            iterator = itertools.islice(iterator, worker_info.id, None, worker_info.num_workers)
+        for sample in iterator:
             for column in self.drop_columns:
                 sample.pop(column, None)
 
