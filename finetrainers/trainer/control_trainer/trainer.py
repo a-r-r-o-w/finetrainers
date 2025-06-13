@@ -845,6 +845,10 @@ class ControlTrainer(Trainer):
                 enable_slicing=self.args.enable_slicing,
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+                enable_group_offload=self.args.enable_group_offload,
+                group_offload_type=self.args.group_offload_type,
+                group_offload_blocks_per_group=self.args.group_offload_blocks_per_group,
+                group_offload_use_stream=self.args.group_offload_use_stream,
                 training=True,
             )
         else:
@@ -861,6 +865,10 @@ class ControlTrainer(Trainer):
                 enable_slicing=self.args.enable_slicing,
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+                enable_group_offload=self.args.enable_group_offload,
+                group_offload_type=self.args.group_offload_type,
+                group_offload_blocks_per_group=self.args.group_offload_blocks_per_group,
+                group_offload_use_stream=self.args.group_offload_use_stream,
                 training=False,
                 device=parallel_backend.device,
             )

@@ -211,6 +211,10 @@ class FluxModelSpecification(ModelSpecification):
         enable_slicing: bool = False,
         enable_tiling: bool = False,
         enable_model_cpu_offload: bool = False,
+        enable_group_offload: bool = False,
+        group_offload_type: str = "block_level",
+        group_offload_blocks_per_group: int = 1,
+        group_offload_use_stream: bool = False,
         training: bool = False,
         **kwargs,
     ) -> FluxPipeline:
@@ -236,8 +240,23 @@ class FluxModelSpecification(ModelSpecification):
         _enable_vae_memory_optimizations(pipe.vae, enable_slicing, enable_tiling)
         if not training:
             pipe.transformer.to(self.transformer_dtype)
+
+        # Apply offloading if enabled - these are mutually exclusive
         if enable_model_cpu_offload:
             pipe.enable_model_cpu_offload()
+        elif enable_group_offload:
+            try:
+                from finetrainers.utils.offloading import enable_group_offload_on_components
+                enable_group_offload_on_components(
+                    components=pipe.components,
+                    device=pipe.device,
+                    offload_type=group_offload_type,
+                    num_blocks_per_group=group_offload_blocks_per_group,
+                    use_stream=group_offload_use_stream,
+                )
+            except ImportError as e:
+                logger.warning(f"Failed to enable group offloading: {str(e)}. Using standard pipeline without offloading.")
+
         return pipe
 
     @torch.no_grad()

@@ -114,6 +114,10 @@ class ModelSpecification:
         enable_slicing: bool = False,
         enable_tiling: bool = False,
         enable_model_cpu_offload: bool = False,
+        enable_group_offload: bool = False,
+        group_offload_type: str = "block_level",
+        group_offload_blocks_per_group: int = 1,
+        group_offload_use_stream: bool = False,
         training: bool = False,
         **kwargs,
     ) -> DiffusionPipeline:

@@ -1,7 +1,7 @@
 accelerate
 bitsandbytes
 datasets>=3.3.2
-diffusers>=0.32.1
+diffusers>=0.33.0
 transformers>=4.45.2
 huggingface_hub
 hf_transfer>=0.1.8
