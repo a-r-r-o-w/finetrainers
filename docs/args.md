@@ -25,7 +25,9 @@ dp_shards (`int`, defaults to `-1`):
     The number of data parallel shards (number of model partitions).
 cp_degree (`int`, defaults to `1`):
     The degree of context parallelism.
+```
 
+```
 MODEL ARGUMENTS
 ---------------
 model_name (`str`):
@@ -79,7 +81,9 @@ compile_modules (`List[str]`, defaults to `[]`):
 compile_scopes (`str`, defaults to `None`):
     The scope of compilation for each `--compile_modules`. Choose between ['regional', 'full']. Must have the same length as
     `--compile_modules`. If `None`, will default to `regional` for all modules.
+```
 
+```
 DATASET ARGUMENTS
 -----------------
 dataset_config (`str`):
@@ -134,7 +138,9 @@ precomputation_reuse (`bool`, defaults to `False`):
     This flag is ignored if `enable_precomputation` is `False`. The topology of the distributed training run must be
     the same as the one used to precompute the embeddings for this to work correctly (this limitation will be 
     addressed in the future).
+```
 
+```
 DATALOADER_ARGUMENTS
 --------------------
 See https://pytorch.org/docs/stable/data.html for more information.
@@ -144,7 +150,9 @@ dataloader_num_workers (`int`, defaults to `0`):
     on the main process.
 pin_memory (`bool`, defaults to `False`):
     Whether or not to use the pinned memory setting in PyTorch dataloader. This is useful for faster data loading.
+```
 
+```
 DIFFUSION ARGUMENTS
 -------------------
 flow_resolution_shifting (`bool`, defaults to `False`):
@@ -172,7 +180,9 @@ flow_logit_std (`float`, defaults to `1.0`):
     Standard deviation to use when using the `'logit_normal'` weighting scheme.
 flow_mode_scale (`float`, defaults to `1.29`):
     Scale of mode weighting scheme. Only effective when using the `'mode'` as the `weighting_scheme`.
+```
 
+```
 TRAINING ARGUMENTS
 ------------------
 training_type (`str`, defaults to `None`):
@@ -200,7 +210,9 @@ checkpointing_limit (`int`, defaults to `None`):
 resume_from_checkpoint (`str`, defaults to `None`):
     Whether training should be resumed from a previous checkpoint. Use a path saved by `checkpointing_steps`,
     or `"latest"` to automatically select the last available checkpoint.
+```
 
+```
 OPTIMIZER ARGUMENTS
 -------------------
 optimizer (`str`, defaults to `adamw`):
@@ -227,7 +239,9 @@ epsilon (`float`, defaults to `1e-8`):
     Small value to avoid division by zero in the optimizer.
 max_grad_norm (`float`, defaults to `1.0`):
     Maximum gradient norm to clip the gradients.
+```
 
+```
 VALIDATION ARGUMENTS
 --------------------
 validation_dataset_file (`str`, defaults to `None`):
@@ -245,7 +259,9 @@ validation_steps (`int`, defaults to `500`):
     Number of training steps after which a validation step is performed.
 enable_model_cpu_offload (`bool`, defaults to `False`):
     Whether or not to offload different modeling components to CPU during validation.
+```
 
+```
 MISCELLANEOUS ARGUMENTS
 -----------------------
 tracker_name (`str`, defaults to `finetrainers`):
@@ -272,7 +288,9 @@ verbose (`int`, defaults to `1`):
         - 1: Diffusers/Transformers info logging on local main process only
         - 2: Diffusers/Transformers debug logging on local main process only
         - 3: Diffusers/Transformers debug logging on all processes
+```
 
+```
 TORCH CONFIG ARGUMENTS
 ----------------------
 allow_tf32 (`bool`, defaults to `False`):
