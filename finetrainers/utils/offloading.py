@@ -1,15 +1,19 @@
+from typing import Dict, List, Optional, Union
+
 import torch
-from typing import Dict, Optional, Union, List
+
 
 # Import diffusers hooks at module level for testing purposes
 try:
     from diffusers.hooks import apply_group_offloading
     from diffusers.hooks.group_offloading import _is_group_offload_enabled
+
     _DIFFUSERS_AVAILABLE = True
 except ImportError:
     apply_group_offloading = None
     _is_group_offload_enabled = None
     _DIFFUSERS_AVAILABLE = False
+
 
 def enable_group_offload_on_components(
     components: Dict[str, torch.nn.Module],
@@ -77,7 +81,7 @@ def enable_group_offload_on_components(
                 "use_stream": use_stream,
                 "record_stream": record_stream,
                 "low_cpu_mem_usage": low_cpu_mem_usage,
-                "non_blocking": non_blocking
+                "non_blocking": non_blocking,
             }
             if offload_type == "block_level" and num_blocks_per_group is not None:
                 kwargs["num_blocks_per_group"] = num_blocks_per_group
@@ -93,7 +97,7 @@ def enable_group_offload_on_components(
                 "use_stream": use_stream,
                 "record_stream": record_stream,
                 "low_cpu_mem_usage": low_cpu_mem_usage,
-                "non_blocking": non_blocking
+                "non_blocking": non_blocking,
             }
             if offload_type == "block_level" and num_blocks_per_group is not None:
                 kwargs["num_blocks_per_group"] = num_blocks_per_group

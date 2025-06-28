@@ -1,15 +1,12 @@
 import unittest
-import torch
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+import torch
 
 # Import the proper test model specifications that use hf-internal-testing models
 from tests.models.flux.base_specification import DummyFluxModelSpecification
-from tests.models.cogvideox.base_specification import DummyCogVideoXModelSpecification
-from tests.models.ltx_video.base_specification import DummyLTXVideoModelSpecification
-from tests.models.cogview4.base_specification import DummyCogView4ModelSpecification
-from tests.models.hunyuan_video.base_specification import DummyHunyuanVideoModelSpecification
-from tests.models.wan.base_specification import DummyWanModelSpecification
+
 
 # Skip tests if CUDA is not available
 has_cuda = torch.cuda.is_available()
@@ -31,9 +28,7 @@ requires_cuda = pytest.mark.skipif(not has_cuda, reason="Test requires CUDA")
 )
 class TestGroupOffloadingIntegration:
     @patch("finetrainers.utils.offloading.enable_group_offload_on_components")
-    def test_load_pipeline_with_group_offload(
-        self, mock_enable_group_offload, model_specification_class
-    ):
+    def test_load_pipeline_with_group_offload(self, mock_enable_group_offload, model_specification_class):
         """Test that group offloading is properly enabled when loading the pipeline."""
 
         # Create model specification
@@ -42,7 +37,7 @@ class TestGroupOffloadingIntegration:
         # Call load_pipeline with group offloading enabled
         # Disable streams on non-CUDA systems to avoid errors
         use_stream = torch.cuda.is_available()
-        pipeline = model_spec.load_pipeline(
+        model_spec.load_pipeline(
             enable_group_offload=True,
             group_offload_type="block_level",
             group_offload_blocks_per_group=4,
@@ -64,9 +59,7 @@ class TestGroupOffloadingIntegration:
         assert call_kwargs["use_stream"] == use_stream
 
     @patch("finetrainers.utils.offloading.enable_group_offload_on_components")
-    def test_mutually_exclusive_offload_methods(
-        self, mock_enable_group_offload, model_specification_class
-    ):
+    def test_mutually_exclusive_offload_methods(self, mock_enable_group_offload, model_specification_class):
         """Test that only one offloading method is used when both are enabled."""
         # Skip this test on CPU-only systems since model_cpu_offload requires accelerator
         if not torch.cuda.is_available():
@@ -76,7 +69,7 @@ class TestGroupOffloadingIntegration:
         model_spec = model_specification_class()
 
         # Call load_pipeline with both offloading methods enabled (model offload should take precedence)
-        pipeline = model_spec.load_pipeline(
+        model_spec.load_pipeline(
             enable_model_cpu_offload=True,
             enable_group_offload=True,
         )
@@ -85,9 +78,7 @@ class TestGroupOffloadingIntegration:
         mock_enable_group_offload.assert_not_called()
 
     @patch("finetrainers.utils.offloading.enable_group_offload_on_components")
-    def test_import_error_handling(
-        self, mock_enable_group_offload, model_specification_class
-    ):
+    def test_import_error_handling(self, mock_enable_group_offload, model_specification_class):
         """Test that ImportError is handled gracefully when diffusers version is too old."""
         # Simulate an ImportError when trying to use group offloading
         mock_enable_group_offload.side_effect = ImportError("Module not found")
@@ -98,7 +89,7 @@ class TestGroupOffloadingIntegration:
             model_spec = model_specification_class()
 
             # Call load_pipeline with group offloading enabled
-            pipeline = model_spec.load_pipeline(
+            model_spec.load_pipeline(
                 enable_group_offload=True,
             )
 

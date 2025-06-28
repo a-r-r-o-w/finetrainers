@@ -1,11 +1,11 @@
 import unittest
-import torch
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from finetrainers.trainer.sft_trainer.trainer import SFTTrainer
+import torch
+
 from finetrainers.args import BaseArgs
 from finetrainers.models.flux import FluxModelSpecification
+from finetrainers.trainer.sft_trainer.trainer import SFTTrainer
 
 
 class DummyFluxModelSpecification(FluxModelSpecification):

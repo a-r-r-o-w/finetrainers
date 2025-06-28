@@ -850,14 +850,29 @@ def _add_validation_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--validation_dataset_file", type=str, default=None)
     parser.add_argument("--validation_steps", type=int, default=500)
     parser.add_argument("--enable_model_cpu_offload", action="store_true")
-    parser.add_argument("--enable_group_offload", action="store_true",
-                       help="Whether to enable group offloading of model components to CPU. This can significantly reduce GPU memory usage.")
-    parser.add_argument("--group_offload_type", type=str, default="block_level", choices=["block_level", "leaf_level"],
-                       help="The type of group offloading to apply.")
-    parser.add_argument("--group_offload_blocks_per_group", type=int, default=1,
-                       help="The number of blocks per group when using group_offload_type='block_level'.")
-    parser.add_argument("--group_offload_use_stream", action="store_true",
-                       help="Whether to use CUDA streams for group offloading. Reduces overhead when supported.")
+    parser.add_argument(
+        "--enable_group_offload",
+        action="store_true",
+        help="Whether to enable group offloading of model components to CPU. This can significantly reduce GPU memory usage.",
+    )
+    parser.add_argument(
+        "--group_offload_type",
+        type=str,
+        default="block_level",
+        choices=["block_level", "leaf_level"],
+        help="The type of group offloading to apply.",
+    )
+    parser.add_argument(
+        "--group_offload_blocks_per_group",
+        type=int,
+        default=1,
+        help="The number of blocks per group when using group_offload_type='block_level'.",
+    )
+    parser.add_argument(
+        "--group_offload_use_stream",
+        action="store_true",
+        help="Whether to use CUDA streams for group offloading. Reduces overhead when supported.",
+    )
 
 
 def _add_miscellaneous_arguments(parser: argparse.ArgumentParser) -> None:

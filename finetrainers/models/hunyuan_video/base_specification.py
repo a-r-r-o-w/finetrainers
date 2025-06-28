@@ -250,6 +250,7 @@ class HunyuanVideoModelSpecification(ModelSpecification):
         elif enable_group_offload:
             try:
                 from finetrainers.utils.offloading import enable_group_offload_on_components
+
                 enable_group_offload_on_components(
                     components=pipe.components,
                     device=pipe.device,
@@ -258,7 +259,9 @@ class HunyuanVideoModelSpecification(ModelSpecification):
                     use_stream=group_offload_use_stream,
                 )
             except ImportError as e:
-                logger.warning(f"Failed to enable group offloading: {str(e)}. Using standard pipeline without offloading.")
+                logger.warning(
+                    f"Failed to enable group offloading: {str(e)}. Using standard pipeline without offloading."
+                )
 
         return pipe
 

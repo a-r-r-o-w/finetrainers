@@ -1,7 +1,7 @@
 import unittest
+from unittest.mock import MagicMock, patch
+
 import torch
-import pytest
-from unittest.mock import patch, MagicMock
 
 from finetrainers.utils.offloading import enable_group_offload_on_components
 
