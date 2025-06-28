@@ -1,6 +1,16 @@
 import torch
 from typing import Dict, Optional, Union, List
 
+# Import diffusers hooks at module level for testing purposes
+try:
+    from diffusers.hooks import apply_group_offloading
+    from diffusers.hooks.group_offloading import _is_group_offload_enabled
+    _DIFFUSERS_AVAILABLE = True
+except ImportError:
+    apply_group_offloading = None
+    _is_group_offload_enabled = None
+    _DIFFUSERS_AVAILABLE = False
+
 def enable_group_offload_on_components(
     components: Dict[str, torch.nn.Module],
     device: Union[torch.device, str],
@@ -38,10 +48,7 @@ def enable_group_offload_on_components(
         required_import_error_message (str, defaults to "Group offloading requires diffusers>=0.33.0"):
             Error message to display when required imports are not available.
     """
-    try:
-        from diffusers.hooks import apply_group_offloading
-        from diffusers.hooks.group_offloading import _is_group_offload_enabled
-    except ImportError:
+    if not _DIFFUSERS_AVAILABLE:
         raise ImportError(required_import_error_message)
 
     onload_device = torch.device(device)
@@ -63,26 +70,32 @@ def enable_group_offload_on_components(
         # Apply group offloading based on whether the component has the ModelMixin interface
         if hasattr(component, "enable_group_offload"):
             # For diffusers ModelMixin implementations
-            component.enable_group_offload(
-                onload_device=onload_device,
-                offload_device=offload_device,
-                offload_type=offload_type,
-                num_blocks_per_group=num_blocks_per_group,
-                use_stream=use_stream,
-                record_stream=record_stream,
-                low_cpu_mem_usage=low_cpu_mem_usage,
-                non_blocking=non_blocking
-            )
+            kwargs = {
+                "onload_device": onload_device,
+                "offload_device": offload_device,
+                "offload_type": offload_type,
+                "use_stream": use_stream,
+                "record_stream": record_stream,
+                "low_cpu_mem_usage": low_cpu_mem_usage,
+                "non_blocking": non_blocking
+            }
+            if offload_type == "block_level" and num_blocks_per_group is not None:
+                kwargs["num_blocks_per_group"] = num_blocks_per_group
+
+            component.enable_group_offload(**kwargs)
         else:
             # For other torch.nn.Module implementations
-            apply_group_offloading(
-                module=component,
-                onload_device=onload_device,
-                offload_device=offload_device,
-                offload_type=offload_type,
-                num_blocks_per_group=num_blocks_per_group,
-                use_stream=use_stream,
-                record_stream=record_stream,
-                low_cpu_mem_usage=low_cpu_mem_usage,
-                non_blocking=non_blocking
-            )
+            kwargs = {
+                "module": component,
+                "onload_device": onload_device,
+                "offload_device": offload_device,
+                "offload_type": offload_type,
+                "use_stream": use_stream,
+                "record_stream": record_stream,
+                "low_cpu_mem_usage": low_cpu_mem_usage,
+                "non_blocking": non_blocking
+            }
+            if offload_type == "block_level" and num_blocks_per_group is not None:
+                kwargs["num_blocks_per_group"] = num_blocks_per_group
+
+            apply_group_offloading(**kwargs)

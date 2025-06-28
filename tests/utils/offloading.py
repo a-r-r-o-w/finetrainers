@@ -8,12 +8,12 @@ from finetrainers.utils.offloading import enable_group_offload_on_components
 
 class TestGroupOffloading(unittest.TestCase):
     def setUp(self):
-        # Create mock components for testing
-        self.mock_component1 = MagicMock()
+        # Create mock components for testing - inherit from torch.nn.Module
+        self.mock_component1 = MagicMock(spec=torch.nn.Module)
         self.mock_component1.enable_group_offload = MagicMock()
         self.mock_component1.__class__.__name__ = "MockComponent1"
 
-        self.mock_component2 = MagicMock()
+        self.mock_component2 = MagicMock(spec=torch.nn.Module)
         self.mock_component2.enable_group_offload = MagicMock()
         self.mock_component2.__class__.__name__ = "MockComponent2"
 
@@ -109,12 +109,9 @@ class TestGroupOffloading(unittest.TestCase):
         self.mock_component1.enable_group_offload.assert_not_called()
         self.mock_component2.enable_group_offload.assert_called_once()
 
-    @patch("finetrainers.utils.offloading.apply_group_offloading")
-    def test_import_error_handling(self, mock_apply):
+    @patch("finetrainers.utils.offloading._DIFFUSERS_AVAILABLE", False)
+    def test_import_error_handling(self):
         """Test that ImportError is handled correctly."""
-        # Simulate an ImportError when importing diffusers hooks
-        mock_apply.side_effect = ImportError("Module not found")
-
         with self.assertRaises(ImportError) as context:
             enable_group_offload_on_components(
                 self.components,

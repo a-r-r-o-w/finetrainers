@@ -57,11 +57,20 @@ class TestTrainerOffloading(unittest.TestCase):
         self.trainer.state = MagicMock()
         self.trainer.state.parallel_backend = MagicMock()
         self.trainer.state.parallel_backend.device = torch.device("cpu")
+        self.trainer.state.train_state = MagicMock()
+        self.trainer.state.train_state.step = 1000  # Mock step number
 
         # Set the necessary attributes that would be set in _prepare_models
         self.trainer.transformer = MagicMock()
         self.trainer.vae = MagicMock()
         self.trainer.text_encoder = MagicMock()
+        self.trainer.text_encoder_2 = MagicMock()
+        self.trainer.text_encoder_3 = MagicMock()
+        self.trainer.tokenizer = MagicMock()
+        self.trainer.tokenizer_2 = MagicMock()
+        self.trainer.tokenizer_3 = MagicMock()
+        self.trainer.image_encoder = MagicMock()
+        self.trainer.image_processor = MagicMock()
         self.trainer.scheduler = MagicMock()
 
     def test_init_pipeline_with_group_offload(self):
