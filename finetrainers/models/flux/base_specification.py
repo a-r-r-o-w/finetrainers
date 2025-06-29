@@ -250,10 +250,11 @@ class FluxModelSpecification(ModelSpecification):
                     # In test environments without proper accelerator setup,
                     # we can skip CPU offloading gracefully
                     import warnings
+
                     warnings.warn(
                         f"CPU offloading skipped: {e}. This is expected in test environments "
                         "without proper Accelerator initialization.",
-                        UserWarning
+                        UserWarning,
                     )
                 else:
                     raise

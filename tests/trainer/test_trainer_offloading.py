@@ -1,13 +1,14 @@
-import pytest
-import torch
-import os
 import json
+import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+import torch
+
 from finetrainers.args import BaseArgs
-from finetrainers.models.hunyuan_video import HunyuanVideoModelSpecification
-from finetrainers.models.flux import FluxModelSpecification
 from finetrainers.models.cogvideox import CogVideoXModelSpecification
+from finetrainers.models.flux import FluxModelSpecification
+from finetrainers.models.hunyuan_video import HunyuanVideoModelSpecification
 from finetrainers.models.ltx_video import LTXVideoModelSpecification
 from finetrainers.trainer.sft_trainer.trainer import SFTTrainer
 
@@ -127,14 +128,9 @@ class TestTrainerOffloading:
             "peft_type": "LORA",
             "r": 16,
             "revision": None,
-            "target_modules": [
-                "to_q",
-                "to_v",
-                "to_k",
-                "to_out.0"
-            ],
+            "target_modules": ["to_q", "to_v", "to_k", "to_out.0"],
             "task_type": "FEATURE_EXTRACTION",
-            "use_rslora": False
+            "use_rslora": False,
         }
 
         with open("/tmp/test_output/lora_weights/001000/adapter_config.json", "w") as f:
@@ -151,7 +147,7 @@ class TestTrainerOffloading:
 
     def teardown_method(self):
         """Clean up after each test."""
-        if hasattr(self, 'patcher'):
+        if hasattr(self, "patcher"):
             self.patcher.stop()
 
     def _get_param(self, param_name):
@@ -176,8 +172,8 @@ class TestTrainerOffloading:
 
             # Verify that the pipeline has the expected components
             # (This tests that the dummy models were loaded correctly)
-            assert hasattr(pipeline, 'transformer')
-            assert hasattr(pipeline, 'vae')
+            assert hasattr(pipeline, "transformer")
+            assert hasattr(pipeline, "vae")
 
             # Verify that group offloading was properly configured
             # (We can't easily inspect internal offloading state, but we can verify the pipeline was created)
@@ -202,8 +198,8 @@ class TestTrainerOffloading:
         assert pipeline is not None
 
         # Verify that the pipeline components are properly set
-        assert hasattr(pipeline, 'transformer')
-        assert hasattr(pipeline, 'vae')
+        assert hasattr(pipeline, "transformer")
+        assert hasattr(pipeline, "vae")
 
     def test_mutually_exclusive_offloading_methods(self):
         """Test that both offloading methods can be passed to the pipeline (implementation handles mutual exclusion)."""
@@ -212,19 +208,19 @@ class TestTrainerOffloading:
         self.args.enable_group_offload = True
 
         # Use patch to spy on the load_pipeline method
-        with patch.object(self.model_spec, 'load_pipeline', wraps=self.model_spec.load_pipeline) as mock_pipeline:
+        with patch.object(self.model_spec, "load_pipeline", wraps=self.model_spec.load_pipeline) as mock_pipeline:
             # Call _init_pipeline
             pipeline = self.trainer._init_pipeline(final_validation=False)
 
             # Check that load_pipeline was called with both offloading methods
             _, kwargs = mock_pipeline.call_args
-            assert kwargs["enable_model_cpu_offload"] == True
-            assert kwargs["enable_group_offload"] == True
+            assert kwargs["enable_model_cpu_offload"]
+            assert kwargs["enable_group_offload"]
 
         # Verify that a pipeline was still created successfully
         assert pipeline is not None
-        assert hasattr(pipeline, 'transformer')
-        assert hasattr(pipeline, 'vae')
+        assert hasattr(pipeline, "transformer")
+        assert hasattr(pipeline, "vae")
 
     def test_group_offload_disabled(self):
         """Test that group offloading is properly disabled when not requested."""
@@ -233,19 +229,19 @@ class TestTrainerOffloading:
         self.args.enable_model_cpu_offload = False
 
         # Use patch to spy on the load_pipeline method
-        with patch.object(self.model_spec, 'load_pipeline', wraps=self.model_spec.load_pipeline) as mock_pipeline:
+        with patch.object(self.model_spec, "load_pipeline", wraps=self.model_spec.load_pipeline) as mock_pipeline:
             # Call _init_pipeline
             pipeline = self.trainer._init_pipeline(final_validation=False)
 
             # Check that load_pipeline was called without group offloading
             _, kwargs = mock_pipeline.call_args
-            assert kwargs["enable_group_offload"] == False
-            assert kwargs["enable_model_cpu_offload"] == False
+            assert not kwargs["enable_group_offload"]
+            assert not kwargs["enable_model_cpu_offload"]
 
         # Verify that a pipeline was still created successfully
         assert pipeline is not None
-        assert hasattr(pipeline, 'transformer')
-        assert hasattr(pipeline, 'vae')
+        assert hasattr(pipeline, "transformer")
+        assert hasattr(pipeline, "vae")
 
     def test_different_group_offload_types(self):
         """Test different group offload types are passed correctly to the real pipeline."""
@@ -262,7 +258,7 @@ class TestTrainerOffloading:
             self.args.group_offload_use_stream = use_stream
 
             # Use patch to spy on the load_pipeline method
-            with patch.object(self.model_spec, 'load_pipeline', wraps=self.model_spec.load_pipeline) as mock_pipeline:
+            with patch.object(self.model_spec, "load_pipeline", wraps=self.model_spec.load_pipeline) as mock_pipeline:
                 # Call _init_pipeline
                 try:
                     pipeline = self.trainer._init_pipeline(final_validation=False)
@@ -275,12 +271,14 @@ class TestTrainerOffloading:
 
                     # Verify that a pipeline was created successfully
                     assert pipeline is not None
-                    assert hasattr(pipeline, 'transformer')
-                    assert hasattr(pipeline, 'vae')
+                    assert hasattr(pipeline, "transformer")
+                    assert hasattr(pipeline, "vae")
                 except (AttributeError, RuntimeError) as e:
-                    if ("'NoneType' object has no attribute 'type'" in str(e) or
-                        "accelerator" in str(e).lower() or
-                        "cuda" in str(e).lower()):
+                    if (
+                        "'NoneType' object has no attribute 'type'" in str(e)
+                        or "accelerator" in str(e).lower()
+                        or "cuda" in str(e).lower()
+                    ):
                         pytest.skip(f"Group offloading not supported in this environment: {e}")
                     else:
                         raise
@@ -292,19 +290,19 @@ class TestTrainerOffloading:
         self.args.group_offload_use_stream = False
 
         # Use patch to spy on the load_pipeline method
-        with patch.object(self.model_spec, 'load_pipeline', wraps=self.model_spec.load_pipeline) as mock_pipeline:
+        with patch.object(self.model_spec, "load_pipeline", wraps=self.model_spec.load_pipeline) as mock_pipeline:
             # Call _init_pipeline
             pipeline = self.trainer._init_pipeline(final_validation=False)
 
             # Check parameters
             _, kwargs = mock_pipeline.call_args
             assert kwargs["group_offload_blocks_per_group"] == 1
-            assert kwargs["group_offload_use_stream"] == False
+            assert not kwargs["group_offload_use_stream"]
 
         # Verify that a pipeline was created successfully even with edge case values
         assert pipeline is not None
-        assert hasattr(pipeline, 'transformer')
-        assert hasattr(pipeline, 'vae')
+        assert hasattr(pipeline, "transformer")
+        assert hasattr(pipeline, "vae")
 
     def test_group_offload_with_other_memory_optimizations(self):
         """Test group offload works with other memory optimization options."""
@@ -318,24 +316,23 @@ class TestTrainerOffloading:
         self.args.enable_tiling = True
 
         # Use patch to spy on the load_pipeline method
-        with patch.object(self.model_spec, 'load_pipeline', wraps=self.model_spec.load_pipeline) as mock_pipeline:
+        with patch.object(self.model_spec, "load_pipeline", wraps=self.model_spec.load_pipeline) as mock_pipeline:
             # Call _init_pipeline
             try:
                 pipeline = self.trainer._init_pipeline(final_validation=False)
 
                 # Check that all memory optimizations are passed
                 _, kwargs = mock_pipeline.call_args
-                assert kwargs["enable_group_offload"] == True
-                assert kwargs["enable_slicing"] == True
-                assert kwargs["enable_tiling"] == True
+                assert kwargs["enable_group_offload"]
+                assert kwargs["enable_slicing"]
+                assert kwargs["enable_tiling"]
 
                 # Verify that a pipeline was created successfully with all optimizations
                 assert pipeline is not None
-                assert hasattr(pipeline, 'transformer')
-                assert hasattr(pipeline, 'vae')
+                assert hasattr(pipeline, "transformer")
+                assert hasattr(pipeline, "vae")
             except (AttributeError, RuntimeError) as e:
-                if ("'NoneType' object has no attribute 'type'" in str(e) or
-                    "accelerator" in str(e).lower()):
+                if "'NoneType' object has no attribute 'type'" in str(e) or "accelerator" in str(e).lower():
                     pytest.skip(f"Group offloading not supported in this environment: {e}")
                 else:
                     raise
@@ -343,16 +340,16 @@ class TestTrainerOffloading:
     def test_group_offload_training_vs_validation_mode(self):
         """Test that training parameter is correctly set for different modes."""
         # Use patch to spy on the load_pipeline method
-        with patch.object(self.model_spec, 'load_pipeline', wraps=self.model_spec.load_pipeline) as mock_pipeline:
+        with patch.object(self.model_spec, "load_pipeline", wraps=self.model_spec.load_pipeline) as mock_pipeline:
             # Test training mode (final_validation=False)
             pipeline1 = self.trainer._init_pipeline(final_validation=False)
             _, kwargs = mock_pipeline.call_args
-            assert kwargs["training"] == True
+            assert kwargs["training"]
 
             # Verify pipeline creation
             assert pipeline1 is not None
-            assert hasattr(pipeline1, 'transformer')
-            assert hasattr(pipeline1, 'vae')
+            assert hasattr(pipeline1, "transformer")
+            assert hasattr(pipeline1, "vae")
 
             # Reset mock
             mock_pipeline.reset_mock()
@@ -360,12 +357,12 @@ class TestTrainerOffloading:
             # Test validation mode (final_validation=True)
             pipeline2 = self.trainer._init_pipeline(final_validation=True)
             _, kwargs = mock_pipeline.call_args
-            assert kwargs["training"] == False
+            assert not kwargs["training"]
 
             # Verify pipeline creation for validation mode
             assert pipeline2 is not None
-            assert hasattr(pipeline2, 'transformer')
-            assert hasattr(pipeline2, 'vae')
+            assert hasattr(pipeline2, "transformer")
+            assert hasattr(pipeline2, "vae")
 
     def test_group_offload_parameter_consistency(self):
         """Test that all group offload parameters are consistently passed."""
@@ -376,7 +373,7 @@ class TestTrainerOffloading:
         self.args.group_offload_use_stream = self.has_cuda  # Only use streams if CUDA is available
 
         # Use patch to spy on the load_pipeline method
-        with patch.object(self.model_spec, 'load_pipeline', wraps=self.model_spec.load_pipeline) as mock_pipeline:
+        with patch.object(self.model_spec, "load_pipeline", wraps=self.model_spec.load_pipeline) as mock_pipeline:
             # Call _init_pipeline
             try:
                 pipeline = self.trainer._init_pipeline(final_validation=False)
@@ -398,12 +395,14 @@ class TestTrainerOffloading:
 
                 # Verify that a pipeline was created successfully with all parameters
                 assert pipeline is not None
-                assert hasattr(pipeline, 'transformer')
-                assert hasattr(pipeline, 'vae')
+                assert hasattr(pipeline, "transformer")
+                assert hasattr(pipeline, "vae")
             except (AttributeError, RuntimeError) as e:
-                if ("'NoneType' object has no attribute 'type'" in str(e) or
-                    "accelerator" in str(e).lower() or
-                    "cuda" in str(e).lower()):
+                if (
+                    "'NoneType' object has no attribute 'type'" in str(e)
+                    or "accelerator" in str(e).lower()
+                    or "cuda" in str(e).lower()
+                ):
                     pytest.skip(f"Group offloading not supported in this environment: {e}")
                 else:
                     raise
@@ -414,35 +413,35 @@ class TestTrainerOffloading:
         self.args.group_offload_use_stream = True
 
         # Use patch to spy on the load_pipeline method
-        with patch.object(self.model_spec, 'load_pipeline', wraps=self.model_spec.load_pipeline) as mock_pipeline:
+        with patch.object(self.model_spec, "load_pipeline", wraps=self.model_spec.load_pipeline) as mock_pipeline:
             # Call _init_pipeline
             pipeline1 = self.trainer._init_pipeline(final_validation=False)
 
             # Check that stream parameter was passed
             _, kwargs = mock_pipeline.call_args
-            assert kwargs["group_offload_use_stream"] == True
+            assert kwargs["group_offload_use_stream"]
 
             # Verify that a pipeline was created successfully
             # (The model implementation should handle stream compatibility internally)
             assert pipeline1 is not None
-            assert hasattr(pipeline1, 'transformer')
-            assert hasattr(pipeline1, 'vae')
+            assert hasattr(pipeline1, "transformer")
+            assert hasattr(pipeline1, "vae")
 
         # Test with streams disabled (should always work)
         self.args.group_offload_use_stream = False
 
-        with patch.object(self.model_spec, 'load_pipeline', wraps=self.model_spec.load_pipeline) as mock_pipeline:
+        with patch.object(self.model_spec, "load_pipeline", wraps=self.model_spec.load_pipeline) as mock_pipeline:
             # Call _init_pipeline
             pipeline2 = self.trainer._init_pipeline(final_validation=False)
 
             # Check that stream parameter was passed as False
             _, kwargs = mock_pipeline.call_args
-            assert kwargs["group_offload_use_stream"] == False
+            assert not kwargs["group_offload_use_stream"]
 
             # Verify that a pipeline was created successfully
             assert pipeline2 is not None
-            assert hasattr(pipeline2, 'transformer')
-            assert hasattr(pipeline2, 'vae')
+            assert hasattr(pipeline2, "transformer")
+            assert hasattr(pipeline2, "vae")
 
 
 if __name__ == "__main__":

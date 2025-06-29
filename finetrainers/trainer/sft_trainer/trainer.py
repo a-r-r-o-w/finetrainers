@@ -755,9 +755,9 @@ class SFTTrainer(Trainer):
         for component in components:
             # Check if component has meta tensors and use to_empty() instead of to()
             # This handles models loaded with device_map="meta" or init_empty_weights=True
-            has_meta_tensor = any(
-                param.is_meta for param in component.parameters()
-            ) if hasattr(component, 'parameters') else False
+            has_meta_tensor = (
+                any(param.is_meta for param in component.parameters()) if hasattr(component, "parameters") else False
+            )
 
             if has_meta_tensor:
                 component.to_empty(device=device)
