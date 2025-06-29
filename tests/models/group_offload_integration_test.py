@@ -4,8 +4,25 @@ from unittest.mock import patch
 import pytest
 import torch
 
-# Import the proper test model specifications that use hf-internal-testing models
+from finetrainers.models.cogvideox import CogVideoXModelSpecification
+from finetrainers.models.hunyuan_video import HunyuanVideoModelSpecification
+from finetrainers.models.ltx_video import LTXVideoModelSpecification
 from tests.models.flux.base_specification import DummyFluxModelSpecification
+
+
+class DummyHunyuanVideoModelSpecification(HunyuanVideoModelSpecification):
+    def __init__(self, **kwargs):
+        super().__init__(pretrained_model_name_or_path="finetrainers/dummy-hunyaunvideo", **kwargs)
+
+
+class DummyCogVideoXModelSpecification(CogVideoXModelSpecification):
+    def __init__(self, **kwargs):
+        super().__init__(pretrained_model_name_or_path="finetrainers/dummy-cogvideox", **kwargs)
+
+
+class DummyLTXVideoModelSpecification(LTXVideoModelSpecification):
+    def __init__(self, **kwargs):
+        super().__init__(pretrained_model_name_or_path="finetrainers/dummy-ltxvideo", **kwargs)
 
 
 # Skip tests if CUDA is not available
@@ -13,16 +30,14 @@ has_cuda = torch.cuda.is_available()
 requires_cuda = pytest.mark.skipif(not has_cuda, reason="Test requires CUDA")
 
 
-# Test with real HuggingFace dummy models that work completely
 @pytest.mark.parametrize(
     "model_specification_class",
     [
-        DummyFluxModelSpecification,  # Uses hf-internal-testing/tiny-flux-pipe - complete tiny model ✅
+        DummyFluxModelSpecification,
         # DummyCogView4ModelSpecification,  # Uses hf-internal-testing/tiny-random-cogview4 - WORKS but needs trust_remote_code=True fix
-        # Skip models that need dummy checkpoints uploaded (have TODO comments):
-        # DummyCogVideoXModelSpecification,  # Creates components from scratch - needs upload
-        # DummyLTXVideoModelSpecification,  # Creates components from scratch - needs upload
-        # DummyHunyuanVideoModelSpecification,  # Creates components from scratch - needs upload
+        DummyHunyuanVideoModelSpecification,
+        DummyCogVideoXModelSpecification,
+        DummyLTXVideoModelSpecification,
         # DummyWanModelSpecification,  # Creates components from scratch - needs upload
     ],
 )
@@ -83,8 +98,26 @@ class TestGroupOffloadingIntegration:
         # Simulate an ImportError when trying to use group offloading
         mock_enable_group_offload.side_effect = ImportError("Module not found")
 
+        # Determine the correct logger path based on the model specification class
+        # Check the base class to determine which model type this is
+        base_classes = [cls.__name__ for cls in model_specification_class.__mro__]
+
+        if "FluxModelSpecification" in base_classes:
+            logger_path = "finetrainers.models.flux.base_specification.logger"
+        elif "HunyuanVideoModelSpecification" in base_classes:
+            logger_path = "finetrainers.models.hunyuan_video.base_specification.logger"
+        elif "CogVideoXModelSpecification" in base_classes:
+            logger_path = "finetrainers.models.cogvideox.base_specification.logger"
+        elif "LTXVideoModelSpecification" in base_classes:
+            logger_path = "finetrainers.models.ltx_video.base_specification.logger"
+        elif "WanModelSpecification" in base_classes:
+            logger_path = "finetrainers.models.wan.base_specification.logger"
+        else:
+            # Default fallback
+            logger_path = "finetrainers.models.flux.base_specification.logger"
+
         # Mock the logger at the module level where it's used
-        with patch("finetrainers.models.flux.base_specification.logger") as mock_logger:
+        with patch(logger_path) as mock_logger:
             # Create model specification
             model_spec = model_specification_class()
 
