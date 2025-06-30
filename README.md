@@ -67,7 +67,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 
 ## News
 
-- 🔥 **2025-04-30**: Support for Group Offloading added to reduce GPU memory usage during training!
+- 🔥 **2025-MM-DD**: Support for Group Offloading added to reduce GPU memory usage during training!
 - 🔥 **2025-04-25**: Support for different attention providers added!
 - 🔥 **2025-04-21**: Wan I2V supported added!
 - 🔥 **2025-04-12**: Channel-concatenated control conditioning support added for CogView4 and Wan!
