@@ -49,7 +49,7 @@ The following are some simple datasets/HF orgs with good datasets to test traini
 
 Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./examples/training/) to learn more about supported models for training & example reproducible training launch scripts. For a full list of arguments that can be set for training, refer to [`docs/args`](./docs/args.md).
 
-> [!IMPORTANT] 
+> [!IMPORTANT]
 > It is recommended to use Pytorch 2.5.1 or above for training. Previous versions can lead to completely black videos, OOM errors, or other issues and are not tested. For fully reproducible training, please use the same environment as mentioned in [environment.md](./docs/environment.md).
 
 ## Features
@@ -58,6 +58,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 - LoRA and full-rank finetuning; Conditional Control training
 - Memory-efficient single-GPU training
 - Multiple attention backends supported - `flash`, `flex`, `sage`, `xformers` (see [attention](./docs/models/attention.md) docs)
+- Group offloading for reduced GPU memory usage with minimal impact on training speed
 - Auto-detection of commonly used dataset formats
 - Combined image/video datasets, multiple chainable local/remote datasets, multi-resolution bucketing & more
 - Memory-efficient precomputation support with/without on-the-fly precomputation for large scale datasets
@@ -66,6 +67,7 @@ Please checkout [`docs/models`](./docs/models/) and [`examples/training`](./exam
 
 ## News
 
+- 🔥 **2025-MM-DD**: Support for Group Offloading added to reduce GPU memory usage during training!
 - 🔥 **2025-04-25**: Support for different attention providers added!
 - 🔥 **2025-04-21**: Wan I2V supported added!
 - 🔥 **2025-04-12**: Channel-concatenated control conditioning support added for CogView4 and Wan!
