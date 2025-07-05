@@ -45,12 +45,12 @@ class BaseParallelBackend:
         raise NotImplementedError("Method `get_checkpointer` must be implemented by subclass.")
 
     def initialize_trackers(
-            self,
-            trackers: List[str],
-            experiment_name: str,
-            config: Dict[str, Any],
-            log_dir: str,
-            resume_run_id: Optional[str] = None,
+        self,
+        trackers: List[str],
+        experiment_name: str,
+        config: Dict[str, Any],
+        log_dir: str,
+        resume_run_id: Optional[str] = None,
     ) -> TrackerType:
         if self.is_main_process:
             self.tracker = initialize_trackers(trackers, experiment_name, config, log_dir, resume_run_id)

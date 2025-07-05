@@ -56,7 +56,13 @@ class DummyTracker(BaseTracker):
 class WandbTracker(BaseTracker):
     r"""Logger implementation for Weights & Biases."""
 
-    def __init__(self, experiment_name: str, log_dir: str, config: Optional[Dict[str, Any]] = None, resume_run_id: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        experiment_name: str,
+        log_dir: str,
+        config: Optional[Dict[str, Any]] = None,
+        resume_run_id: Optional[str] = None,
+    ) -> None:
         super().__init__()
 
         import wandb
@@ -143,7 +149,11 @@ _SUPPORTED_TRACKERS = [tracker.value for tracker in Trackers.__members__.values(
 
 
 def initialize_trackers(
-    trackers: List[str], experiment_name: str, config: Dict[str, Any], log_dir: str, resume_run_id: Optional[str] = None
+    trackers: List[str],
+    experiment_name: str,
+    config: Dict[str, Any],
+    log_dir: str,
+    resume_run_id: Optional[str] = None,
 ) -> Union[BaseTracker, SequentialTracker]:
     r"""Initialize loggers based on the provided configuration."""
 
