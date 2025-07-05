@@ -209,7 +209,7 @@ class PytorchDTensorParallelBackend(BaseParallelBackend):
         return _get_mesh()
 
     def get_checkpointer(self, *args, **kwargs):
-        return PTDCheckpointer(*args, **kwargs)
+        return PTDCheckpointer(*args, **kwargs, _parallel_backend=self)
 
     @property
     def world_size(self):
@@ -309,7 +309,9 @@ class PTDCheckpointer(BaseCheckpointer):
         enable: bool = True,
         _callback_fn: Callable[[Dict[str, Any]], Dict[str, Any]] = None,
         _prefix: str = "finetrainers_step",
+        _parallel_backend: Optional["BaseParallelBackend"] = None,
     ) -> None:
+        self._parallel_backend = _parallel_backend
         self.states = states
         self.states.update(
             {
@@ -332,6 +334,12 @@ class PTDCheckpointer(BaseCheckpointer):
     def save(self, step: int = -1, force: bool = False, *, _device: torch.device, _is_main_process: bool) -> str:
         if not self._should_checkpoint(step, force):
             return None
+
+        # Save wandb run ID if available
+        if self._parallel_backend and hasattr(self._parallel_backend, "tracker") and self._parallel_backend.tracker:
+            wandb_run_id = self._parallel_backend.tracker.get_wandb_run_id()
+            if wandb_run_id:
+                self.states["wandb_run_id"] = wandb_run_id
 
         checkpoint_dir = self._get_checkpoint_dir(step)
         begin_time = time.monotonic()
@@ -384,6 +392,10 @@ class PTDCheckpointer(BaseCheckpointer):
         states.update(original_stateful_states)
 
         return True
+
+    def get_wandb_run_id_from_checkpoint(self) -> Optional[str]:
+        """Get the wandb run ID from the loaded checkpoint states."""
+        return self.states.get("wandb_run_id", None)
 
     def _should_checkpoint(self, step: int, force: bool) -> bool:
         if not self.enable:
