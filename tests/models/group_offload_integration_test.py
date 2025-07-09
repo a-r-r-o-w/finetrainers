@@ -74,6 +74,31 @@ class TestGroupOffloadingIntegration:
         assert call_kwargs["use_stream"] == use_stream
 
     @patch("finetrainers.utils.offloading.enable_group_offload_on_components")
+    def test_load_pipeline_with_disk_offload(self, mock_enable_group_offload, model_specification_class):
+        """Test that disk offloading is properly enabled when loading the pipeline."""
+
+        # Create model specification
+        model_spec = model_specification_class()
+
+        # Call load_pipeline with disk offloading enabled
+        model_spec.load_pipeline(
+            enable_group_offload=True,
+            group_offload_to_disk_path="/tmp/offload_dir",
+        )
+
+        # Assert that enable_group_offload_on_components was called with the correct arguments
+        mock_enable_group_offload.assert_called_once()
+
+        # Check the call arguments - they are passed as keyword arguments
+        call_kwargs = mock_enable_group_offload.call_args.kwargs
+
+        assert "components" in call_kwargs
+        assert "device" in call_kwargs
+        assert isinstance(call_kwargs["components"], dict)
+        assert isinstance(call_kwargs["device"], torch.device)
+        assert call_kwargs["offload_to_disk_path"] == "/tmp/offload_dir"
+
+    @patch("finetrainers.utils.offloading.enable_group_offload_on_components")
     def test_mutually_exclusive_offload_methods(self, mock_enable_group_offload, model_specification_class):
         """Test that only one offloading method is used when both are enabled."""
         # Skip this test on CPU-only systems since model_cpu_offload requires accelerator

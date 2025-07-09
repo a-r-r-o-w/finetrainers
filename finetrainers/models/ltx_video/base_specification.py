@@ -203,6 +203,7 @@ class LTXVideoModelSpecification(ModelSpecification):
         group_offload_type: str = "block_level",
         group_offload_blocks_per_group: int = 1,
         group_offload_use_stream: bool = False,
+        group_offload_to_disk_path: Optional[str] = None,
         training: bool = False,
         **kwargs,
     ) -> LTXPipeline:
@@ -252,6 +253,7 @@ class LTXVideoModelSpecification(ModelSpecification):
                     offload_type=group_offload_type,
                     num_blocks_per_group=group_offload_blocks_per_group,
                     use_stream=group_offload_use_stream,
+                    offload_to_disk_path=group_offload_to_disk_path,
                 )
             except ImportError as e:
                 logger.warning(

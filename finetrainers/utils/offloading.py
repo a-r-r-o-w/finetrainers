@@ -24,6 +24,7 @@ def enable_group_offload_on_components(
     record_stream: bool = False,
     low_cpu_mem_usage: bool = False,
     non_blocking: bool = False,
+    offload_to_disk_path: Optional[str] = None,
     excluded_components: List[str] = ["vae", "vqvae"],
     required_import_error_message: str = "Group offloading requires diffusers>=0.33.0",
 ) -> None:
@@ -47,6 +48,8 @@ def enable_group_offload_on_components(
             If True, CPU memory usage is minimized by pinning tensors on-the-fly instead of pre-pinning them.
         non_blocking (bool, defaults to False):
             If True, offloading and onloading is done with non-blocking data transfer.
+        offload_to_disk_path (str, optional, defaults to None):
+            The path to the directory where parameters will be offloaded to disk.
         excluded_components (List[str], defaults to ["vae", "vqvae"]):
             List of component names to exclude from group offloading.
         required_import_error_message (str, defaults to "Group offloading requires diffusers>=0.33.0"):
@@ -82,6 +85,7 @@ def enable_group_offload_on_components(
                 "record_stream": record_stream,
                 "low_cpu_mem_usage": low_cpu_mem_usage,
                 "non_blocking": non_blocking,
+                "offload_to_disk_path": offload_to_disk_path,
             }
             if offload_type == "block_level" and num_blocks_per_group is not None:
                 kwargs["num_blocks_per_group"] = num_blocks_per_group
@@ -98,6 +102,7 @@ def enable_group_offload_on_components(
                 "record_stream": record_stream,
                 "low_cpu_mem_usage": low_cpu_mem_usage,
                 "non_blocking": non_blocking,
+                "offload_to_disk_path": offload_to_disk_path,
             }
             if offload_type == "block_level" and num_blocks_per_group is not None:
                 kwargs["num_blocks_per_group"] = num_blocks_per_group

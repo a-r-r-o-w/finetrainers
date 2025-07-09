@@ -334,6 +334,9 @@ class BaseArgs:
     group_offload_use_stream (`bool`, defaults to `False`):
         Whether to use CUDA streams for group offloading. This can significantly reduce the overhead of offloading
         when using a CUDA device that supports streams.
+    group_offload_to_disk_path (`str`, defaults to `None`):
+        The path to the directory where parameters will be offloaded. Setting this option can be useful in limited
+        RAM environment settings where a reasonable speed-memory trade-off is desired.
 
     MISCELLANEOUS ARGUMENTS
     -----------------------
@@ -469,6 +472,7 @@ class BaseArgs:
     group_offload_type: str = "block_level"
     group_offload_blocks_per_group: int = 1
     group_offload_use_stream: bool = False
+    group_offload_to_disk_path: Optional[str] = None
 
     # Miscellaneous arguments
     tracker_name: str = "finetrainers"
@@ -606,6 +610,7 @@ class BaseArgs:
             "group_offload_type": self.group_offload_type,
             "group_offload_blocks_per_group": self.group_offload_blocks_per_group,
             "group_offload_use_stream": self.group_offload_use_stream,
+            "group_offload_to_disk_path": self.group_offload_to_disk_path,
         }
         validation_arguments = get_non_null_items(validation_arguments)
 
@@ -873,6 +878,12 @@ def _add_validation_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Whether to use CUDA streams for group offloading. Reduces overhead when supported.",
     )
+    parser.add_argument(
+        "--group_offload_to_disk_path",
+        type=str,
+        default=None,
+        help="The path to the directory where parameters will be offloaded to disk.",
+    )
 
 
 def _add_miscellaneous_arguments(parser: argparse.ArgumentParser) -> None:
@@ -1021,6 +1032,7 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.group_offload_type = args.group_offload_type
     result_args.group_offload_blocks_per_group = args.group_offload_blocks_per_group
     result_args.group_offload_use_stream = args.group_offload_use_stream
+    result_args.group_offload_to_disk_path = args.group_offload_to_disk_path
 
     # Miscellaneous arguments
     result_args.tracker_name = args.tracker_name
