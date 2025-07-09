@@ -321,6 +321,22 @@ class BaseArgs:
         Number of training steps after which a validation step is performed.
     enable_model_cpu_offload (`bool`, defaults to `False`):
         Whether or not to offload different modeling components to CPU during validation.
+    enable_group_offload (`bool`, defaults to `False`):
+        Whether or not to enable group offloading of model components to CPU. This can significantly reduce GPU memory
+        usage during training at the cost of some training speed. When using a CUDA device that supports streams,
+        the overhead to training speed can be negligible.
+    group_offload_type (`str`, defaults to `block_level`):
+        The type of group offloading to apply. Can be one of "block_level" or "leaf_level".
+        - "block_level" offloads groups of layers based on the number of blocks per group.
+        - "leaf_level" offloads individual layers at the lowest level.
+    group_offload_blocks_per_group (`int`, defaults to `1`):
+        The number of blocks per group when using group_offload_type="block_level".
+    group_offload_use_stream (`bool`, defaults to `False`):
+        Whether to use CUDA streams for group offloading. This can significantly reduce the overhead of offloading
+        when using a CUDA device that supports streams.
+    group_offload_to_disk_path (`str`, defaults to `None`):
+        The path to the directory where parameters will be offloaded. Setting this option can be useful in limited
+        RAM environment settings where a reasonable speed-memory trade-off is desired.
 
     MISCELLANEOUS ARGUMENTS
     -----------------------
@@ -452,6 +468,11 @@ class BaseArgs:
     validation_dataset_file: Optional[str] = None
     validation_steps: int = 500
     enable_model_cpu_offload: bool = False
+    enable_group_offload: bool = False
+    group_offload_type: str = "block_level"
+    group_offload_blocks_per_group: int = 1
+    group_offload_use_stream: bool = False
+    group_offload_to_disk_path: Optional[str] = None
 
     # Miscellaneous arguments
     tracker_name: str = "finetrainers"
@@ -585,6 +606,11 @@ class BaseArgs:
             "validation_dataset_file": self.validation_dataset_file,
             "validation_steps": self.validation_steps,
             "enable_model_cpu_offload": self.enable_model_cpu_offload,
+            "enable_group_offload": self.enable_group_offload,
+            "group_offload_type": self.group_offload_type,
+            "group_offload_blocks_per_group": self.group_offload_blocks_per_group,
+            "group_offload_use_stream": self.group_offload_use_stream,
+            "group_offload_to_disk_path": self.group_offload_to_disk_path,
         }
         validation_arguments = get_non_null_items(validation_arguments)
 
@@ -829,6 +855,35 @@ def _add_validation_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--validation_dataset_file", type=str, default=None)
     parser.add_argument("--validation_steps", type=int, default=500)
     parser.add_argument("--enable_model_cpu_offload", action="store_true")
+    parser.add_argument(
+        "--enable_group_offload",
+        action="store_true",
+        help="Whether to enable group offloading of model components to CPU. This can significantly reduce GPU memory usage.",
+    )
+    parser.add_argument(
+        "--group_offload_type",
+        type=str,
+        default="block_level",
+        choices=["block_level", "leaf_level"],
+        help="The type of group offloading to apply.",
+    )
+    parser.add_argument(
+        "--group_offload_blocks_per_group",
+        type=int,
+        default=1,
+        help="The number of blocks per group when using group_offload_type='block_level'.",
+    )
+    parser.add_argument(
+        "--group_offload_use_stream",
+        action="store_true",
+        help="Whether to use CUDA streams for group offloading. Reduces overhead when supported.",
+    )
+    parser.add_argument(
+        "--group_offload_to_disk_path",
+        type=str,
+        default=None,
+        help="The path to the directory where parameters will be offloaded to disk.",
+    )
 
 
 def _add_miscellaneous_arguments(parser: argparse.ArgumentParser) -> None:
@@ -973,6 +1028,11 @@ def _map_to_args_type(args: Dict[str, Any]) -> BaseArgs:
     result_args.validation_dataset_file = args.validation_dataset_file
     result_args.validation_steps = args.validation_steps
     result_args.enable_model_cpu_offload = args.enable_model_cpu_offload
+    result_args.enable_group_offload = args.enable_group_offload
+    result_args.group_offload_type = args.group_offload_type
+    result_args.group_offload_blocks_per_group = args.group_offload_blocks_per_group
+    result_args.group_offload_use_stream = args.group_offload_use_stream
+    result_args.group_offload_to_disk_path = args.group_offload_to_disk_path
 
     # Miscellaneous arguments
     result_args.tracker_name = args.tracker_name
@@ -1020,9 +1080,16 @@ def _validate_dataset_args(args: BaseArgs):
 
 
 def _validate_validation_args(args: BaseArgs):
+    if args.enable_model_cpu_offload and args.enable_group_offload:
+        raise ValueError("Model CPU offload and group offload cannot be enabled at the same time. Please choose one.")
+
     if args.enable_model_cpu_offload:
         if any(x > 1 for x in [args.pp_degree, args.dp_degree, args.dp_shards, args.cp_degree, args.tp_degree]):
             raise ValueError("Model CPU offload is not supported on multi-GPU at the moment.")
+
+    if args.enable_group_offload:
+        if args.group_offload_type == "block_level" and args.group_offload_blocks_per_group < 1:
+            raise ValueError("When using block_level group offloading, blocks_per_group must be at least 1.")
 
 
 def _display_helper_messages(args: argparse.Namespace):

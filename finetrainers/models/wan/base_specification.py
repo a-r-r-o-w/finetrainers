@@ -341,6 +341,11 @@ class WanModelSpecification(ModelSpecification):
         enable_slicing: bool = False,
         enable_tiling: bool = False,
         enable_model_cpu_offload: bool = False,
+        enable_group_offload: bool = False,
+        group_offload_type: str = "block_level",
+        group_offload_blocks_per_group: int = 1,
+        group_offload_use_stream: bool = False,
+        group_offload_to_disk_path: Optional[str] = None,
         training: bool = False,
         **kwargs,
     ) -> Union[WanPipeline, WanImageToVideoPipeline]:
@@ -350,32 +355,52 @@ class WanModelSpecification(ModelSpecification):
             "transformer": transformer,
             "vae": vae,
             "scheduler": scheduler,
-            "image_encoder": image_encoder,
-            "image_processor": image_processor,
         }
         components = get_non_null_items(components)
 
-        if self.transformer_config.get("image_dim", None) is not None:
-            pipe = WanPipeline.from_pretrained(
-                self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
-            )
-        else:
-            pipe = WanImageToVideoPipeline.from_pretrained(
-                self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
-            )
+        pipe_cls = WanImageToVideoPipeline if image_processor is not None else WanPipeline
+        if image_processor is not None:
+            components["image_encoder"] = image_encoder
+            components["image_processor"] = image_processor
+
+        pipe = pipe_cls.from_pretrained(
+            self.pretrained_model_name_or_path, **components, revision=self.revision, cache_dir=self.cache_dir
+        )
+
+        # TODO(aryan): remove this hack after diffusers fix
+        if image_processor is not None:
+            pipe.transformer.config.image_dim = self.transformer_config.get("image_dim")
+
         pipe.text_encoder.to(self.text_encoder_dtype)
         pipe.vae.to(self.vae_dtype)
+        if image_encoder is not None:
+            pipe.image_encoder.to(self.text_encoder_dtype)
+
+        # TODO(aryan): unfortunately wan vae don't implement the VAE interface of diffusers, so this doesn't do much
+        # _enable_vae_memory_optimizations(pipe.vae, enable_slicing, enable_tiling)
 
         if not training:
             pipe.transformer.to(self.transformer_dtype)
 
-        # TODO(aryan): add support in diffusers
-        # if enable_slicing:
-        #     pipe.vae.enable_slicing()
-        # if enable_tiling:
-        #     pipe.vae.enable_tiling()
+        # Apply offloading if enabled - these are mutually exclusive
         if enable_model_cpu_offload:
             pipe.enable_model_cpu_offload()
+        elif enable_group_offload:
+            try:
+                from finetrainers.utils.offloading import enable_group_offload_on_components
+
+                enable_group_offload_on_components(
+                    components=pipe.components,
+                    device=pipe.device,
+                    offload_type=group_offload_type,
+                    num_blocks_per_group=group_offload_blocks_per_group,
+                    use_stream=group_offload_use_stream,
+                    offload_to_disk_path=group_offload_to_disk_path,
+                )
+            except ImportError as e:
+                logger.warning(
+                    f"Failed to enable group offloading: {str(e)}. Using standard pipeline without offloading."
+                )
 
         return pipe
 

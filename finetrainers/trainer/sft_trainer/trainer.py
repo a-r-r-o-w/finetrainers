@@ -753,7 +753,16 @@ class SFTTrainer(Trainer):
         components = utils.get_non_null_items(components)
         components = list(filter(lambda x: hasattr(x, "to"), components))
         for component in components:
-            component.to(device)
+            # Check if component has meta tensors and use to_empty() instead of to()
+            # This handles models loaded with device_map="meta" or init_empty_weights=True
+            has_meta_tensor = (
+                any(param.is_meta for param in component.parameters()) if hasattr(component, "parameters") else False
+            )
+
+            if has_meta_tensor:
+                component.to_empty(device=device)
+            else:
+                component.to(device)
 
     def _set_components(self, components: Dict[str, Any]) -> None:
         for component_name in self._all_component_names:
@@ -790,6 +799,10 @@ class SFTTrainer(Trainer):
                 enable_slicing=self.args.enable_slicing,
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+                enable_group_offload=self.args.enable_group_offload,
+                group_offload_type=self.args.group_offload_type,
+                group_offload_blocks_per_group=self.args.group_offload_blocks_per_group,
+                group_offload_use_stream=self.args.group_offload_use_stream,
                 training=True,
             )
         else:
@@ -805,6 +818,10 @@ class SFTTrainer(Trainer):
                 enable_slicing=self.args.enable_slicing,
                 enable_tiling=self.args.enable_tiling,
                 enable_model_cpu_offload=self.args.enable_model_cpu_offload,
+                enable_group_offload=self.args.enable_group_offload,
+                group_offload_type=self.args.group_offload_type,
+                group_offload_blocks_per_group=self.args.group_offload_blocks_per_group,
+                group_offload_use_stream=self.args.group_offload_use_stream,
                 training=False,
             )
 
