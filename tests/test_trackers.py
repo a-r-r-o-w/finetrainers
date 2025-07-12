@@ -108,110 +108,27 @@ class TestWandbResumption(unittest.TestCase):
             self.assertEqual(saved_run_id, run_id)
 
             # Test AccelerateCheckpointer
-            try:
-                from accelerate import Accelerator
+            from accelerate import Accelerator
 
-                mock_accelerator = Mock(spec=Accelerator)
+            mock_accelerator = Mock(spec=Accelerator)
 
-                accelerate_checkpointer = AccelerateCheckpointer(
-                    accelerator=mock_accelerator,
-                    states={},
-                    checkpointing_steps=1,
-                    checkpointing_limit=1,
-                    output_dir=log_dir,
-                    enable=True,
-                )
+            accelerate_checkpointer = AccelerateCheckpointer(
+                accelerator=mock_accelerator,
+                states={},
+                checkpointing_steps=1,
+                checkpointing_limit=1,
+                output_dir=log_dir,
+                enable=True,
+            )
 
-                # Simulate the wandb run_id being saved during checkpoint
-                accelerate_checkpointer.states["wandb_run_id"] = run_id
+            # Simulate the wandb run_id being saved during checkpoint
+            accelerate_checkpointer.states["wandb_run_id"] = run_id
 
-                # Test retrieval from AccelerateCheckpointer
-                saved_run_id = accelerate_checkpointer.get_wandb_run_id_from_checkpoint()
-                self.assertEqual(saved_run_id, run_id)
-
-            except ImportError:
-                # Skip accelerate test if not available
-                pass
+            # Test retrieval from AccelerateCheckpointer
+            saved_run_id = accelerate_checkpointer.get_wandb_run_id_from_checkpoint()
+            self.assertEqual(saved_run_id, run_id)
 
             tracker.finish()
-
-    def test_sft_trainer_checkpoint_wandb_resumption_flow(self):
-        """Test the exact scenario Aryan described in issue #188 for SFTTrainer.
-
-        The core problem: when resuming from checkpoint, a NEW wandb run is created
-        instead of resuming the original one.
-
-        This test simulates:
-        1. Start training with wandb tracker -> get run_id
-        2. Save checkpoint with wandb run_id
-        3. Resume training from checkpoint with same run_id
-        4. Verify NO new run is created (same run_id is used)
-        """
-        with tempfile.TemporaryDirectory() as log_dir:
-            # STEP 1: Start training with wandb tracker -> get run_id
-            original_tracker = WandbTracker("sft-issue-188-test", log_dir=log_dir, config={"lr": 0.001})
-            original_run_id = original_tracker.get_wandb_run_id()
-            original_tracker.finish()
-
-            # STEP 2: Save checkpoint with wandb run_id
-            checkpoint_data = {"wandb_run_id": original_run_id}
-
-            # STEP 3: Resume training from checkpoint with same run_id
-            resumed_tracker = WandbTracker(
-                "sft-issue-188-test",
-                log_dir=log_dir,
-                config={"lr": 0.001},
-                resume_run_id=checkpoint_data["wandb_run_id"]
-            )
-
-            # STEP 4: Verify NO new run is created (same run_id is used)
-            resumed_run_id = resumed_tracker.get_wandb_run_id()
-            self.assertEqual(
-                original_run_id,
-                resumed_run_id,
-                "BUG: SFTTrainer created new wandb run instead of resuming original run!",
-            )
-
-            resumed_tracker.finish()
-
-    def test_control_trainer_checkpoint_wandb_resumption_flow(self):
-        """Test the exact scenario Aryan described in issue #188 for ControlTrainer.
-
-        The core problem: when resuming from checkpoint, a NEW wandb run is created
-        instead of resuming the original one.
-
-        This test simulates:
-        1. Start training with wandb tracker -> get run_id
-        2. Save checkpoint with wandb run_id
-        3. Resume training from checkpoint with same run_id
-        4. Verify NO new run is created (same run_id is used)
-        """
-        with tempfile.TemporaryDirectory() as log_dir:
-            # STEP 1: Start training with wandb tracker -> get run_id
-            original_tracker = WandbTracker("control-issue-188-test", log_dir=log_dir, config={"lr": 0.001})
-            original_run_id = original_tracker.get_wandb_run_id()
-            original_tracker.finish()
-
-            # STEP 2: Save checkpoint with wandb run_id
-            checkpoint_data = {"wandb_run_id": original_run_id}
-
-            # STEP 3: Resume training from checkpoint with same run_id
-            resumed_tracker = WandbTracker(
-                "control-issue-188-test",
-                log_dir=log_dir,
-                config={"lr": 0.001},
-                resume_run_id=checkpoint_data["wandb_run_id"]
-            )
-
-            # STEP 4: Verify NO new run is created (same run_id is used)
-            resumed_run_id = resumed_tracker.get_wandb_run_id()
-            self.assertEqual(
-                original_run_id,
-                resumed_run_id,
-                "BUG: ControlTrainer created new wandb run instead of resuming original run!",
-            )
-
-            resumed_tracker.finish()
 
     def test_sft_trainer_uses_checkpointed_wandb_run_id(self):
         """Test that SFTTrainer has the required logic for wandb resumption."""
