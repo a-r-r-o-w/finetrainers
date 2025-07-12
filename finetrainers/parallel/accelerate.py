@@ -191,6 +191,7 @@ class AccelerateParallelBackend(BaseParallelBackend):
         return _get_mesh()
 
     def get_checkpointer(self, *args, **kwargs):
+        kwargs["_parallel_backend"] = self
         return AccelerateCheckpointer(self._accelerator, *args, **kwargs)
 
     @property
@@ -263,11 +264,13 @@ class AccelerateCheckpointer(BaseCheckpointer):
         enable: bool = True,
         _callback_fn: Callable[[Dict[str, Any]], Dict[str, Any]] = None,
         _prefix: str = "finetrainers_step",
+        _parallel_backend: Optional["BaseParallelBackend"] = None,
         *args,
         **kwargs,
     ) -> None:
         self.accelerator = accelerator
         self.states = states
+        self._parallel_backend = _parallel_backend
 
         self.checkpointing_steps = checkpointing_steps
         self.checkpointing_limit = checkpointing_limit
@@ -285,7 +288,18 @@ class AccelerateCheckpointer(BaseCheckpointer):
             assert len(models) == 1
 
             _callback_fn(weights[0])
-            torch.save(self.states, os.path.join(output_dir, "states.pt"))
+
+            states_to_save = dict(self.states)
+            if (
+                self._parallel_backend
+                and hasattr(self._parallel_backend, "tracker")
+                and self._parallel_backend.tracker
+            ):
+                wandb_run_id = self._parallel_backend.tracker.get_wandb_run_id()
+                if wandb_run_id:
+                    states_to_save["wandb_run_id"] = wandb_run_id
+
+            torch.save(states_to_save, os.path.join(output_dir, "states.pt"))
 
         def load_model_hook(models, input_dir) -> None:
             self.states = torch.load(os.path.join(input_dir, "states.pt"))
@@ -333,6 +347,10 @@ class AccelerateCheckpointer(BaseCheckpointer):
         logger.info(f"Loaded checkpoint in {end_time - begin_time:.2f} seconds.")
 
         return True
+
+    def get_wandb_run_id_from_checkpoint(self) -> Optional[str]:
+        """Get the wandb run ID from the loaded checkpoint states."""
+        return self.states.get("wandb_run_id", None)
 
     def _should_checkpoint(self, step: int, force: bool) -> bool:
         if not self.enable:

@@ -1,7 +1,7 @@
 import contextlib
 import functools
 import os
-from typing import Callable, List, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import torch
 import torch.backends
@@ -116,12 +116,16 @@ class Trainer:
         logging.set_dependency_log_level(self.args.verbose, self.state.parallel_backend.is_local_main_process)
         logger.info("Initialized FineTrainers")
 
-    def _init_trackers(self) -> None:
+    def _init_trackers(self, resume_run_id: Optional[str] = None) -> None:
         # TODO(aryan): handle multiple trackers
         trackers = [self.args.report_to]
         experiment_name = self.args.tracker_name or "finetrainers-experiment"
         self.state.parallel_backend.initialize_trackers(
-            trackers, experiment_name=experiment_name, config=self._get_training_info(), log_dir=self.args.logging_dir
+            trackers,
+            experiment_name=experiment_name,
+            config=self._get_training_info(),
+            log_dir=self.args.logging_dir,
+            resume_run_id=resume_run_id,
         )
 
     def _init_config_options(self) -> None:

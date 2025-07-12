@@ -262,7 +262,8 @@ class ControlTrainer(Trainer):
 
         # 3. Initialize trackers, directories and repositories
         self._init_logging()
-        self._init_trackers()
+        if self.args.resume_from_checkpoint is None:
+            self._init_trackers()
         self._init_directories_and_repositories()
 
     def _prepare_dataset(self) -> None:
@@ -373,6 +374,9 @@ class ControlTrainer(Trainer):
             resume_from_checkpoint = -1
         if resume_from_checkpoint is not None:
             self.checkpointer.load(resume_from_checkpoint)
+            # Extract wandb run ID from loaded checkpoint and initialize trackers with it
+            wandb_run_id = self.checkpointer.get_wandb_run_id_from_checkpoint()
+            self._init_trackers(resume_run_id=wandb_run_id)
 
     def _train(self) -> None:
         logger.info("Starting training")

@@ -37,6 +37,10 @@ class BaseTracker:
     def finish(self) -> None:
         pass
 
+    def get_wandb_run_id(self) -> Optional[str]:
+        r"""Get the wandb run ID if available."""
+        return None
+
 
 class DummyTracker(BaseTracker):
     def __init__(self):
@@ -52,7 +56,13 @@ class DummyTracker(BaseTracker):
 class WandbTracker(BaseTracker):
     r"""Logger implementation for Weights & Biases."""
 
-    def __init__(self, experiment_name: str, log_dir: str, config: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        experiment_name: str,
+        log_dir: str,
+        config: Optional[Dict[str, Any]] = None,
+        resume_run_id: Optional[str] = None,
+    ) -> None:
         super().__init__()
 
         import wandb
@@ -62,7 +72,11 @@ class WandbTracker(BaseTracker):
         # WandB does not create a directory if it does not exist and instead starts using the system temp directory.
         pathlib.Path(log_dir).mkdir(parents=True, exist_ok=True)
 
-        self.run = wandb.init(project=experiment_name, dir=log_dir, config=config)
+        if resume_run_id is not None:
+            logger.info(f"Resuming WandB run with ID: {resume_run_id}")
+            self.run = wandb.init(project=experiment_name, dir=log_dir, config=config, id=resume_run_id, resume="must")
+        else:
+            self.run = wandb.init(project=experiment_name, dir=log_dir, config=config)
         logger.info("WandB logging enabled")
 
     def log(self, metrics: Dict[str, Any], step: int) -> None:
@@ -72,6 +86,15 @@ class WandbTracker(BaseTracker):
 
     def finish(self) -> None:
         self.run.finish()
+
+    @property
+    def run_id(self) -> Optional[str]:
+        """Return the current wandb run ID for checkpointing purposes."""
+        return self.run.id if self.run is not None else None
+
+    def get_wandb_run_id(self) -> Optional[str]:
+        """Return the wandb run ID if this tracker supports it."""
+        return self.run_id
 
 
 class SequentialTracker(BaseTracker):
@@ -106,6 +129,14 @@ class SequentialTracker(BaseTracker):
         for tracker in self.trackers:
             tracker.finish()
 
+    def get_wandb_run_id(self) -> Optional[str]:
+        """Return the wandb run ID from the first WandB tracker in the sequence."""
+        for tracker in self.trackers:
+            run_id = tracker.get_wandb_run_id()
+            if run_id is not None:
+                return run_id
+        return None
+
 
 class Trackers(str, Enum):
     r"""Enum for supported trackers."""
@@ -118,7 +149,11 @@ _SUPPORTED_TRACKERS = [tracker.value for tracker in Trackers.__members__.values(
 
 
 def initialize_trackers(
-    trackers: List[str], experiment_name: str, config: Dict[str, Any], log_dir: str
+    trackers: List[str],
+    experiment_name: str,
+    config: Dict[str, Any],
+    log_dir: str,
+    resume_run_id: Optional[str] = None,
 ) -> Union[BaseTracker, SequentialTracker]:
     r"""Initialize loggers based on the provided configuration."""
 
@@ -135,7 +170,7 @@ def initialize_trackers(
         if tracker_name == Trackers.NONE:
             tracker = BaseTracker()
         elif tracker_name == Trackers.WANDB:
-            tracker = WandbTracker(experiment_name, log_dir, config)
+            tracker = WandbTracker(experiment_name, log_dir, config, resume_run_id=resume_run_id)
         tracker_instances.append(tracker)
 
     tracker = SequentialTracker(tracker_instances)
