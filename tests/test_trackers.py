@@ -215,16 +215,6 @@ class TestWandbResumption(unittest.TestCase):
             original_wandb_run_id = initial_tracker.get_wandb_run_id()
 
             # Step 2: Set up a real PTDCheckpointer with proper mocking
-            import torch.nn as nn
-
-            # Create a simple model for testing
-            class SimpleModel(nn.Module):
-                def __init__(self):
-                    super().__init__()
-                    self.linear = nn.Linear(1, 1)
-
-                def forward(self, x):
-                    return self.linear(x)
 
             mock_parallel_backend = Mock()
             mock_parallel_backend.tracker = initial_tracker
@@ -234,7 +224,7 @@ class TestWandbResumption(unittest.TestCase):
 
             checkpointer = PTDCheckpointer(
                 dataloader=Mock(),
-                model_parts=[SimpleModel()],  # Use real model instead of Mock
+                model_parts=[Mock()],
                 optimizers=Mock(),
                 schedulers=mock_schedulers,
                 states={},
@@ -252,11 +242,7 @@ class TestWandbResumption(unittest.TestCase):
 
                 # Save checkpoint using real PTDCheckpointer at step 5
                 if step == checkpointing_steps:
-                    # Note: PTDCheckpointer.save needs proper device and main process parameters
-                    # but we can't easily test the full distributed checkpoint saving in unit tests
-                    # So we'll simulate the wandb_run_id being saved to states manually
-                    if checkpointer._parallel_backend and checkpointer._parallel_backend.tracker:
-                        checkpointer.states["wandb_run_id"] = checkpointer._parallel_backend.tracker.get_wandb_run_id()
+                    checkpointer.save(step, force=True, _device="cpu", _is_main_process=True)
 
             # Step 4: "Quit" training after step 6 (simulating interruption)
             initial_tracker.finish()
@@ -272,7 +258,7 @@ class TestWandbResumption(unittest.TestCase):
 
             checkpointer_resume = PTDCheckpointer(
                 dataloader=Mock(),
-                model_parts=[SimpleModel()],  # Use real model instead of Mock
+                model_parts=[Mock()],
                 optimizers=Mock(),
                 schedulers=mock_schedulers_resume,
                 states={},
@@ -283,9 +269,9 @@ class TestWandbResumption(unittest.TestCase):
                 _parallel_backend=mock_parallel_backend_resume,
             )
 
-            # Simulate loading checkpoint by manually setting the wandb_run_id in states
-            # (In real PTD checkpointing, this would be loaded from distributed checkpoint)
-            checkpointer_resume.states["wandb_run_id"] = original_wandb_run_id
+            # Load the checkpoint (this populates checkpointer_resume.states with saved data)
+            checkpoint_loaded = checkpointer_resume.load(checkpointing_steps, _device="cpu")
+            self.assertTrue(checkpoint_loaded, "Checkpoint should have been loaded successfully")
 
             # Extract the wandb run_id from the loaded checkpoint
             loaded_wandb_run_id = checkpointer_resume.get_wandb_run_id_from_checkpoint()
