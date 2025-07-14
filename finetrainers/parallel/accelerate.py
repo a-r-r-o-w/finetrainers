@@ -269,6 +269,8 @@ class AccelerateCheckpointer(BaseCheckpointer):
         **kwargs,
     ) -> None:
         self.accelerator = accelerator
+        self._parallel_backend = _parallel_backend
+
         if (
             self._parallel_backend
             and hasattr(self._parallel_backend, "tracker")
@@ -278,7 +280,6 @@ class AccelerateCheckpointer(BaseCheckpointer):
             if wandb_run_id:
                 states["wandb_run_id"] = wandb_run_id
         self.states = states
-        self._parallel_backend = _parallel_backend
 
         self.checkpointing_steps = checkpointing_steps
         self.checkpointing_limit = checkpointing_limit
