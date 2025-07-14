@@ -269,6 +269,14 @@ class AccelerateCheckpointer(BaseCheckpointer):
         **kwargs,
     ) -> None:
         self.accelerator = accelerator
+        if (
+            self._parallel_backend
+            and hasattr(self._parallel_backend, "tracker")
+            and self._parallel_backend.tracker
+        ):
+            wandb_run_id = self._parallel_backend.tracker.get_wandb_run_id()
+            if wandb_run_id:
+                states["wandb_run_id"] = wandb_run_id
         self.states = states
         self._parallel_backend = _parallel_backend
 
