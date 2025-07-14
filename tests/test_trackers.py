@@ -2,20 +2,23 @@ import logging
 import os
 import pathlib
 import tempfile
+import time
 import unittest
 
+import pytest
+import torch
 from diffusers.utils.testing_utils import CaptureLogger
 
 from finetrainers import BaseArgs, SFTTrainer, TrainingType
 from finetrainers.trackers import WandbTracker
 from tests.trainer import SFTTrainerFastTestsMixin
-import time, pytest, torch
 
 from .models.cogview4.base_specification import DummyCogView4ModelSpecification  # noqa
 
 
 os.environ["WANDB_MODE"] = "offline"
 os.environ["FINETRAINERS_LOG_LEVEL"] = "INFO"
+
 
 @pytest.fixture(autouse=True)
 def slow_down_tests():
@@ -24,6 +27,7 @@ def slow_down_tests():
     # Not doing so seems to randomly trigger some test failures, which wouldn't fail if run individually.
     # !!!Look into this in future!!!
     time.sleep(5)
+
 
 class WandbFastTests(unittest.TestCase):
     def test_wandb_logdir(self):
