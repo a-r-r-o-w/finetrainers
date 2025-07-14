@@ -5,11 +5,12 @@ import tempfile
 import unittest
 
 from diffusers.utils.testing_utils import CaptureLogger
-from .models.cogview4.base_specification import DummyCogView4ModelSpecification  # noqa
-from tests.trainer import SFTTrainerFastTestsMixin
-from finetrainers import BaseArgs, SFTTrainer, TrainingType, get_logger
 
+from finetrainers import BaseArgs, SFTTrainer, TrainingType
 from finetrainers.trackers import WandbTracker
+from tests.trainer import SFTTrainerFastTestsMixin
+
+from .models.cogview4.base_specification import DummyCogView4ModelSpecification  # noqa
 
 
 os.environ["WANDB_MODE"] = "offline"
@@ -86,7 +87,10 @@ class SFTTrainerLoRAWandbResumeTests(SFTTrainerFastTestsMixin, unittest.TestCase
 
             # Verify that the resumed training uses the same wandb run ID
             resumed_wandb_run_id = None
-            if hasattr(trainer_phase2.state.parallel_backend, 'tracker') and trainer_phase2.state.parallel_backend.tracker:
+            if (
+                hasattr(trainer_phase2.state.parallel_backend, "tracker")
+                and trainer_phase2.state.parallel_backend.tracker
+            ):
                 resumed_wandb_run_id = trainer_phase2.state.parallel_backend.tracker.get_wandb_run_id()
 
             self.assertIsNotNone(resumed_wandb_run_id, "Resumed training should have a wandb run ID")
@@ -94,7 +98,7 @@ class SFTTrainerLoRAWandbResumeTests(SFTTrainerFastTestsMixin, unittest.TestCase
                 original_wandb_run_id,
                 resumed_wandb_run_id,
                 f"WandB run ID should be the same after resumption. "
-                f"Original: {original_wandb_run_id}, Resumed: {resumed_wandb_run_id}"
+                f"Original: {original_wandb_run_id}, Resumed: {resumed_wandb_run_id}",
             )
 
             # Verify that training continued from the correct step
