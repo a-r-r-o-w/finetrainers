@@ -9,6 +9,7 @@ from diffusers.utils.testing_utils import CaptureLogger
 from finetrainers import BaseArgs, SFTTrainer, TrainingType
 from finetrainers.trackers import WandbTracker
 from tests.trainer import SFTTrainerFastTestsMixin
+import time, pytest, torch
 
 from .models.cogview4.base_specification import DummyCogView4ModelSpecification  # noqa
 
@@ -16,6 +17,13 @@ from .models.cogview4.base_specification import DummyCogView4ModelSpecification 
 os.environ["WANDB_MODE"] = "offline"
 os.environ["FINETRAINERS_LOG_LEVEL"] = "INFO"
 
+@pytest.fixture(autouse=True)
+def slow_down_tests():
+    yield
+    # Sleep between each test so that process groups are cleaned and resources are released.
+    # Not doing so seems to randomly trigger some test failures, which wouldn't fail if run individually.
+    # !!!Look into this in future!!!
+    time.sleep(5)
 
 class WandbFastTests(unittest.TestCase):
     def test_wandb_logdir(self):
@@ -76,7 +84,11 @@ class SFTTrainerLoRAWandbResumeTests(SFTTrainerFastTestsMixin, unittest.TestCase
 
             # Clean up the first trainer
             del trainer_phase1
-
+            # For some reason, if the process group is not destroyed, the tests that follow will fail. Just manually
+            # make sure to destroy it here.
+            if torch.distributed.is_initialized():
+                torch.distributed.destroy_process_group()
+                time.sleep(3)
             # Phase 2: Resume training from checkpoint
             args_phase2 = self.get_args()
             args_phase2.resume_from_checkpoint = "finetrainers_step_5"  # Resume from step 5 checkpoint
