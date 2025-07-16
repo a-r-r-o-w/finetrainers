@@ -299,7 +299,7 @@ class AccelerateCheckpointer(BaseCheckpointer):
             torch.save(self.states, os.path.join(output_dir, "states.pt"))
 
         def load_model_hook(models, input_dir) -> None:
-            self.states = torch.load(os.path.join(input_dir, "states.pt"))
+            self.states = torch.load(os.path.join(input_dir, "states.pt"), weights_only=False)
 
         self.accelerator.register_save_state_pre_hook(save_model_hook)
         self.accelerator.register_load_state_pre_hook(load_model_hook)
