@@ -275,6 +275,8 @@ class AccelerateCheckpointer(BaseCheckpointer):
             wandb_run_id = self._parallel_backend.tracker.get_wandb_run_id()
             if wandb_run_id:
                 states["wandb_run_id"] = wandb_run_id
+        else:
+            states["wandb_run_id"] = None
         self.states = states
 
         self.checkpointing_steps = checkpointing_steps
@@ -294,17 +296,7 @@ class AccelerateCheckpointer(BaseCheckpointer):
 
             _callback_fn(weights[0])
 
-            states_to_save = dict(self.states)
-            if (
-                self._parallel_backend
-                and hasattr(self._parallel_backend, "tracker")
-                and self._parallel_backend.tracker
-            ):
-                wandb_run_id = self._parallel_backend.tracker.get_wandb_run_id()
-                if wandb_run_id:
-                    states_to_save["wandb_run_id"] = wandb_run_id
-
-            torch.save(states_to_save, os.path.join(output_dir, "states.pt"))
+            torch.save(self.states, os.path.join(output_dir, "states.pt"))
 
         def load_model_hook(models, input_dir) -> None:
             self.states = torch.load(os.path.join(input_dir, "states.pt"))
