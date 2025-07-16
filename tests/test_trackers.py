@@ -2,10 +2,8 @@ import logging
 import os
 import pathlib
 import tempfile
-import time
 import unittest
 
-import pytest
 import torch
 from diffusers.utils.testing_utils import CaptureLogger
 
@@ -18,15 +16,6 @@ from .models.cogview4.base_specification import DummyCogView4ModelSpecification 
 
 os.environ["WANDB_MODE"] = "offline"
 os.environ["FINETRAINERS_LOG_LEVEL"] = "INFO"
-
-
-@pytest.fixture(autouse=True)
-def slow_down_tests():
-    yield
-    # Sleep between each test so that process groups are cleaned and resources are released.
-    # Not doing so seems to randomly trigger some test failures, which wouldn't fail if run individually.
-    # !!!Look into this in future!!!
-    time.sleep(5)
 
 
 class WandbFastTests(unittest.TestCase):
