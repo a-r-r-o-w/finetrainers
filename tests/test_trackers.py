@@ -49,7 +49,7 @@ class SFTTrainerLoRAWandbResumeTests(SFTTrainerFastTestsMixin, unittest.TestCase
     def get_args(self) -> BaseArgs:
         args = self.get_base_args()
         args.checkpointing_steps = 5
-        args.parallel_backend = "accelerate"
+        args.parallel_backend = "ptd"
         args.training_type = TrainingType.LORA
         args.rank = 4
         args.lora_alpha = 4
@@ -95,7 +95,7 @@ class SFTTrainerLoRAWandbResumeTests(SFTTrainerFastTestsMixin, unittest.TestCase
                 time.sleep(3)
             # Phase 2: Resume training from checkpoint
             args_phase2 = self.get_args()
-            args_phase2.resume_from_checkpoint = "finetrainers_step_5"  # Resume from step 5 checkpoint
+            args_phase2.resume_from_checkpoint = 5  # Resume from step 5 checkpoint
 
             model_specification_2 = self.model_specification_cls()
             trainer_phase2 = SFTTrainer(args_phase2, model_specification_2)
