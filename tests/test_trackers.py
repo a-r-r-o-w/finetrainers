@@ -75,7 +75,7 @@ class SFTTrainerLoRAWandbResumeTests(SFTTrainerFastTestsMixin, unittest.TestCase
 
             del trainer_phase1
             # Reinitialize process group for resumed training
-            if not torch.distributed.is_initialized():
+            if parallel_backend != "ptd" and not torch.distributed.is_initialized():
                 torch.distributed.init_process_group(backend="nccl")  # or 'gloo' for CPU
 
             # Phase 2: Resume training from the checkpoint
