@@ -321,7 +321,12 @@ class PTDCheckpointer(BaseCheckpointer):
             }
         )
         self.states.update(schedulers.get_lr_scheduler_state())
-
+        if self._parallel_backend and hasattr(self._parallel_backend, "tracker") and self._parallel_backend.tracker:
+            wandb_run_id = self._parallel_backend.tracker.get_wandb_run_id()
+            if wandb_run_id:
+                self.states["wandb_run_id"] = wandb_run_id
+        else:
+            self.states["wandb_run_id"] = None
         self.checkpointing_steps = checkpointing_steps
         self.checkpointing_limit = checkpointing_limit
         self.output_dir = pathlib.Path(output_dir)
@@ -334,12 +339,6 @@ class PTDCheckpointer(BaseCheckpointer):
     def save(self, step: int = -1, force: bool = False, *, _device: torch.device, _is_main_process: bool) -> str:
         if not self._should_checkpoint(step, force):
             return None
-
-        # Save wandb run ID if available
-        if self._parallel_backend and hasattr(self._parallel_backend, "tracker") and self._parallel_backend.tracker:
-            wandb_run_id = self._parallel_backend.tracker.get_wandb_run_id()
-            if wandb_run_id:
-                self.states["wandb_run_id"] = wandb_run_id
 
         checkpoint_dir = self._get_checkpoint_dir(step)
         begin_time = time.monotonic()
