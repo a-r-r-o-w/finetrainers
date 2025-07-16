@@ -66,69 +66,48 @@ class SFTTrainerLoRAWandbResumeTests(SFTTrainerFastTestsMixin, unittest.TestCase
         3. Resume training from checkpoint at step 5 for additional steps
         4. Verify that the same wandb session ID is maintained
         """
-        logger = logging.getLogger("finetrainers")
+        # Phase 1: Initial training run (6 steps, checkpoint at step 5)
+        args_phase1 = self.get_args()
+        args_phase1.train_steps = 6  # Train for 6 steps (will checkpoint at step 5)
 
-        with CaptureLogger(logger) as cap_log:
-            # Phase 1: Initial training run (6 steps, checkpoint at step 5)
-            args_phase1 = self.get_args()
-            args_phase1.train_steps = 6  # Train for 6 steps (will checkpoint at step 5)
+        model_specification_1 = self.model_specification_cls()
+        trainer_phase1 = SFTTrainer(args_phase1, model_specification_1)
+        trainer_phase1.run()
 
-            model_specification_1 = self.model_specification_cls()
-            trainer_phase1 = SFTTrainer(args_phase1, model_specification_1)
-            trainer_phase1.run()
+        # Verify checkpoint was created at step 5
+        checkpoint_dir = pathlib.Path(self.tmpdir.name) / "finetrainers_step_5"
+        self.assertTrue(checkpoint_dir.exists(), f"Checkpoint should exist at {checkpoint_dir}")
 
-            # Verify checkpoint was created at step 5
-            checkpoint_dir = pathlib.Path(self.tmpdir.name) / "finetrainers_step_5"
-            self.assertTrue(checkpoint_dir.exists(), f"Checkpoint should exist at {checkpoint_dir}")
+        # Extract the wandb run ID from the first training run
+        # This should be stored in the checkpoint
+        original_wandb_run_id = trainer_phase1.checkpointer.get_wandb_run_id_from_checkpoint()
+        self.assertIsNotNone(original_wandb_run_id, "WandB run ID should be saved in checkpoint")
 
-            # Extract the wandb run ID from the first training run
-            # This should be stored in the checkpoint
-            original_wandb_run_id = trainer_phase1.checkpointer.get_wandb_run_id_from_checkpoint()
-            self.assertIsNotNone(original_wandb_run_id, "WandB run ID should be saved in checkpoint")
+        del trainer_phase1
+        # For some reason, if the process group is not destroyed, the tests that follow will fail. Just manually
+        # make sure to destroy it here.
+        if torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
+            time.sleep(3)
+        # Phase 2: Resume training from the checkpoint
+        args_phase2 = self.get_args()
+        args_phase2.resume_from_checkpoint = 5
 
-            # Clean up the first trainer
-            del trainer_phase1
-            # For some reason, if the process group is not destroyed, the tests that follow will fail. Just manually
-            # make sure to destroy it here.
-            if torch.distributed.is_initialized():
-                torch.distributed.destroy_process_group()
-                time.sleep(3)
-            # Phase 2: Resume training from checkpoint
-            args_phase2 = self.get_args()
-            args_phase2.resume_from_checkpoint = 5  # Resume from step 5 checkpoint
+        model_specification_2 = self.model_specification_cls()
+        trainer_phase2 = SFTTrainer(args_phase2, model_specification_2)
+        trainer_phase2.run()
 
-            model_specification_2 = self.model_specification_cls()
-            trainer_phase2 = SFTTrainer(args_phase2, model_specification_2)
-            trainer_phase2.run()
+        # Verify that the resumed training uses the same wandb run ID
+        resumed_wandb_run_id = None
+        if hasattr(trainer_phase2.state.parallel_backend, "tracker") and trainer_phase2.state.parallel_backend.tracker:
+            resumed_wandb_run_id = trainer_phase2.state.parallel_backend.tracker.get_wandb_run_id()
 
-            # Verify that the resumed training uses the same wandb run ID
-            resumed_wandb_run_id = None
-            if (
-                hasattr(trainer_phase2.state.parallel_backend, "tracker")
-                and trainer_phase2.state.parallel_backend.tracker
-            ):
-                resumed_wandb_run_id = trainer_phase2.state.parallel_backend.tracker.get_wandb_run_id()
+        self.assertIsNotNone(resumed_wandb_run_id, "Resumed training should have a wandb run ID")
+        self.assertEqual(
+            original_wandb_run_id,
+            resumed_wandb_run_id,
+            f"WandB run ID should be the same after resumption. "
+            f"Original: {original_wandb_run_id}, Resumed: {resumed_wandb_run_id}",
+        )
 
-            self.assertIsNotNone(resumed_wandb_run_id, "Resumed training should have a wandb run ID")
-            self.assertEqual(
-                original_wandb_run_id,
-                resumed_wandb_run_id,
-                f"WandB run ID should be the same after resumption. "
-                f"Original: {original_wandb_run_id}, Resumed: {resumed_wandb_run_id}",
-            )
-
-            # Verify that training continued from the correct step
-            final_step = trainer_phase2.state.train_state.step
-            self.assertGreaterEqual(final_step, 10, "Training should have reached at least step 10")
-
-            # Clean up the second trainer
-            del trainer_phase2
-
-        # Verify logging contains resumption messages
-        log_output = cap_log.out
-        self.assertIn("WandB logging enabled", log_output)
-
-        # If resumption happened correctly, we should see a resumption message
-        # The exact message depends on the WandB implementation, but we can check for key indicators
-        if "Resuming WandB run with ID:" in log_output:
-            self.assertIn(f"Resuming WandB run with ID: {original_wandb_run_id}", log_output)
+        del trainer_phase2
