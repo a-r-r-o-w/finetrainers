@@ -99,9 +99,7 @@ class SFTTrainerLoRAWandbResumeTests(SFTTrainerFastTestsMixin, unittest.TestCase
             trainer_phase2.run()
 
             # Verify that the resumed training uses the same wandb run ID
-            resumed_wandb_run_id = None
-            if hasattr(trainer_phase2.state.parallel_backend, "tracker") and trainer_phase2.state.parallel_backend.tracker:
-                resumed_wandb_run_id = trainer_phase2.state.parallel_backend.tracker.get_wandb_run_id()
+            resumed_wandb_run_id = trainer_phase2.state.parallel_backend.tracker.get_wandb_run_id()
 
             self.assertIsNotNone(resumed_wandb_run_id, "Resumed training should have a wandb run ID")
             self.assertEqual(
